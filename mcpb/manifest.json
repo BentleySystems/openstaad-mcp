@@ -1,0 +1,59 @@
+{
+    "manifest_version": "0.4",
+    "name": "openstaad-mcp",
+    "display_name": "OpenSTAAD MCP Server",
+    "version": "1.0.0",
+    "description": "MCP server for Bentley STAAD.Pro via the OpenSTAAD API",
+    "long_description": "Bridges AI agents to a running Bentley STAAD.Pro instance through the OpenSTAAD API. Provides tools to query API documentation, execute validated Python code against the live model, and check connection health. Ships as a self-contained Windows executable — no Python installation required.",
+    "author": {
+        "name": "Bentley Systems Inc."
+    },
+    "server": {
+        "type": "binary",
+        "entry_point": "openstaad-mcp.exe",
+        "mcp_config": {
+            "command": "${__dirname}/openstaad-mcp.exe",
+            "args": []
+        }
+    },
+    "tools": [
+        {
+            "name": "discover_api",
+            "description": "Discover available API guidance and skills. Call this before using other openstaad-mcp tools to understand the API surface and see what skills are available. Then use ``read_skills`` with one or more specific skill names to load full guidance."
+        },
+        {
+            "name": "read_skills",
+            "description": "Read one or more skills by name. Use ``discover_api`` first to list available skills. Each skill provides domain-specific guidance (e.g. analysis, geometry, loads). Pass skill names like ``['staad-analysis']`` or sub-paths like ``['staad-steel-design/assets/DESIGN_CODES']`` to read reference files within a skill."
+        },
+        {
+            "name": "list_instances",
+            "description": "List currently active STAAD instances. Returns instance IDs, model paths, and STAAD versions. Use instance IDs to target specific models in other tools."
+        },
+        {
+            "name": "execute_code",
+            "description": "Execute Python code against the OpenSTAAD API. The sandbox provides a pre-connected 'staad' variable (the OpenSTAAD root object) plus ``json`` and ``math`` modules. Imports and filesystem access are blocked for security. The last expression value or an explicit ``result = ...`` assignment is returned as the result."
+        },
+        {
+            "name": "get_status",
+            "description": "Check the connection to STAAD.Pro. Returns connection state, STAAD version, model path, and analysis status."
+        }
+    ],
+    "tools_generated": false,
+    "keywords": [
+        "staad",
+        "structural",
+        "engineering",
+        "openstaad",
+        "com",
+        "bentley"
+    ],
+    "license": "MIT",
+    "compatibility": {
+        "claude_desktop": ">=0.10.0",
+        "platforms": [
+            "win32"
+        ],
+        "runtimes": {}
+    },
+    "privacy_policies": []
+}
