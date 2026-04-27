@@ -1,6 +1,6 @@
 ﻿---
 name: staad-view
-description: "Use when controlling the STAAD.Pro user interface: camera views, show/hide elements, labels, result diagrams, annotations, screenshots, window management, saved views, display scales, or switching between modeling and post-processing modes. Covers: SetInterfaceMode, ShowIsometric, ShowPlan, ShowFront, ZoomExtentsMainView, ZoomAll, ShowMember, HideMember, ShowAllMembers, SetLabel (node/beam numbers), SetDiagramMode (displacement/moment/shear diagrams), SetDesignResults (utilization ratios), CopyPicture (clipboard), SelectMembersParallelTo, SetSectionView (clipping plane), SaveView, SetWindowPosition. Requires staad-core."
+description: "Use when controlling the STAAD.Pro user interface: camera views, show/hide elements, labels, result diagrams, annotations, screenshots, export to image, window management, saved views, display scales, or switching between modeling and post-processing modes. Covers: SetInterfaceMode, ShowIsometric, ShowPlan, ShowFront, ZoomExtentsMainView, ZoomAll, ShowMember, HideMember, ShowAllMembers, SetLabel (node/beam numbers), SetDiagramMode (displacement/moment/shear diagrams), SetDesignResults (utilization ratios), CopyPicture (clipboard), ExportView (save view as PNG/JPG/BMP/EMF/WMF — path-validated), SelectMembersParallelTo, SetSectionView (clipping plane), SaveView, SetWindowPosition. Requires staad-core."
 ---
 
 # STAAD.Pro View Control
@@ -109,6 +109,34 @@ view.SetSectionView(plane, minVal, maxVal)  # plane: 0=XY, 1=YZ, 2=XZ
 x, y = view.CopyPicture()
 ```
 
+## Export View to File
+
+`ExportView` saves the current view as an image file. It takes a **directory** and a **filename** as separate arguments. The combined path is validated by the sandbox.
+
+```python
+# ExportView(directory, filename, formatCode, flag)
+
+# Export to PNG
+view.ExportView("C:\\exports", "front_view.png", 3, 0)
+
+# Export to JPG
+view.ExportView("C:\\exports", "iso_view.jpg", 2, 0)
+
+# Export to BMP
+view.ExportView("C:\\exports", "plan_view.bmp", 1, 0)
+
+# Export to EMF (vector)
+view.ExportView("C:\\exports", "detail.emf", 4, 0)
+```
+
+**Path rules** (enforced on the combined `directory\filename` — violations raise an error):
+
+- The combined path **must be absolute**
+- The filename **must end with** `.png`, `.jpg`, `.jpeg`, `.bmp`, `.emf`, or `.wmf`
+- UNC paths (`\\\\server\\share\\...`) are **blocked**
+- Paths targeting protected OS directories (`Windows`, `Program Files`, `ProgramData`) are **blocked**
+- Path traversal (`..`) in either directory or filename is **blocked**
+
 ## Window Management
 
 ```python
@@ -161,3 +189,4 @@ view.SetUnits(uType, strUnit)   # e.g. SetUnits(5, "kN")
 - Switch to post-processing mode (`SetInterfaceMode(5)`) before showing result diagrams; always call `staad.ShowApplication()` first
 - Do not try to read back the interface mode after setting it — the value is unreliable; trust that `SetInterfaceMode` applies correctly
 - Selection via `view.SelectByItemList` should be avoided for geometry — use `geo.SelectMultipleBeams` instead
+- `ExportView(directory, filename, ...)` takes a **directory** and **filename** as separate arguments; the combined path must be absolute, end with a supported image extension (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.emf`, `.wmf`), and not target a protected OS directory; UNC paths and `..` traversal are rejected
