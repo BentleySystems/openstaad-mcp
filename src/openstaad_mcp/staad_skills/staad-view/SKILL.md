@@ -68,16 +68,36 @@ view.SelectByMissingAttribute(attributeCode)     # e.g. 4=missing supports
 
 ## Labels
 
+Common `which` values (full table in the Reference section — VIEW_CODES.md):
+
+| which | Label         |
+| ----- | ------------- |
+| 0     | Node number   |
+| 1     | Member number |
+| 4     | Support       |
+| 8     | Load value    |
+
 ```python
-# which: 0=NodeNos, 1=BeamNos, 4=SupportLabels, 8=LoadValues
 view.SetLabel(which, True)   # show
 view.SetLabel(which, False)  # hide
 ```
 
 ## Result Diagrams
 
+Common `which` values (full table in the Reference section — VIEW_CODES.md):
+
+| which | Diagram      |
+| ----- | ------------ |
+| 0     | Load         |
+| 1     | Displacement |
+| 2     | MY           |
+| 3     | MZ           |
+| 4     | FY           |
+| 5     | FZ           |
+| 6     | Axial (AX)   |
+| 7     | Torsion (TR) |
+
 ```python
-# which: 0=Load, 1=Displacement, 3=MZ, 4=FY, 5=FX (axial)
 view.SetDiagramMode(which, show=True, refresh=True)
 ```
 
