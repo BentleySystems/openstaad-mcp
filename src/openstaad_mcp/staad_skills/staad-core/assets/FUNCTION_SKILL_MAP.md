@@ -13,6 +13,10 @@ Load the governing skill via `read_skills(["skill-name"])` before writing any sc
 | `GetBaseUnit` / `GetInputUnitForLength` / `GetInputUnitForForce`            | Unit queries                                                                                                                               |
 | `SetInputUnits` / `SetInputUnitForLength` / `SetInputUnitForForce`          | Unit assignment — see UNIT_CODES.md                                                                                                        |
 | `SaveModel`                                                                 | Save current model — use `SaveModel(True)` after adding geometry before assigning properties/supports/loads — REQUIRE EXPLICIT USER INTENT |
+| `NewSTAADFile`                                                              | Create new model file (`.std` path required, path-validated) — REQUIRE EXPLICIT USER INTENT                                                |
+| `OpenSTAADFile`                                                             | Open existing model file (`.std` path required, path-validated) — REQUIRE EXPLICIT USER INTENT                                             |
+| `SaveAs`                                                                    | Save model to new path (`.std` path required, path-validated) — REQUIRE EXPLICIT USER INTENT                                               |
+| `CloseSTAADFile`                                                            | Close current model — REQUIRE EXPLICIT USER INTENT                                                                                         |
 | `SetSilentMode`                                                             | Suppress UI dialogs before mutating ops                                                                                                    |
 | `UpdateStructure`                                                           | **Avoid** — discards unsaved in-memory geometry; use `SaveModel(True)` instead                                                             |
 | `AnalyzeModel` / `AnalyzeEx`                                                | Run analysis (`AnalyzeEx` preferred — returns status code)                                                                                 |
@@ -188,24 +192,25 @@ Load the governing skill via `read_skills(["skill-name"])` before writing any sc
 
 ## osview → staad-view
 
-| Function                                                                               | Purpose                         |
-| -------------------------------------------------------------------------------------- | ------------------------------- |
-| `CopyPicture`                                                                          | Copy view to clipboard          |
-| `ShowFront` / `ShowBack` / `ShowLeft` / `ShowRight` / `ShowPlan` / `ShowIsometric`     | Standard orientations           |
-| `ShowBottom` / `RotateLeft` / `RotateRight` / `RotateUp` / `RotateDown`                | Rotate/orient                   |
-| `SpinLeft` / `SpinRight`                                                               | Spin                            |
-| `ZoomAll` / `ZoomExtentsMainView`                                                      | Zoom                            |
-| `ShowMember` / `ShowMembers` / `ShowAllMembers`                                        | Show members                    |
-| `HideMember` / `HideMembers` / `HidePlate` / `HideSolid` / `HideAllMembers`            | Hide elements                   |
-| `SaveView` / `OpenView` / `RenameView`                                                 | Saved views                     |
-| `RefreshView`                                                                          | Refresh display                 |
-| `SetInterfaceMode` / `GetInterfaceMode`                                                | Mode (Geometry/Post-processing) |
-| `SetLabel` / `SetDiagramMode` / `SetDesignResults`                                     | Diagram settings                |
-| `SetScaleValueByType` / `GetScaleValueByType` / `GetScaleValues` / `SetScaleValues`    | Scale settings                  |
-| `SetSectionView` / `SetUnits`                                                          | View options                    |
-| `GetWindowCount` / `GetWindowTitle` / `SetActiveWindow` / `CloseActiveWindow`          | Window management               |
-| `SelectByItemList` / `SelectGroup` / `SelectInverse` / `SelectEntitiesConnectedToNode` | View-based selection            |
-| `GetApplicationDesktopSize` / `SetWindowPosition`                                      | Window size/position            |
+| Function                                                                               | Purpose                                                                        |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `CopyPicture`                                                                          | Copy view to clipboard                                                         |
+| `ExportView`                                                                           | Export view as image file (`.png`/`.jpg`/`.bmp`/`.emf`/`.wmf`, path-validated) |
+| `ShowFront` / `ShowBack` / `ShowLeft` / `ShowRight` / `ShowPlan` / `ShowIsometric`     | Standard orientations                                                          |
+| `ShowBottom` / `RotateLeft` / `RotateRight` / `RotateUp` / `RotateDown`                | Rotate/orient                                                                  |
+| `SpinLeft` / `SpinRight`                                                               | Spin                                                                           |
+| `ZoomAll` / `ZoomExtentsMainView`                                                      | Zoom                                                                           |
+| `ShowMember` / `ShowMembers` / `ShowAllMembers`                                        | Show members                                                                   |
+| `HideMember` / `HideMembers` / `HidePlate` / `HideSolid` / `HideAllMembers`            | Hide elements                                                                  |
+| `SaveView` / `OpenView` / `RenameView`                                                 | Saved views                                                                    |
+| `RefreshView`                                                                          | Refresh display                                                                |
+| `SetInterfaceMode` / `GetInterfaceMode`                                                | Mode (Geometry/Post-processing)                                                |
+| `SetLabel` / `SetDiagramMode` / `SetDesignResults`                                     | Diagram settings                                                               |
+| `SetScaleValueByType` / `GetScaleValueByType` / `GetScaleValues` / `SetScaleValues`    | Scale settings                                                                 |
+| `SetSectionView` / `SetUnits`                                                          | View options                                                                   |
+| `GetWindowCount` / `GetWindowTitle` / `SetActiveWindow` / `CloseActiveWindow`          | Window management                                                              |
+| `SelectByItemList` / `SelectGroup` / `SelectInverse` / `SelectEntitiesConnectedToNode` | View-based selection                                                           |
+| `GetApplicationDesktopSize` / `SetWindowPosition`                                      | Window size/position                                                           |
 
 ---
 

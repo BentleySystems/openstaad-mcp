@@ -73,6 +73,37 @@ Always work on the **currently open model**. If the user says "create a model", 
 - Use `staad.GetSTAADFile()` to get the current model path
 - `staad.GetSTAADFileFolder()` returns the folder path
 
+#### Opening, Creating & Saving Files
+
+The following functions are available but **path-validated** by the sandbox:
+
+- `staad.OpenSTAADFile(filePath)` — open an existing STAAD model file
+- `staad.NewSTAADFile(filePath, envCode, unitCode)` — create a new STAAD model file
+- `staad.SaveAs(filePath)` — save the current model to a new file path
+- `staad.CloseSTAADFile()` — close the currently open model
+
+**Path rules** (enforced automatically — violations raise an error):
+
+- The path **must be absolute** (e.g. `"C:\\Users\\me\\models\\bridge.std"`)
+- The file **must end with `.std`**
+- UNC paths (`\\\\server\\share\\...`) are **blocked**
+- Paths targeting protected OS directories (`Windows`, `Program Files`, `ProgramData`) are **blocked**
+- Path traversal (`..`) is **blocked**
+
+```python
+# Open an existing model
+staad.OpenSTAADFile("C:\\Projects\\Bridge\\bridge_v2.std")
+
+# Create a new model (envCode=1 for general, unitCode depends on unit system)
+staad.NewSTAADFile("C:\\Projects\\NewModel\\frame.std", 1, 0)
+
+# Save a copy
+staad.SaveAs("C:\\Projects\\Bridge\\bridge_backup.std")
+
+# Close the current model
+staad.CloseSTAADFile()
+```
+
 ### Application Control
 
 - `staad.ShowApplication()` — show the STAAD.Pro window
