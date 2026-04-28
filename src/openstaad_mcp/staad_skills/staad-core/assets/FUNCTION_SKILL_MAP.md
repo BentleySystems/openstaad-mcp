@@ -7,24 +7,24 @@ Load the governing skill via `read_skills(["skill-name"])` before writing any sc
 
 ## openstaadroot → staad-core
 
-| Function                                                                    | Purpose                                                                           |
-| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `GetSTAADFile` / `GetSTAADFileFolder`                                       | Returns path of open model                                                        |
-| `GetBaseUnit` / `GetInputUnitForLength` / `GetInputUnitForForce`            | Unit queries                                                                      |
-| `SetInputUnits` / `SetInputUnitForLength` / `SetInputUnitForForce`          | Unit assignment — see UNIT_CODES.md                                               |
-| `SaveModel`                                                                 | Save current model — REQUIRE EXPLICIT USER INTENT                                 |
-| `NewSTAADFile`                                                              | Create new model file (`.std` path required, path-validated)                      |
-| `OpenSTAADFile`                                                             | Open existing model file (`.std` path required, path-validated)                   |
-| `SaveAs`                                                                    | Save model to new path (`.std` path required, path-validated)                     |
-| `CloseSTAADFile`                                                            | Close current model                                                               |
-| `SetSilentMode`                                                             | Suppress UI dialogs before mutating ops                                           |
-| `UpdateStructure`                                                           | **Reload from disk** — discards in-memory geometry; use `SaveModel(True)` instead |
-| `AnalyzeModel` / `AnalyzeEx`                                                | Run analysis (`AnalyzeEx` preferred — returns status code)                        |
-| `GetAnalysisStatus` / `IsAnalyzing`                                         | Analysis state queries                                                            |
-| `GetApplicationVersion` / `ShowApplication` / `Quit`                        | Application control                                                               |
-| `IsPhysicalModel`                                                           | Model type query                                                                  |
-| `GetFullJobInfo` / `GetShortJobInfo` / `SetFullJobInfo` / `SetShortJobInfo` | Job metadata                                                                      |
-| `GetMainWindowHandle` / `GetProcessHandle` / `GetProcessId`                 | Process handles                                                                   |
+| Function                                                                    | Purpose                                                                                                                                    |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GetSTAADFile` / `GetSTAADFileFolder`                                       | Returns path of open model                                                                                                                 |
+| `GetBaseUnit` / `GetInputUnitForLength` / `GetInputUnitForForce`            | Unit queries                                                                                                                               |
+| `SetInputUnits` / `SetInputUnitForLength` / `SetInputUnitForForce`          | Unit assignment — see UNIT_CODES.md                                                                                                        |
+| `SaveModel`                                                                 | Save current model — use `SaveModel(True)` after adding geometry before assigning properties/supports/loads — REQUIRE EXPLICIT USER INTENT |
+| `NewSTAADFile`                                                              | Create new model file (`.std` path required, path-validated) — REQUIRE EXPLICIT USER INTENT                                                |
+| `OpenSTAADFile`                                                             | Open existing model file (`.std` path required, path-validated) — REQUIRE EXPLICIT USER INTENT                                             |
+| `SaveAs`                                                                    | Save model to new path (`.std` path required, path-validated) — REQUIRE EXPLICIT USER INTENT                                               |
+| `CloseSTAADFile`                                                            | Close current model — REQUIRE EXPLICIT USER INTENT                                                                                         |
+| `SetSilentMode`                                                             | Suppress UI dialogs before mutating ops                                                                                                    |
+| `UpdateStructure`                                                           | **Avoid** — discards unsaved in-memory geometry; use `SaveModel(True)` instead                                                             |
+| `AnalyzeModel` / `AnalyzeEx`                                                | Run analysis (`AnalyzeEx` preferred — returns status code)                                                                                 |
+| `GetAnalysisStatus` / `IsAnalyzing`                                         | Analysis state queries                                                                                                                     |
+| `GetApplicationVersion` / `ShowApplication` / `Quit`                        | Application control                                                                                                                        |
+| `IsPhysicalModel`                                                           | Model type query                                                                                                                           |
+| `GetFullJobInfo` / `GetShortJobInfo` / `SetFullJobInfo` / `SetShortJobInfo` | Job metadata                                                                                                                               |
+| `GetMainWindowHandle` / `GetProcessHandle` / `GetProcessId`                 | Process handles                                                                                                                            |
 
 ---
 

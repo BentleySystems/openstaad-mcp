@@ -1,4 +1,4 @@
-﻿# run-analysis.py
+﻿﻿# run-analysis.py
 # Runs a linear static analysis on the current model.
 # Two steps: PerformAnalysis (adds the command to the .std file) + AnalyzeEx (runs the solver).
 # AnalyzeEx is the preferred solver function — it returns a status code.
