@@ -22,6 +22,7 @@ from typing import Any
 
 from fastmcp import FastMCP
 from fastmcp.server.lifespan import lifespan
+from mcp.types import ToolAnnotations
 
 from openstaad_mcp.connection import InstanceRegistry, StaadInstance, connect_and_run
 from openstaad_mcp.sandbox.executor import Executor
@@ -56,7 +57,14 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
             raise ValueError(f"{instance!r} is no longer running. Available: {alive}")
         return matches[0]
 
-    @mcp.tool()
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Discover API and skills",
+            readOnlyHint=True,
+            idempotentHint=True,  # Same result for repeated calls
+            openWorldHint=False,  # Only internal data
+        )
+    )
     def discover_api() -> str:
         """Discover available API guidance and skills.
 
@@ -66,7 +74,14 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         """
         return skills_mgr.discover_api()
 
-    @mcp.tool()
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Read OpenSTAAD skills",
+            readOnlyHint=True,
+            idempotentHint=True,  # Same result for repeated calls
+            openWorldHint=False,  # Only internal data
+        )
+    )
     def read_skills(skills: list[str]) -> str:
         """Read one or more skills by name.
 
@@ -79,7 +94,14 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         """
         return skills_mgr.read_skills(skills)
 
-    @mcp.tool()
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="List running STAAD.Pro instances",
+            readOnlyHint=True,
+            idempotentHint=True,  # Same result for repeated calls
+            openWorldHint=False,  # Only internal data
+        )
+    )
     def list_instances() -> list[dict[str, Any]]:
         """List all running STAAD.Pro instances.
 
@@ -92,7 +114,14 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
 
         return [asdict(i) for i in registry.get_active_instances()]
 
-    @mcp.tool()
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Get STAAD.Pro instance status",
+            readOnlyHint=True,
+            idempotentHint=True,  # Same result for repeated calls
+            openWorldHint=False,  # Only internal data
+        )
+    )
     def get_status(instance: str | None = None) -> dict[str, Any]:
         """Check the connection to a STAAD.Pro instance.
 
@@ -131,7 +160,15 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         except Exception as e:
             return {"connected": False, "error": str(e)}
 
-    @mcp.tool()
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Execute Python code",
+            readOnlyHint=False,
+            destructiveHint=True,
+            idempotentHint=False,  # Different result for repeated calls
+            openWorldHint=False,  # Only internal data
+        )
+    )
     def execute_code(code: str, instance: str | None = None) -> dict[str, Any]:
         """Execute Python code against the OpenSTAAD API.
 
