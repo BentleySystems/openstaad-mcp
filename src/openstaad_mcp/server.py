@@ -98,7 +98,7 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         annotations=ToolAnnotations(
             title="List running STAAD.Pro instances",
             readOnlyHint=True,
-            idempotentHint=True,  # Same result for repeated calls
+            idempotentHint=False,
             openWorldHint=False,  # Only internal data
         )
     )
@@ -118,7 +118,7 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         annotations=ToolAnnotations(
             title="Get STAAD.Pro instance status",
             readOnlyHint=True,
-            idempotentHint=True,  # Same result for repeated calls
+            idempotentHint=False,
             openWorldHint=False,  # Only internal data
         )
     )
