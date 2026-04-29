@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "openstaad": {
+      "command": "${workspaceFolder}/atomic-assessments/openstaad-mcp/.venv/Scripts/python",
+      "args": ["-m", "openstaad_mcp.main"],
+      "cwd": "${workspaceFolder}/atomic-assessments/openstaad-mcp"
+    }
+  }
+}

@@ -2,9 +2,9 @@
     "manifest_version": "0.4",
     "name": "openstaad-mcp",
     "display_name": "OpenSTAAD MCP Server",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "description": "MCP server for Bentley STAAD.Pro via the OpenSTAAD API",
-    "long_description": "Bridges AI agents to a running Bentley STAAD.Pro instance through the OpenSTAAD API. Provides tools to query API documentation, execute validated Python code against the live model, and check connection health. Ships as a self-contained Windows executable — no Python installation required.",
+    "long_description": "Bridges AI agents to a running Bentley STAAD.Pro instance through the OpenSTAAD API. Provides tools to query API documentation, execute validated JavaScript code against the live model inside a WebAssembly sandbox, and check connection health. Ships as a self-contained Windows executable — no Python installation required.",
     "author": {
         "name": "Bentley Systems Inc."
     },
@@ -23,7 +23,7 @@
         },
         {
             "name": "read_skills",
-            "description": "Read one or more skills by name. Use ``discover_api`` first to list available skills. Each skill provides domain-specific guidance (e.g. analysis, geometry, loads). Pass skill names like ``['staad-analysis']`` or sub-paths like ``['staad-steel-design/assets/DESIGN_CODES']`` to read reference files within a skill."
+            "description": "Read one or more skills by name. Use ``discover_api`` first to list available skills. Each skill provides domain-specific guidance (e.g. analysis, geometry, loads). Pass skill names like ``['staad-analysis']`` or sub-paths like ``['staad-design/assets/STEEL_CODES']`` to read reference files within a skill."
         },
         {
             "name": "list_instances",
@@ -31,11 +31,15 @@
         },
         {
             "name": "execute_code",
-            "description": "Execute Python code against the OpenSTAAD API. The sandbox provides a pre-connected 'staad' variable (the OpenSTAAD root object) plus ``json`` and ``math`` modules. Imports and filesystem access are blocked for security. The last expression value or an explicit ``result = ...`` assignment is returned as the result."
+            "description": "Execute JavaScript code against the OpenSTAAD API. The sandbox provides a pre-connected 'staad' object (the OpenSTAAD root) plus `console`. Filesystem, network, and module imports are physically unreachable — code runs inside a WebAssembly isolate. The last expression value or an explicit `return <value>` is returned as the result; use console.log / console.error for progress output."
         },
         {
             "name": "get_status",
             "description": "Check the connection to STAAD.Pro. Returns connection state, STAAD version, model path, and analysis status."
+        },
+        {
+            "name": "read_analysis_output",
+            "description": "Read the analysis output file (.ANL) or solver log (.LOG) for the currently open model. Path is derived automatically from the open model. Use this to access concrete, timber, and aluminum design results which are not available through COM."
         }
     ],
     "tools_generated": false,

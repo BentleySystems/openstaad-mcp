@@ -5,4 +5,4 @@ See LICENSE.md in the project root for license terms and full copyright notice.
 ---------------------------------------------------------------------------------------------
 """
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"

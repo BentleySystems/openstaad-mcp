@@ -1,6 +1,6 @@
 # STAAD.Pro Unit Codes Reference
 
-This file contains the complete unit code mappings for `SetInputUnits()`, `SetInputUnitForLength()`, and `SetInputUnitForForce()` methods.
+This file contains the complete unit code mappings for `NewSTAADFile()`, `SetInputUnits()`, `SetInputUnitForLength()`, and `SetInputUnitForForce()` methods.
 
 ## Length Units
 
@@ -32,10 +32,10 @@ This file contains the complete unit code mappings for `SetInputUnits()`, `SetIn
 
 | System      | Length    | Force   | Usage                      |
 | ----------- | --------- | ------- | -------------------------- |
-| Metric SI   | 4 (Meter) | 5 (kN)  | `SetInputUnits(4, 5)` |
-| Metric mm   | 5 (mm)    | 4 (N)   | `SetInputUnits(5, 4)` |
-| Imperial    | 1 (Feet)  | 0 (kip) | `SetInputUnits(1, 0)` |
-| Imperial in | 0 (Inch)  | 1 (lb)  | `SetInputUnits(0, 1)` |
+| Metric SI   | 4 (Meter) | 5 (kN)  | `NewSTAADFile(path, 4, 5)` |
+| Metric mm   | 5 (mm)    | 4 (N)   | `NewSTAADFile(path, 5, 4)` |
+| Imperial    | 1 (Feet)  | 0 (kip) | `NewSTAADFile(path, 1, 0)` |
+| Imperial in | 0 (Inch)  | 1 (lb)  | `NewSTAADFile(path, 0, 1)` |
 
 ## Base Unit System
 

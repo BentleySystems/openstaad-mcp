@@ -1,0 +1,18 @@
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "openstaad-token",
+      "description": "Paste the bearer token from the one-time link in the auth banner",
+      "password": true
+    }
+  ],
+  "servers": {
+    "openstaad": {
+      "url": "http://staad-host:18120/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${input:openstaad-token}"
+      }
+    }
+  }
+}

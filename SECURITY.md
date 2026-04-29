@@ -1,22 +1,9 @@
-# Reporting Security Issues
+# Security
 
-The Bentley team takes security bugs in the openstaad-mcp library seriously. We appreciate your efforts to responsibly disclose your findings and will make every effort to acknowledge your contributions.
+Please do not file security issues as public GitHub issues. 
 
-To report a security issue, email [security@bentley.com](mailto:security@bentley.com?subject=[SECURITY]%20openstaad-mcp), and include the words **SECURITY** and **openstaad-mcp** in the subject line.
+If you think you have found a security issue in `openstaad-mcp`, please report it through Bentley's Responsible Disclosure Program: <https://www.bentley.com/legal/bug-bounty-report/>.
 
-The Bentley team will send back a response indicating the next steps in handling your report. After the initial reply to your report, the security team will keep you informed of the progress towards a fix and full announcement. We may ask for additional information or guidance.
+Using the official program is the fastest way to get an issue in front of the right people. It routes directly to Bentley's security team for triage, it is how we track, prioritise, and fix security reports across all Bentley products, and it is also the only route eligible for a bounty. Reports that land there get actioned faster than anything filed elsewhere.
 
-Report security concerns in third-party modules to the person or team maintaining that module.
-
-## Responsible Disclosure Policy
-
-We ask that:
-
-- You give us reasonable time to investigate and mitigate an issue you report before making public any information about the report or sharing such information with others.
-- You do not interact with an individual account (which includes modifying or accessing data from the account) if the account owner has not consented to such actions.
-- You make a good faith effort to avoid privacy violations and disruptions to others, including (but not limited to) unauthorized access to or destruction of data, and interruption or degradation of our services.
-- You do not exploit a security issue you discover for any reason. (This includes demonstrating additional risk, such as attempted compromise of sensitive company data or probing for additional issues.)
-- You do not intentionally violate any other applicable laws or regulations, including (but not limited to) laws and regulations prohibiting the unauthorized access to data.
-- For the purposes of this policy, you are not authorized to access user data or company data, including (but not limited to) personally identifiable information and data relating to an identified or identifiable natural person.
-
-For more information, please read Bentley's [responsible disclosure](https://www.bentley.com/responsible_disclosure.pdf) guidelines.
+Please include enough detail for us to reproduce the issue (steps, affected version, environment) and give us reasonable time to investigate and fix it.

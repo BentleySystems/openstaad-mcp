@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "openstaad": {
+      "url": "http://staad-host:18120/mcp/",
+      "headers": {
+        "Authorization": "Bearer PASTE_TOKEN_FROM_AUTH_BANNER"
+      }
+    }
+  }
+}

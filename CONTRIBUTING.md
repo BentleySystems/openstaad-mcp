@@ -74,6 +74,23 @@ ruff check --fix .
 ruff format .
 ```
 
+## Building the `.mcpb` installer bundle
+
+The `.mcpb` bundle is what end users install into Claude Desktop. Build it with:
+
+```powershell
+pip install -e ".[build]"
+pyinstaller mcpb/openstaad-mcp.spec --noconfirm
+
+npm install -g @anthropic-ai/mcpb
+New-Item -ItemType Directory -Path mcpb-staging -Force
+Copy-Item -Recurse dist/openstaad-mcp/* mcpb-staging/
+Copy-Item mcpb/manifest.json mcpb-staging/
+mcpb pack mcpb-staging openstaad-mcp.mcpb
+```
+
+The bundle lands at `.\openstaad-mcp.mcpb`. PyInstaller runs in onedir mode (see `mcpb/openstaad-mcp.spec`), which is necessary because `extism_sys.dll` is a Rust-compiled cdylib and does not survive onefile extraction reliably.
+
 ## Reporting Issues
 
 Have you identified a reproducible problem?
@@ -129,6 +146,16 @@ You can read more about [Contributor License Agreements](https://en.wikipedia.or
 All submissions go through a review process.
 We use GitHub pull requests for this purpose.
 Consult [GitHub Help](https://help.github.com/articles/about-pull-requests/) for more information on using pull requests.
+
+### Security-Sensitive Changes
+
+Changes to the sandbox allowlists (`constants.py` — `ALLOWED_SUB_OBJECTS`, `ALLOWED_ROOT_METHODS`, `DENIED_METHODS`) or to the WASM host functions (`wasm_executor.py` — `com_get`, `com_invoke`) **require security review** before merge. The reviewer must verify that:
+
+- New allowlisted methods do not perform file I/O, network access, or process operations (see `docs/plan.md` "Sub-object audit methodology").
+- Deny-list removals have documented justification.
+- Host function changes do not widen the data surface exposed to WASM code.
+
+Tag PRs touching these files with the `security-review` label.
 
 ### Types of Contributions
 

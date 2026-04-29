@@ -9,8 +9,27 @@ MCP server definition — tools, lifespan, and ASGI app factory.
 Exposes MCP tools:
 - ``discover_api``  — lists available skills and usage guidance
 - ``read_skills``   — returns requested skill content
-- ``execute_code``  — runs validated Python against the COM bridge
+- ``execute_code``  — runs agent-authored JavaScript inside the WASM sandbox
 - ``get_status``    — reports connection health
+
+HTTP transport security:
+- Bearer token auth is mandatory in HTTP mode (see ``main.py``); the
+  server auto-generates a token and delivers it via a OneTimeSecret
+  share URL displayed in the terminal auth banner.
+- The listener binds to ``127.0.0.1`` only.
+- ``HostHeaderMiddleware`` (see ``http_security.py``) rejects requests
+  whose ``Host`` header is not in the allowlist. This defeats DNS
+  rebinding: a browser attacking ``http://attacker.com:<port>/mcp``
+  still sends ``Host: attacker.com``, which is rejected with HTTP 421
+  before the bearer-auth layer ever runs. The allowlist defaults to
+  loopback names and can be extended with ``--allowed-host`` (e.g. for
+  tunnel or reverse-proxy hostnames).
+
+Sec-Fetch-Site filtering is intentionally *not* implemented. With
+loopback-only bind, mandatory bearer auth, and the Host-header
+allowlist, an extra fetch-metadata check adds negligible value. The
+three controls we do ship already defeat every known rebinding path
+for this transport.
 """
 
 from __future__ import annotations
@@ -20,20 +39,33 @@ from collections.abc import AsyncIterator
 from dataclasses import asdict
 from typing import Any
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
+from fastmcp.server.context import AcceptedElicitation
 from fastmcp.server.lifespan import lifespan
 
 from openstaad_mcp.connection import InstanceRegistry, StaadInstance, connect_and_run
-from openstaad_mcp.sandbox.executor import Executor
-from openstaad_mcp.skills import SkillsManager
+from openstaad_mcp.sandbox import ALL_DESTRUCTIVE_METHOD_NAMES, WasmExecutor
+from openstaad_mcp.skills import discover_api_impl, read_skills_impl
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_error_message(exc: BaseException) -> str:
+    """Return an error string safe to expose to the MCP client.
+
+    ValueError messages are ours (instance resolution), so they are safe.
+    Everything else (COM errors, connection failures) may contain paths,
+    usernames, or DLL names — return only the exception class name.
+    """
+    if isinstance(exc, ValueError):
+        return str(exc)
+    return f"Internal error: {type(exc).__name__}"
 
 
 # ── Tool registrations ────────────────────────────────────────────
 
 
-def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, skills_mgr: SkillsManager) -> None:
+def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: WasmExecutor) -> None:
     """Register MCP tools on *mcp*, closing over the *InstanceRegistry*."""
 
     def _resolve_target(instance: str | None) -> StaadInstance:
@@ -64,7 +96,7 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         and see what skills are available. Then use ``read_skills`` with one or more
         specific skill names to load full guidance.
         """
-        return skills_mgr.discover_api()
+        return discover_api_impl()
 
     @mcp.tool()
     def read_skills(skills: list[str]) -> str:
@@ -74,10 +106,10 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         Each skill provides domain-specific guidance (e.g. analysis, geometry, loads).
 
         Pass skill names like ``["staad-analysis"]`` or sub-paths like
-        ``["staad-steel-design/assets/DESIGN_CODES"]`` to read reference files
+        ``["staad-design/assets/STEEL_CODES"]`` to read reference files
         within a skill.
         """
-        return skills_mgr.read_skills(skills)
+        return read_skills_impl(skills)
 
     @mcp.tool()
     def list_instances() -> list[dict[str, Any]]:
@@ -129,22 +161,37 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         except TimeoutError:
             return {"connected": False, "error": "Connection timed out"}
         except Exception as e:
-            return {"connected": False, "error": str(e)}
+            logger.debug("get_status failed", exc_info=True)
+            return {"connected": False, "error": _safe_error_message(e)}
 
     @mcp.tool()
-    def execute_code(code: str, instance: str | None = None) -> dict[str, Any]:
-        """Execute Python code against the OpenSTAAD API.
+    async def execute_code(
+        code: str,
+        instance: str | None = None,
+        ctx: Context | None = None,
+    ) -> dict[str, Any]:
+        """Execute JavaScript code against the OpenSTAAD API.
 
-        The sandbox provides a pre-connected ``staad`` variable (the
-        OpenSTAAD root object) plus ``json`` and ``math`` modules.
-        Imports and filesystem access are blocked for security.
+        The sandbox provides a pre-connected ``staad`` object (the
+        OpenSTAAD root). Filesystem, network, and module imports are
+        physically unreachable — user code runs inside a WebAssembly
+        isolate with only ``staad`` and ``console`` exposed. Standard
+        JavaScript built-ins (``JSON``, ``Math``, ``Array``, etc.) are
+        available as usual.
 
-        The last expression value or an explicit ``result = ...``
-        assignment is returned as the result.
+        The last expression value or an explicit ``return <value>`` is
+        returned as the result. Use ``console.log`` / ``console.error``
+        for progress output (captured into ``stdout`` / ``stderr``).
 
         Pass ``instance`` (alias from ``list_instances``, e.g. ``staadPro1``)
-        to target a specific STAAD instance.  Omit it when only one instance
+        to target a specific STAAD instance. Omit it when only one instance
         is running — it will be selected automatically.
+
+        COM methods that write to the filesystem or modify the STAAD
+        session (e.g. ``NewSTAADFile``, ``SaveModel``, ``ExportView``,
+        ``Quit``) are blocked by default. When such methods are detected,
+        the server asks the user for explicit approval via the host's
+        confirmation dialog — this cannot be bypassed by the AI agent.
         """
         try:
             target = _resolve_target(instance)
@@ -158,8 +205,63 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
                 "duration_seconds": 0.0,
             }
 
+        # ── Pre-flight: detect destructive method names in the code ──
+        detected = {m for m in ALL_DESTRUCTIVE_METHOD_NAMES if m in code}
+        allow_destructive = False
+
+        if detected:
+            methods_str = ", ".join(sorted(detected))
+            if ctx is None:
+                return {
+                    "success": False,
+                    "result": None,
+                    "stdout": "",
+                    "stderr": "",
+                    "error": (
+                        f"Code references destructive method(s): {methods_str}. "
+                        f"Cannot proceed without user confirmation (no context "
+                        f"available for elicitation)."
+                    ),
+                    "duration_seconds": 0.0,
+                }
+            try:
+                elicit_result = await ctx.elicit(
+                    f"This code calls method(s) that can modify the filesystem "
+                    f"or STAAD session: {methods_str}.\n\n"
+                    f"Allow this operation?",
+                    response_type=bool,
+                    response_title="Allow destructive operation",
+                )
+                if isinstance(elicit_result, AcceptedElicitation) and elicit_result.data:
+                    allow_destructive = True
+                else:
+                    return {
+                        "success": False,
+                        "result": None,
+                        "stdout": "",
+                        "stderr": "",
+                        "error": f"User declined destructive operation ({methods_str}).",
+                        "duration_seconds": 0.0,
+                    }
+            except Exception as elicit_exc:
+                logger.debug("Elicitation failed", exc_info=True)
+                return {
+                    "success": False,
+                    "result": None,
+                    "stdout": "",
+                    "stderr": "",
+                    "error": (
+                        f"Code references destructive method(s): {methods_str}. "
+                        f"User approval is required but the MCP host does not "
+                        f"support confirmation dialogs ({type(elicit_exc).__name__})."
+                    ),
+                    "duration_seconds": 0.0,
+                }
+
         def _run(staad: Any) -> dict[str, Any]:
-            return exc.execute(code, staad).to_dict()
+            return exc.execute(
+                code, staad, allow_destructive=allow_destructive
+            ).to_dict()
 
         try:
             return connect_and_run(_run, target.file_path)
@@ -173,14 +275,101 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
                 "duration_seconds": 0.0,
             }
         except Exception as e:
+            logger.debug("execute_code failed", exc_info=True)
             return {
                 "success": False,
                 "result": None,
                 "stdout": "",
                 "stderr": "",
-                "error": str(e),
+                "error": _safe_error_message(e),
                 "duration_seconds": 0.0,
             }
+
+    # Maximum size (bytes) returned from read_analysis_output.  .ANL files
+    # can be large for big models; we cap to avoid flooding the LLM context.
+    _MAX_OUTPUT_FILE_BYTES: int = 512 * 1024  # 512 KiB
+
+    @mcp.tool()
+    def read_analysis_output(
+        file_type: str = "anl",
+        instance: str | None = None,
+    ) -> dict[str, Any]:
+        """Read the analysis output file (.ANL) or solver log (.LOG) for the currently open model.
+
+        The file path is derived automatically from the open STAAD model —
+        there is no user-supplied path.  This is the only way to access
+        concrete, timber, and aluminum design results, which are not
+        available through the COM API.
+
+        ``file_type``: ``"anl"`` (default) for the analysis output file,
+        or ``"log"`` for the solver diagnostic log.
+        """
+        ft = file_type.strip().lower()
+        if ft not in ("anl", "log"):
+            return {
+                "success": False,
+                "content": None,
+                "error": f"file_type must be 'anl' or 'log', got {file_type!r}",
+            }
+
+        try:
+            target = _resolve_target(instance)
+        except ValueError as e:
+            return {"success": False, "content": None, "error": str(e)}
+
+        def _read(staad: Any) -> dict[str, Any]:
+            import pathlib
+
+            model_path = staad.GetSTAADFile()
+            if not model_path:
+                return {
+                    "success": False,
+                    "content": None,
+                    "error": "No model file is currently open in STAAD.Pro",
+                }
+
+            output_path = pathlib.Path(model_path).with_suffix(f".{ft.upper()}")
+
+            if not output_path.is_file():
+                return {
+                    "success": False,
+                    "content": None,
+                    "error": (
+                        f"Output file not found: {output_path.name}. "
+                        f"Run analysis first (AnalyzeEx)."
+                    ),
+                }
+
+            try:
+                raw = output_path.read_bytes()
+            except OSError as read_exc:
+                return {
+                    "success": False,
+                    "content": None,
+                    "error": f"Cannot read {output_path.name}: {type(read_exc).__name__}",
+                }
+
+            truncated = len(raw) > _MAX_OUTPUT_FILE_BYTES
+            text = raw[:_MAX_OUTPUT_FILE_BYTES].decode("utf-8", errors="replace")
+
+            result: dict[str, Any] = {
+                "success": True,
+                "file_name": output_path.name,
+                "content": text,
+            }
+            if truncated:
+                result["truncated"] = True
+                result["total_bytes"] = len(raw)
+                result["returned_bytes"] = _MAX_OUTPUT_FILE_BYTES
+            return result
+
+        try:
+            return connect_and_run(_read, target.file_path, timeout=10.0)
+        except TimeoutError:
+            return {"success": False, "content": None, "error": "Connection timed out"}
+        except Exception as e:
+            logger.debug("read_analysis_output failed", exc_info=True)
+            return {"success": False, "content": None, "error": _safe_error_message(e)}
 
 
 def create_mcp_server(fastmcp_kwargs: dict | None = None) -> FastMCP:
@@ -200,11 +389,12 @@ def create_mcp_server(fastmcp_kwargs: dict | None = None) -> FastMCP:
             "OpenSTAAD COM API. Use `discover_api` first to list available skills "
             "and guidance, then call `read_skills` with skill names to load detailed "
             "instructions. Use `list_instances` to see running STAAD instances, "
-            "`execute_code` to run code against a live STAAD.Pro model, and "
-            "`get_status` to check connection."
+            "`execute_code` to run code against a live STAAD.Pro model, "
+            "`read_analysis_output` to read the .ANL or .LOG file for concrete/"
+            "timber/aluminum design results, and `get_status` to check connection."
         ),
         lifespan=mcp_lifespan,
         **fastmcp_kwargs,
     )
-    _register_tools(mcp, registry, Executor(), SkillsManager())
+    _register_tools(mcp, registry, WasmExecutor())
     return mcp

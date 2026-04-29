@@ -1,101 +1,74 @@
 # OpenSTAAD MCP Server
 
-A Model Context Protocol (MCP) server for Bentley [STAAD.Pro](https://www.bentley.com/software/staad/) that **enables AI agents** like Claude Desktop, Gemini, or VSCode Copilot **to interact with your STAAD.Pro models** and perform various time-consuming tasks like load cases definition, data extraction, repetitive property setting and more.
+A Model Context Protocol server that lets AI agents (Claude Desktop, GitHub Copilot, Gemini, and other MCP clients) drive a running [STAAD.Pro](https://www.bentley.com/software/staad/) model. Define loads, extract results, set properties in bulk, generate reports, and anything else the OpenSTAAD API exposes, from a chat.
 
-This MCP server was introduced as part of Bentley's [Infrastructure AI Co-Innovation Initiative](https://www.bentley.com/software/infrastructure-ai-co-innovation-initiative/) to help our users and accounts discover opportunities and innovate faster, while connecting Bentley's unique engineering tool capabilities to their emerging agentic workflows.
+Part of Bentley's [Infrastructure AI Co-Innovation Initiative](https://www.bentley.com/software/infrastructure-ai-co-innovation-initiative/).
 
-## Key Features
+## Key features
 
-- **Fast and flexible**: Enjoy minimal latency, interact with every STAAD.Pro features covered by the OpenSTAAD API.
-- **AI-friendly**: Provides documentation, guidance and feedback via dedicated tools to help your AI agent ramp up quickly on the STAAD.Pro API.
-- **Multi-instance support**: Connects to multiple running STAAD.Pro instances simultaneously to parallelize tasks across models.
-- **Privacy-first**: All processing happens locally on your machine. No data is sent to the cloud. No telemetry.
+- **Full OpenSTAAD coverage.** Every STAAD.Pro feature reachable through the OpenSTAAD API is reachable through the MCP server, with per-skill documentation the agent can read on demand.
+- **Sandboxed execution.** Agent-generated code runs as JavaScript inside a WebAssembly isolate ([Extism](https://extism.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs)) with no filesystem, network, or host memory access. The only way out is a pair of allowlist-gated host functions that expose the STAAD COM API.
+- **Multi-instance and local-only.** Connects to every STAAD.Pro instance you have running so an agent can work across models in parallel. Everything runs on your workstation. No cloud, no telemetry.
 
 ## Prerequisites
 
-- OS: **Windows 11 or newer**
-- [STAAD.Pro](https://www.bentley.com/software/staad/) 2025 or newer installed and running
+- Windows 11 or newer
+- [STAAD.Pro](https://www.bentley.com/software/staad/) 2025 or newer, installed and running
 
-## Quick Start with Claude Desktop (<2min)
+You do not need to have a model file open but you do need to have STAAD running. The server discovers STAAD.Pro via COM ProgID as soon as the application is running, even before you create or open a `.std` file.
 
-1. Download the latest **`openstaad-mcp.mcpb`** file from the [GitHub Releases](https://github.com/BentleySystems/openstaad-mcp/releases) page.
-2. Open **Claude Desktop**.
-3. Click the **☰ menu** (top-left) → **File** → **Settings** → **Extensions**.
-4. Click **Advanced** → **Install Extensions**.
-5. Select the downloaded `.mcpb` file.
-6. Click the **☰ menu** (top-left) → **File** → **Exit**
-7. Restart Claude Desktop.
+## Quick start (Claude Desktop)
 
-Claude Desktop will install the server automatically. Open a new conversation and ask Claude to interact with your STAAD.Pro model.
+1. Download the latest `openstaad-mcp.mcpb` from the [Releases page](https://github.com/BentleySystems/openstaad-mcp/releases).
+2. In Claude Desktop, open the menu and go to **File → Settings → Extensions → Advanced → Install Extensions**.
+3. Select the `.mcpb` file.
+4. Quit and restart Claude Desktop.
 
-**Tip: Make sure STAAD.Pro is running with a model open before you start chatting.**
+Open a new conversation and ask Claude to do something with your STAAD.Pro model. Make sure STAAD.Pro is running before you start.
 
----
+### Example workflow
 
-## Other Clients & Configuration
+Here is a prompt you can try right away, even with a fresh STAAD.Pro launch and no file open:
 
-**TL;DR:**
+> Create a new STAAD model, save it to my Documents folder, add two nodes 10 feet apart along X, and connect them with a beam.
 
-If not already installed, [install uv](https://docs.astral.sh/uv/getting-started/installation/) with the command:
+The agent will call `NewSTAADFile` to create the `.std` file, then add geometry through the sandbox. You can follow up with prompts like:
+
+> Assign a W10X33 section to the beam, pin the left end, fix the right end, add a 1 KIP/ft uniform load, and run analysis.
+
+## Other clients
+
+All non-Claude-Desktop clients share the same pattern: run the server via `uvx`, either spawned by the client (stdio) or as a long-running process they connect to (HTTP).
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) once:
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-Configure your client to start the server in stdio mode with the command:
+The server command is always:
 
 ```powershell
 uvx --from git+https://github.com/BentleySystems/openstaad-mcp openstaad-mcp
 ```
 
-### VS Code with GitHub Copilot
+Add `--transport http` to run in HTTP mode. The server generates a cryptographic bearer token and pushes it to [OneTimeSecret](https://uk.onetimesecret.com), then displays a one-time share URL in a prominent auth banner in the terminal. Ctrl+click the link to reveal the token. If OTS is unreachable, the raw token is printed directly in the banner. The default HTTP URL is `http://127.0.0.1:18120/mcp`.
 
-- For **stdio**: Open the Command Palette → **MCP: Add Server...** → **Command (stdio)** and enter the following command:
-  ```powershell
-  uvx --from git+https://github.com/BentleySystems/openstaad-mcp openstaad-mcp
-  ```
+| Client | stdio setup | HTTP setup |
+|--------|-------------|------------|
+| **VS Code + Copilot** | Command Palette → **MCP: Add Server** → **Command (stdio)** → paste the `uvx` command above | Start the server on the remote machine with `--transport http`, then on your local machine: Command Palette → **MCP: Add Server** → **HTTP URL** → paste the bearer token from the auth banner (via the one-time link) when prompted |
+| **GitHub Copilot CLI** | `/mcp add` in a session, paste the `uvx` command | Start the server, then `/mcp add` with the HTTP URL. See [Copilot CLI docs](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers). |
+| **Claude Code** | `claude mcp add --transport stdio openstaad -- uvx --from git+https://github.com/BentleySystems/openstaad-mcp openstaad-mcp` | `claude mcp add --transport http openstaad http://staad-host:18120/mcp` |
+| **Gemini CLI** | `gemini mcp add openstaad uvx --from git+https://github.com/BentleySystems/openstaad-mcp openstaad-mcp` | `gemini mcp add --transport http openstaad http://staad-host:18120/mcp` |
+| **Claude Desktop (manual)** | Edit `claude_desktop_config.json` (see below) | Not typical; use the `.mcpb` bundle or stdio config. |
 
-- For **http**: First, start the server in a terminal:
-  ```powershell
-  uvx --from git+https://github.com/BentleySystems/openstaad-mcp openstaad-mcp --transport http
-  ```
-  Look for the generated token and URL in the terminal output. It should look like this:
-  ```
-  WARNING: No --token provided. Auto-generated token: abc123def456ghi789jkl012mno345pq
-  INFO:  Starting MCP server 'OpenSTAAD MCP' with transport 'http' (stateless) on http://127.0.0.1:18120/mcp
-  ```
+### Claude Desktop manual config
 
-  Then, in VS Code, open the Command Palette → **MCP: Add Server...** → **HTTP URL** and enter the URL shown in the terminal (e.g. `http://127.0.0.1:18120/mcp`). `18120` is the default port, but yours may differ if you have multiple instances running or if you changed the default. Add the header `Authorization: Bearer <token>` with the token shown in the MCP server terminal.
+If you want to skip the `.mcpb` bundle, edit `claude_desktop_config.json` directly. Location depends on install type:
 
-### GitHub Copilot CLI
-
-Use the `/mcp add` command inside a Copilot CLI session to add the server. See the [Copilot CLI documentation](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers) for more details.
-
-- For **stdio** transport, use the command:
-  ```powershell
-  uvx --from git+https://github.com/BentleySystems/openstaad-mcp openstaad-mcp
-  ```
-
-- For **HTTP** transport, first start the server in a terminal:
-  ```powershell
-  uvx --from git+https://github.com/BentleySystems/openstaad-mcp openstaad-mcp --transport http
-  ```
-  Look for the generated token and URL in the terminal output. It should look like this:
-  ```
-  WARNING: No --token provided. Auto-generated token: abc123def456ghi789jkl012mno345pq
-  INFO:  Starting MCP server 'OpenSTAAD MCP' with transport 'http' (stateless) on http://127.0.0.1:18120/mcp
-  ```
-
-  Then add the server in Copilot CLI using the URL shown in the terminal (e.g. `http://127.0.0.1:18120/mcp`). `18120` is the default port, but yours may differ if you have multiple instances running or if you changed the default. Add the header `Authorization: Bearer <token>` with the token shown in the MCP server terminal.
-
-### Claude Desktop (manual configuration)
-
-If you prefer manual setup over the `.mcpb` bundle, edit the Claude Desktop
-config file directly:
-
-- **Windows (MSIX)**: `%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache\Roaming\Claude\claude_desktop_config.json`
-- **Windows (classic)**: `%APPDATA%\Claude\claude_desktop_config.json`
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows MSIX: `%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache\Roaming\Claude\claude_desktop_config.json`
+- Windows classic: `%APPDATA%\Claude\claude_desktop_config.json`
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 ```jsonc
 {
@@ -108,178 +81,101 @@ config file directly:
 }
 ```
 
-### Claude Code (CLI)
+## CLI options
 
-- For **stdio** transport, use the command:
-  ```powershell
-  claude mcp add --transport stdio openstaad -- uvx --from git+https://github.com/BentleySystems/openstaad-mcp openstaad-mcp
-  ```
+| Flag | Default | Notes |
+|------|---------|-------|
+| `--transport {stdio,http}` | `stdio` | stdio is spawned by the client; HTTP is a long-running server. |
+| `--log-level LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR`. |
+| `--log-file PATH` | OS default | Where log output goes. |
+| `--port PORT` | `18120` | HTTP only. |
+| `--ots-base-url URL` | `https://uk.onetimesecret.com` | HTTP only. OneTimeSecret regional endpoint. |
+| `--allowed-host HOSTNAME` | *(loopback only)* | HTTP only. Repeatable. Adds a hostname to the `Host`-header allowlist. Loopback names (`127.0.0.1`, `localhost`, `::1`, `[::1]`) are always accepted; use this flag to allow tunnel or reverse-proxy hostnames (e.g. `--allowed-host my-tunnel.example.com`). Defeats DNS rebinding. |
 
-- For **HTTP** transport, first start the server in a terminal:
-  ```powershell
-  uvx --from git+https://github.com/BentleySystems/openstaad-mcp openstaad-mcp --transport http
-  ```
-  Look for the generated token and URL in the terminal output. It should look like this:
-  ```
-  WARNING: No --token provided. Auto-generated token: abc123def456ghi789jkl012mno345pq
-  INFO:  Starting MCP server 'OpenSTAAD MCP' with transport 'http' (stateless) on http://127.0.0.1:18120/mcp
-  ```
+## Security model
 
-  Then add the server in Claude Code with the command:
-  ```powershell
-  claude mcp add --transport http openstaad http://127.0.0.1:18120/mcp --header "Authorization: Bearer <your-token>"
-  ```
-  `18120` is the default port, but yours may differ if you have multiple instances running or if you changed the default.
+The server sits on an engineer's workstation next to a live STAAD.Pro process and executes code written by an AI agent. That means two trust boundaries: the agent's code, and (optionally) the HTTP transport. Both are locked down by default.
 
-### Gemini CLI
+### Agent code runs in a WASM sandbox
 
-- For **stdio** transport, use the command:
-  ```powershell
-  gemini mcp add openstaad uvx --from git+https://github.com/BentleySystems/openstaad-mcp openstaad-mcp
-  ```
+The `execute_code` tool runs JavaScript inside a WebAssembly isolate (Extism hosting QuickJS-ng on Wasmtime). In that environment:
 
-- For **HTTP** transport, first start the server in a terminal:
-  ```powershell
-  uvx --from git+https://github.com/BentleySystems/openstaad-mcp openstaad-mcp --transport http
-  ```
-  Look for the generated token and URL in the terminal output. It should look like this:
-  ```
-  WARNING: No --token provided. Auto-generated token: abc123def456ghi789jkl012mno345pq
-  INFO:  Starting MCP server 'OpenSTAAD MCP' with transport 'http' (stateless) on http://127.0.0.1:18120/mcp
-  ```
+- No filesystem access.
+- No network access.
+- No host memory access. WebAssembly linear memory is isolated by the runtime.
+- No ambient runtime. Bare ECMAScript with `console`, `JSON`, `Math`, and the standard language built-ins. No module loader, no `process`, no host APIs.
 
-  Then add the server in Gemini CLI with the command:
-  ```powershell
-  gemini mcp add --transport http --header "Authorization: Bearer <your-token>" openstaad http://127.0.0.1:18120/mcp
-  ```
-  `18120` is the default port, but yours may differ if you have multiple instances running or if you changed the default.
+The only way out of the sandbox is through two allowlist-gated host functions that expose the STAAD COM API. Only nine top-level sub-objects are reachable (`Geometry`, `Property`, `Support`, `Load`, `Command`, `Output`, `Design`, `Table`, `View`), each gated by a per-object method allowlist (deny-by-default). Only a curated set of root methods is callable, and every return value crosses a JSON boundary, so COM pointers and dispatch objects never enter the sandbox.
 
-### Transport Modes
+### Per-call resource limits
 
-The server supports two transport modes:
+A single `execute_code` call is capped at 30 seconds wall-clock, 64 MiB of linear memory, 256 KiB of source code, and 256 KiB of captured `console` output. Exceeding any of these returns a sanitized error. A process-wide limit of 20 concurrent COM worker threads prevents runaway accumulation if calls time out repeatedly.
 
-| Mode | When to use |
-|------|-------------|
-| **stdio** (default) | The MCP client launches the server process directly. Used by Claude Desktop, Claude Code, VS Code Copilot (stdio config). |
-| **HTTP** | The server runs persistently and clients connect over the network. |
+### HTTP transport authentication
 
+HTTP mode is designed for remote access: STAAD.Pro and the MCP server run on one machine, and the user connects from another. At startup the server generates a cryptographic bearer token (`secrets.token_urlsafe(32)`) in memory and pushes it to [OneTimeSecret](https://uk.onetimesecret.com) via their v2 guest API. Only the resulting one-time share URL is displayed in the terminal — the token itself never appears on the command line, in logs, in config files, or on the network. The MCP server never transmits or stores the secret; OTS holds it, and the user retrieves it directly from OTS by Ctrl+clicking the link. This means zero secret handling in the MCP transport layer.
 
-### CLI Options
+A rich auth banner (yellow-bordered panel, same library FastMCP uses) is printed to the terminal showing the one-time share URL, the server URL, and a ready-to-paste `mcp.json` snippet. If OTS is unreachable, the raw token is printed directly in the banner as a fallback.
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--transport {stdio,http}` | `stdio` | Transport mode |
-| `--log-level LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
-| `--log-file PATH` | OS default | Path to log file |
-| `--port PORT` | `18120` | **[http]** TCP port to listen on |
-| `--token TOKEN` | - | **[http]** Bearer token for authentication |
+Clients must send `Authorization: Bearer <token>` on every request. The listener binds to `127.0.0.1` by default and rejects any request whose `Host` header is not in the allowlist (loopback names by default; extend with `--allowed-host` for tunnel or reverse-proxy deployments). The `Host`-header check runs before bearer-auth, so DNS-rebinding attacks fail at the first gate without ever reaching the token layer.
 
----
+Stdio transport does not use tokens because the MCP client is the one spawning the server process.
 
-## Security Notes
+### What this does not try to solve
 
-- **Bearer token authentication.** Pass `--token MY_SECRET_TOKEN` when running in HTTP mode and include `Authorization: Bearer <token>` in client requests.
-- **DNS rebinding protection.** Starlette Middlewares validate `Host`, `Sec-Fetch-Site` and `Origin` headers.
-- **Code sandbox.** The `execute_code` tool validates all Python code via
-  AST analysis before execution. Imports, file access, and dangerous
-  builtins are blocked.
+- **Prompt injection via model content.** Member names, load descriptions, and notes flow back to the agent as tool output. If an attacker can put instructions into a model, a naive agent may follow them. That is an agent policy problem, not a server problem.
 
-## Available MCP Tools
+### Consent gate for destructive operations
 
-| Tool | Description |
-|------|-------------|
-| `discover_api` | Lists available API skills and usage guidance |
-| `read_skills` | Returns detailed guidance for requested skills |
-| `list_instances` | Lists active STAAD.Pro instances with model paths and versions |
-| `execute_code` | Runs validated Python code against the connected STAAD.Pro model |
-| `get_status` | Returns connection state, STAAD version, model path, analysis status |
+Filesystem-write and session-destructive COM methods (`SaveModel`, `NewSTAADFile`, `ExportView`, `Quit`, etc.) are **blocked by default** inside the sandbox. When `execute_code` detects such methods in submitted code, the server triggers **MCP elicitation** — a host-mediated confirmation dialog that the user must approve before the code can run with write permissions. The LLM cannot self-confirm this gate; it is a dialog between the MCP server and the host application (Claude Desktop, VS Code), presented directly to the human. UNC paths (e.g. `\\server\share\...`) are always rejected regardless of consent, to prevent NTLM credential relay.
 
----
+For the full security audit (14 findings, April 2026) and implementation details, see [`docs/v2-changes-summary.md`](docs/v2-changes-summary.md), [`docs/plan.md`](docs/plan.md), and the individual finding reports in [`code-review/`](code-review/).
 
-## Development Setup
+## Available tools
 
-### 1. Clone the repository
+| Tool | What it does |
+|------|--------------|
+| `discover_api` | Lists available API skills and usage guidance. |
+| `read_skills` | Returns detailed guidance for requested skills. |
+| `list_instances` | Lists active STAAD.Pro instances with model paths and versions. |
+| `execute_code` | Runs agent-generated JavaScript against the connected STAAD.Pro model inside the WebAssembly sandbox. |
+| `get_status` | Returns connection state, STAAD version, model path, and analysis status. |
+| `read_analysis_output` | Reads the `.ANL` or `.LOG` file for the open model. The only way to access concrete, timber, and aluminum design results (not available via COM). |
+
+## Development
 
 ```powershell
 git clone https://github.com/BentleySystems/openstaad-mcp.git
 cd openstaad-mcp
-```
-
-### 2. Create a virtual environment
-
-```powershell
 python -m venv .venv
-
-# Windows (PowerShell)
 .\.venv\Scripts\Activate.ps1
-
-# Windows (cmd)
-.venv\Scripts\activate.bat
-```
-
-### 3. Install in editable mode with dev dependencies
-
-```powershell
 pip install -e ".[dev]"
-```
 
-### 4. Run the server from source
+# Run from source
+openstaad-mcp                     # stdio
+openstaad-mcp --transport http    # HTTP
 
-```powershell
-# stdio mode (default)
-openstaad-mcp
+# Tests
+pytest                            # unit + sandbox tests, no STAAD needed
+pytest -m integration -v          # requires running STAAD.Pro on Windows
 
-# HTTP mode
-openstaad-mcp --transport http
-```
-
-### 5. Run tests
-
-```powershell
-# All unit tests (no STAAD.Pro needed)
-pytest
-
-# Specific test files
-pytest tests/test_skills.py tests/test_connection.py -v
-
-# Integration tests (requires a running STAAD.Pro instance on Windows)
-pytest -m integration -v
-```
-
-### 6. Lint
-
-```powershell
+# Lint
 ruff check .
 ruff format --check .
 ```
 
-### 7. Building the MCPB Bundler
+Building the `.mcpb` installer bundle and other contributor workflows are covered in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-1. To produce the standalone `.exe` files distributed via the installer:
+## Known security issues
 
-  ```powershell
-  pip install -e ".[build]"
-  pyinstaller mcpb/openstaad-mcp.spec --noconfirm
-  ```
+**QuickJS-NG CVEs in bundled WASM engine.** The sandbox uses extism-js v1.6.0, which bundles QuickJS-NG ~v0.11.0 via rquickjs 0.11. Five CVEs affect this version range (heap overflow, UAF, OOB). There is no newer extism-js release to upgrade to yet.
 
-  This creates one file in the `dist/` directory:
+Why this is lower-risk than it sounds: QuickJS-NG runs inside the WASM isolate. Memory corruption stays within WASM linear memory and Wasmtime enforces the boundary at the hardware level. The host functions on the Python side validate all inputs through JSON parsing and handle-table lookups, so corrupted WASM state cannot forge valid COM calls. An attacker would need to chain four steps: trigger a QJS bug, get arbitrary WASM memory access, craft valid JSON that passes the host-side allowlist, and invoke a dangerous COM method. The last two steps are already blocked by the root allowlist and deny list. We are tracking upstream for a new extism-js release that bumps rquickjs past 0.11.
 
-  - `openstaad-mcp.exe`: console executable (stdio & http transport)
+## Reporting security issues
 
-2. To create the `.mcpb` installer bundle, run:
-
-  ```powershell
-  npm install -g @anthropic-ai/mcpb
-  New-Item -ItemType Directory -Path mcpb-staging -Force
-  Copy-Item dist/openstaad-mcp.exe mcpb-staging/
-  Copy-Item mcpb/manifest.json mcpb-staging/
-  mcpb pack mcpb-staging/ openstaad-mcp.mcpb
-  ```
-
-The output MCPB bundle is written to `.\openstaad-mcp.mcpb`.
+Please do not file public GitHub issues for security vulnerabilities. Report them through Bentley's [Responsible Disclosure Program](https://www.bentley.com/legal/bug-bounty-report/). See [SECURITY.md](SECURITY.md) for a short summary.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on setting up your
-development environment, branch naming, running tests, and submitting pull
-requests.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming, PR process, and packaging instructions.

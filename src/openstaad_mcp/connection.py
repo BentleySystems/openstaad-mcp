@@ -16,7 +16,7 @@ Public API
     Lightweight PID-to-alias map.  Assigns stable, monotonic aliases
     (``staadPro1``, ``staadPro2``, …) to STAAD.Pro processes.  Aliases are
     never reused within a server session.  Call ``get_active_instances()``
-    to enumerate running instances via the Windows ROT.
+    to discover running instances (COM ProgID first, ROT scan fallback).
 
 ``connect_and_run(fn, file_path, timeout) -> Any``
     Spin a short-lived STA thread, call
@@ -37,19 +37,27 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of concurrent (or abandoned) COM worker threads.  Each
+# connect_and_run call spins a daemon thread; if it times out the thread is
+# abandoned (COM calls cannot be safely interrupted).  The semaphore ensures
+# abandoned threads don't accumulate without bound.  20 is generous for any
+# real workflow (typically 1-2 concurrent calls) but still caps a runaway.
+MAX_COM_THREADS = 20
+_com_thread_semaphore = threading.Semaphore(MAX_COM_THREADS)
+
 if sys.platform == "win32":
     import pythoncom  # type: ignore[import-untyped]
     import win32com.client  # type: ignore[import-untyped]
 
 
 # ---------------------------------------------------------------------------
-# StaadInstance — typed result from ROT scan
+# StaadInstance — typed result from instance discovery
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class StaadInstance:
-    """A running STAAD.Pro instance discovered via the Windows ROT."""
+    """A running STAAD.Pro instance discovered via COM ProgID or ROT scan."""
 
     alias: str
     pid: int
@@ -91,63 +99,39 @@ class InstanceRegistry:
             return None
 
     # ------------------------------------------------------------------
-    # ROT scanner
+    # Instance discovery (ProgID first, ROT fallback)
     # ------------------------------------------------------------------
 
     def get_active_instances(self) -> list[StaadInstance]:
-        """Return all running STAAD.Pro instances visible in the Windows ROT.
+        """Return all running STAAD.Pro instances.
 
-        File paths are read directly from the FileMoniker display name —
-        never cached, so model switches within an instance are always
-        reflected.
+        Discovery order (most reliable first):
 
-        Returns ``[]`` on non-Windows platforms.
+        1. **COM ProgID** — ``GetActiveObject("StaadPro.OpenSTAAD")`` finds
+           any running STAAD.Pro, even if no ``.std`` file is saved yet.
+        2. **ROT scan** — enumerates ``.std`` file monikers in the Windows
+           Running Object Table.  May discover additional instances that
+           the ProgID shortcut misses (e.g. secondary instances).
+
+        Results are deduplicated by PID so each physical process appears
+        only once.  Returns ``[]`` on non-Windows platforms.
         """
         if sys.platform != "win32":
             return []
 
         result: list[StaadInstance] = []
+        seen_pids: set[int] = set()
         error: list[Exception] = []
 
         def _scan() -> None:
             try:
                 pythoncom.CoInitialize()
                 try:
-                    rot = pythoncom.GetRunningObjectTable()
-                    enum = rot.EnumRunning()
-                    while True:
-                        monikers = enum.Next(1)
-                        if not monikers:
-                            break
-                        moniker = monikers[0]  # type: ignore[index]
-                        try:
-                            ctx = pythoncom.CreateBindCtx(0)  # type: ignore[call-arg]
-                            display_name: str = moniker.GetDisplayName(ctx, None)
-                        except Exception:
-                            logger.debug("Failed to read moniker display name", exc_info=True)
-                            continue
+                    # --- Strategy 1: COM ProgID (most reliable) --------
+                    self._discover_via_progid(result, seen_pids)
 
-                        if not display_name.lower().endswith(".std"):
-                            continue
-
-                        try:
-                            obj = moniker.BindToObject(ctx, None, pythoncom.IID_IDispatch)
-                            staad = win32com.client.Dispatch(obj)
-                            pid: int = staad.GetProcessId
-                            version: str = staad.GetApplicationVersion
-                        except Exception:
-                            logger.debug("Failed to bind to STAAD object: %s", display_name, exc_info=True)
-                            continue
-
-                        alias = self.assign_alias(pid)
-                        result.append(
-                            StaadInstance(
-                                alias=alias,
-                                pid=pid,
-                                file_path=display_name,
-                                version=version,
-                            )
-                        )
+                    # --- Strategy 2: ROT file-moniker scan -------------
+                    self._discover_via_rot(result, seen_pids)
                 finally:
                     pythoncom.CoUninitialize()
             except Exception as exc:
@@ -158,11 +142,108 @@ class InstanceRegistry:
         t.join(timeout=30.0)
 
         if t.is_alive():
-            logger.warning("ROT scan timed out after 30s")
+            logger.warning("Instance discovery timed out after 30s")
 
         if error:
             raise error[0]
         return result
+
+    # ------------------------------------------------------------------
+    # Strategy 1: COM ProgID
+    # ------------------------------------------------------------------
+
+    def _discover_via_progid(
+        self,
+        result: list[StaadInstance],
+        seen_pids: set[int],
+    ) -> None:
+        """Try ``GetActiveObject("StaadPro.OpenSTAAD")``.
+
+        This is the fastest and most reliable path — it works even when
+        the user has just launched STAAD.Pro without saving a file yet.
+        It only returns one instance (the most recently activated one).
+        """
+        try:
+            staad = win32com.client.GetActiveObject("StaadPro.OpenSTAAD")
+            pid: int = staad.GetProcessId
+            version: str = staad.GetApplicationVersion
+            try:
+                file_path: str = staad.GetSTAADFile() or ""
+            except Exception:
+                file_path = ""
+
+            seen_pids.add(pid)
+            alias = self.assign_alias(pid)
+            result.append(
+                StaadInstance(
+                    alias=alias,
+                    pid=pid,
+                    file_path=file_path,
+                    version=version,
+                )
+            )
+            logger.debug("ProgID discovery found PID %d (%s)", pid, file_path or "<unsaved>")
+        except Exception:
+            logger.debug("ProgID discovery did not find a STAAD instance", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # Strategy 2: ROT file-moniker scan
+    # ------------------------------------------------------------------
+
+    def _discover_via_rot(
+        self,
+        result: list[StaadInstance],
+        seen_pids: set[int],
+    ) -> None:
+        """Scan the Windows Running Object Table for ``.std`` file monikers.
+
+        This may find additional instances not returned by the ProgID
+        shortcut (e.g. a second STAAD.Pro process).  Instances already
+        discovered (by PID) are skipped.
+        """
+        try:
+            rot = pythoncom.GetRunningObjectTable()
+            enum = rot.EnumRunning()
+            while True:
+                monikers = enum.Next(1)
+                if not monikers:
+                    break
+                moniker = monikers[0]  # type: ignore[index]
+                try:
+                    ctx = pythoncom.CreateBindCtx(0)  # type: ignore[call-arg]
+                    display_name: str = moniker.GetDisplayName(ctx, None)
+                except Exception:
+                    logger.debug("Failed to read moniker display name", exc_info=True)
+                    continue
+
+                if not display_name.lower().endswith(".std"):
+                    continue
+
+                try:
+                    obj = moniker.BindToObject(ctx, None, pythoncom.IID_IDispatch)
+                    staad = win32com.client.Dispatch(obj)
+                    pid: int = staad.GetProcessId
+                    version: str = staad.GetApplicationVersion
+                except Exception:
+                    logger.debug("Failed to bind to STAAD object: %s", display_name, exc_info=True)
+                    continue
+
+                if pid in seen_pids:
+                    logger.debug("ROT: skipping PID %d (already discovered)", pid)
+                    continue
+
+                seen_pids.add(pid)
+                alias = self.assign_alias(pid)
+                result.append(
+                    StaadInstance(
+                        alias=alias,
+                        pid=pid,
+                        file_path=display_name,
+                        version=version,
+                    )
+                )
+        except Exception:
+            logger.debug("ROT scan failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -182,10 +263,21 @@ def connect_and_run(
     stores the result.  The calling thread blocks until the result is ready
     or *timeout* seconds have elapsed.
 
+    A process-wide semaphore (``MAX_COM_THREADS``) limits the number of
+    concurrent or abandoned worker threads.  If the limit is reached, the
+    call fails fast rather than leaking another thread.
+
     Raises ``TimeoutError`` on timeout (the daemon thread is abandoned;
-    COM calls cannot be safely interrupted).  Raises any exception thrown
+    COM calls cannot be safely interrupted).  Raises ``RuntimeError`` if
+    too many threads are already active.  Raises any exception thrown
     by ``fn``.
     """
+    if not _com_thread_semaphore.acquire(timeout=0):
+        raise RuntimeError(
+            f"Too many concurrent COM calls ({MAX_COM_THREADS} threads active or abandoned). "
+            "This usually means previous calls timed out and their threads are still running."
+        )
+
     result_box: list[Any] = [None]
     done = threading.Event()
 
@@ -203,11 +295,17 @@ def connect_and_run(
             result_box[0] = exc
         finally:
             done.set()
+            # Release the semaphore slot only when the thread actually finishes,
+            # including CoUninitialize.  If the thread was abandoned (timeout),
+            # the slot stays consumed until it eventually completes.
+            _com_thread_semaphore.release()
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
 
     if not done.wait(timeout=timeout):
+        # Don't release the semaphore here — the thread is still running.
+        # The slot stays consumed until _worker finishes on its own.
         raise TimeoutError(f"COM call did not complete within {timeout}s")
 
     value = result_box[0]

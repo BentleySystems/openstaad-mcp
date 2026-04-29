@@ -1,24 +1,24 @@
-﻿---
+---
 name: staad-geometry
-description: 'Use when creating, querying, modifying, or selecting structure geometry: nodes, beams, plates, solids, groups. Covers: AddNode, AddBeam, AddPlate (4 int args not a list), AddSolid, AddMultipleNodes/Beams/Plates, CreateNode/CreateBeam with explicit IDs, shared element ID sequence (beams+plates+solids share one counter — never assume IDs start at 1), GetBeamList, GetNodeList, GetPlateList, GetNodeCoordinates, GetMemberIncidence, SelectBeam, SelectMultipleBeams, ClearMemberSelection, groups (CreateGroupEx, UpdateGroup), SplitBeam, MergeBeams, IntersectBeams, DeleteBeam/Node/Plate, translational repeat, parametric surfaces, physical members. Requires staad-core.'
+description: 'Use when creating, querying, modifying, or selecting structure geometry: nodes, beams, plates, solids, groups. Covers: AddNode, AddBeam, AddPlate (4 int args not an array), AddSolid, AddMultipleNodes/Beams/Plates, CreateNode/CreateBeam with explicit IDs, shared element ID sequence (beams+plates+solids share one counter — never assume IDs start at 1), GetBeamList, GetNodeList, GetPlateList, GetNodeCoordinates, GetMemberIncidence, SelectBeam, SelectMultipleBeams, ClearMemberSelection, groups (CreateGroupEx, UpdateGroup), SplitBeam, MergeBeams, IntersectBeams, DeleteBeam/Node/Plate, translational repeat, parametric surfaces, physical members. Requires staad-core.'
 ---
 
 # STAAD.Pro Geometry Modeling
 
 ## Instructions
 
-- Define the shorthand once per script: `geo = staad.Geometry`
+- Define the shorthand once per script: `const geo = staad.Geometry;`
 
 ### Creating Elements
 - `geo.AddNode(x, y, z)` → node ID (coordinates in base unit)
 - `geo.AddBeam(startNode, endNode)` → beam ID
-- `geo.AddPlate(n1, n2, n3, n4)` → plate ID — pass **4 separate int args**, NOT a list
+- `geo.AddPlate(n1, n2, n3, n4)` → plate ID — pass **4 separate int args**, NOT an array
 - `geo.AddSolid(n1, n2, n3, n4, n5, n6, n7, n8)` → solid ID
 
 ### Bulk Creation (more efficient than loops)
-- `geo.AddMultipleNodes([[x,y,z], ...])` → list of node IDs
-- `geo.AddMultipleBeams([[start,end], ...])` → list of beam IDs
-- `geo.AddMultiplePlates([[n1,n2,n3,n4], ...])` → list of plate IDs
+- `geo.AddMultipleNodes([[x,y,z], ...])` → array of node IDs
+- `geo.AddMultipleBeams([[start,end], ...])` → array of beam IDs
+- `geo.AddMultiplePlates([[n1,n2,n3,n4], ...])` → array of plate IDs
 
 ### Explicit ID Creation
 - `geo.CreateNode(nodeNo, x, y, z)` — creates node with a specific ID
@@ -40,20 +40,20 @@ description: 'Use when creating, querying, modifying, or selecting structure geo
 | `GetMemberCount()` | `int` | total beams |
 | `GetPlateCount()` | `int` | total plates |
 | `GetSolidCount()` | `int` | total solids |
-| `GetNodeList()` | `list` | all node IDs |
-| `GetBeamList()` | `list` | all beam IDs |
-| `GetPlateList()` | `list` | all plate IDs |
-| `GetSolidList()` | `list` | all solid IDs |
+| `GetNodeList()` | `array` | all node IDs |
+| `GetBeamList()` | `array` | all beam IDs |
+| `GetPlateList()` | `array` | all plate IDs |
+| `GetSolidList()` | `array` | all solid IDs |
 | `GetLastNodeNo()` | `int` | highest node ID |
 | `GetLastBeamNo()` | `int` | highest beam ID |
-| `GetNodeCoordinates(nid)` | `(x,y,z)` | |
-| `GetMemberIncidence(bid)` | `(start,end)` | start/end node IDs |
-| `GetPlateIncidence(pid)` | `(n1,n2,n3,n4)` | 0 if triangle |
+| `GetNodeCoordinates(nid)` | `[x,y,z]` | |
+| `GetMemberIncidence(bid)` | `[start,end]` | start/end node IDs |
+| `GetPlateIncidence(pid)` | `[n1,n2,n3,n4]` | 0 if triangle |
 | `GetBeamLength(bid)` | `float` | in base units |
 | `GetNodeDistance(nA, nB)` | `float` | distance between two nodes |
-| `IsColumn(bid, tol)` | `bool` | True if near-vertical (tol in degrees) |
-| `IsBeam(bid, tol)` | `bool` | True if near-horizontal |
-| `IsOrphanNode(nid)` | `bool` | True if not connected |
+| `IsColumn(bid, tol)` | `bool` | true if near-vertical (tol in degrees) |
+| `IsBeam(bid, tol)` | `bool` | true if near-horizontal |
+| `IsOrphanNode(nid)` | `bool` | true if not connected |
 
 ### Modifying Elements
 - `geo.SetNodeCoordinate(nodeNo, x, y, z)` — move a node
@@ -96,28 +96,31 @@ Group types: 1=Nodes, 2=Members, 3=Plates, 4=Solids, 5=Geometry, 6=FloorBeam
 
 ### Translational Repeat
 Duplicate selected geometry along an axis:
-```python
+```javascript
 geo.DoTranslationalRepeat(
-    link_bays=True, open_base=False,
-    axis_dir=0,  # 0=GX, 1=GY, 2=GZ
-    spacing_list=[5.0, 5.0], no_of_bays=2,
-    renumber_bays=False, renumber_list=[],
-    geometry_only_flag=False
-)
+    true,         // link_bays
+    false,        // open_base
+    0,            // axis_dir: 0=GX, 1=GY, 2=GZ
+    [5.0, 5.0],   // spacing_list
+    2,            // no_of_bays
+    false,        // renumber_bays
+    [],           // renumber_list
+    false         // geometry_only_flag
+);
 ```
 
 ### Parametric Surfaces (Mesh Generation)
-```python
-surf_id = geo.DefineParametricSurface(name, type, origin_Node, x_vertex_node, y_vertex_node, vertices_list, auto_generate)
-geo.AddParametricSurfaceToModel(surf_id)
-geo.CommitParametricSurfaceMesh(surf_id)
+```javascript
+const surfId = geo.DefineParametricSurface(name, type, originNode, xVertexNode, yVertexNode, verticesList, autoGenerate);
+geo.AddParametricSurfaceToModel(surfId);
+geo.CommitParametricSurfaceMesh(surfId);
 ```
 Types: 1=Wall, 2=Slab
 
 ### Physical Members
-```python
-geo.CreatePhysicalMember(memberList)
-pm_count = geo.GetPhysicalMemberCount()
+```javascript
+geo.CreatePhysicalMember(memberList);
+const pmCount = geo.GetPhysicalMemberCount();
 ```
 
 ### Unique IDs (External Reference Strings)
@@ -126,12 +129,13 @@ pm_count = geo.GetPhysicalMemberCount()
 - `geo.SetPlateUniqueID(plateNo, uniqueID)` / `geo.GetPlateUniqueID(plateNo)`
 
 ## Examples
-- [portal-frame.py](./scripts/portal-frame.py) — create a simple portal frame with supports
-- [add-beam.py](./scripts/add-beam.py) — add a single beam between two new nodes
-- [select-members.py](./scripts/select-members.py) — select single and multiple beams
+- [portal-frame.js](./scripts/portal-frame.js) — create a simple portal frame with supports
+- [add-beam.js](./scripts/add-beam.js) — add a single beam between two new nodes
+- [select-members.js](./scripts/select-members.js) — select single and multiple beams
 
 ## Gotchas
-- `AddPlate` takes 4 separate int arguments, NOT a list — `geo.AddPlate(n1, n2, n3, n4)` not `geo.AddPlate([n1,n2,n3,n4])`
-- After adding geometry in the same script, call `staad.SetSilentMode(True)` → `staad.SaveModel(True)` → `staad.SetSilentMode(False)` before assigning properties, supports, or loads — do NOT use `UpdateStructure()` (it discards unsaved in-memory geometry)
+- `AddPlate` takes 4 separate int arguments, NOT an array — `geo.AddPlate(n1, n2, n3, n4)` not `geo.AddPlate([n1,n2,n3,n4])`
+- After adding geometry in the same script, call `staad.SetSilentMode(true)` → `staad.SaveModel(true)` → `staad.SetSilentMode(false)` before assigning properties, supports, or loads — do NOT use `UpdateStructure()` (it discards unsaved in-memory geometry)
 - Always use `geo` (OSGeometry) for selections — do NOT use `OSView.SelectByItemList`
 - Beams, plates, and solids share one ID counter — never assume IDs start at 1 per type
+- COM list returns arrive as native JS arrays — use them directly
