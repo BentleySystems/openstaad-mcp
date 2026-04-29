@@ -31,6 +31,7 @@ jobs:
           New-Item -ItemType Directory -Path mcpb-staging -Force
           Copy-Item dist/openstaad-mcp.exe mcpb-staging/
           Copy-Item mcpb/manifest.json mcpb-staging/
+          Copy-Item -Path assets -Destination mcpb-staging/ -Recurse
           mcpb pack mcpb-staging/ openstaad-mcp.mcpb
 
       - name: Upload MCPB artifact
