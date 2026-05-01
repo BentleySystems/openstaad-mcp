@@ -6,6 +6,7 @@ labels: bug
 assignees: ''
 
 ---
+- [ ] I have searched [the existing bug reports](https://github.com/BentleySystems/openstaad-mcp/issues?q=is%3Aissue%20state%3Aopen%20label%3Abug) and believe **this is not a duplicate**.
 
 **Describe the bug**
 A clear and concise description of what the bug is.
