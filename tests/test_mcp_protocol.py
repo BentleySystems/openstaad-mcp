@@ -42,38 +42,38 @@ class TestMCPProtocol:
         async with Client(SERVER_URL) as client:
             tools = await client.list_tools()
             tool_names = {t.name for t in tools}
-            assert "describe_api" in tool_names
-            assert "execute_code" in tool_names
-            assert "get_status" in tool_names
+            assert "openstaad_discover_api" in tool_names
+            assert "openstaad_execute_code" in tool_names
+            assert "openstaad_get_status" in tool_names
 
     @pytest.mark.asyncio
     async def test_get_status(self):
         async with Client(SERVER_URL) as client:
-            result = await client.call_tool("get_status", {})
+            result = await client.call_tool("openstaad_get_status", {})
             # Should return structured content with connection info
             assert result is not None
 
     @pytest.mark.asyncio
     async def test_describe_api_overview(self):
         async with Client(SERVER_URL) as client:
-            result = await client.call_tool("describe_api", {})
+            result = await client.call_tool("openstaad_discover_api", {})
             assert result is not None
 
     @pytest.mark.asyncio
     async def test_describe_api_module(self):
         async with Client(SERVER_URL) as client:
-            result = await client.call_tool("describe_api", {"module": "geometry"})
+            result = await client.call_tool("openstaad_discover_api", {"module": "geometry"})
             assert result is not None
 
     @pytest.mark.asyncio
     async def test_execute_code_simple(self):
         async with Client(SERVER_URL) as client:
-            result = await client.call_tool("execute_code", {"code": "result = 1 + 2"})
+            result = await client.call_tool("openstaad_execute_code", {"code": "result = 1 + 2"})
             assert result is not None
 
     @pytest.mark.asyncio
     async def test_execute_code_blocked(self):
         async with Client(SERVER_URL) as client:
-            result = await client.call_tool("execute_code", {"code": "import os"})
+            result = await client.call_tool("openstaad_execute_code", {"code": "import os"})
             # Should return an error, not crash
             assert result is not None

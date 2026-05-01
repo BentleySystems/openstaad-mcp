@@ -7,10 +7,11 @@ See LICENSE.md in the project root for license terms and full copyright notice.
 MCP server definition — tools, lifespan, and ASGI app factory.
 
 Exposes MCP tools:
-- ``discover_api``  — lists available skills and usage guidance
-- ``read_skills``   — returns requested skill content
-- ``execute_code``  — runs validated Python against the COM bridge
-- ``get_status``    — reports connection health
+- ``openstaad_discover_api``  — lists available skills and usage guidance
+- ``openstaad_read_skills``   — returns requested skill content
+- ``openstaad_list_instances`` — lists running STAAD.Pro instances
+- ``openstaad_get_status``    — reports connection health
+- ``openstaad_execute_code``  — runs validated Python against the COM bridge
 """
 
 from __future__ import annotations
@@ -65,12 +66,12 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
             openWorldHint=False,  # Only internal data
         )
     )
-    def discover_api() -> str:
+    def openstaad_discover_api() -> str:
         """Discover available API guidance and skills.
 
         Call this before using other openstaad-mcp tools to understand the API surface
-        and see what skills are available. Then use ``read_skills`` with one or more
-        specific skill names to load full guidance.
+        and see what skills are available. Then use ``openstaad_read_skills`` with one
+        or more specific skill names to load full guidance.
         """
         return skills_mgr.discover_api()
 
@@ -82,10 +83,10 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
             openWorldHint=False,  # Only internal data
         )
     )
-    def read_skills(skills: list[str]) -> str:
+    def openstaad_read_skills(skills: list[str]) -> str:
         """Read one or more skills by name.
 
-        Use ``discover_api`` first to list available skills.
+        Use ``openstaad_discover_api`` first to list available skills.
         Each skill provides domain-specific guidance (e.g. analysis, geometry, loads).
 
         Pass skill names like ``["staad-analysis"]`` or sub-paths like
@@ -98,15 +99,38 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         annotations=ToolAnnotations(
             title="List running STAAD.Pro instances",
             readOnlyHint=True,
-            idempotentHint=False,
+            idempotentHint=False,  # Instance list can change between calls
             openWorldHint=False,  # Only internal data
-        )
+        ),
+        output_schema={
+            "type": "object",
+            "required": ["instances"],
+            "properties": {
+                "instances": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["alias", "pid", "file_path", "version"],
+                        "properties": {
+                            "alias": {"type": "string", "description": "Stable session alias, e.g. staadPro1"},
+                            "pid": {"type": "integer"},
+                            "file_path": {"type": "string"},
+                            "version": {"type": "string"},
+                            "warning": {
+                                "type": "string",
+                                "description": "Present only when version is below minimum supported",
+                            },
+                        },
+                    },
+                }
+            },
+        },
     )
-    def list_instances() -> list[dict[str, Any]]:
+    def openstaad_list_instances() -> dict[str, Any]:
         """List all running STAAD.Pro instances.
 
-        Returns a list of instances with their alias, process ID, currently
-        open file path, and STAAD version.  Call this before ``execute_code``
+        Returns ``{"instances": [...]}`` where each entry contains alias, pid,
+        file_path, and version.  Call this before ``openstaad_execute_code``
         when multiple STAAD instances may be running so you can pick the
         right one.  The ``alias`` (e.g. ``staadPro1``) is stable for the
         server session even if the model file changes.
@@ -117,20 +141,33 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         results = []
         for inst in registry.get_active_instances():
             results.append(inst.asdict())
-        return results
+        return {"instances": results}
 
     @mcp.tool(
         annotations=ToolAnnotations(
             title="Get STAAD.Pro instance status",
             readOnlyHint=True,
-            idempotentHint=False,
+            idempotentHint=False,  # Connection state can change between calls
             openWorldHint=False,  # Only internal data
-        )
+        ),
+        output_schema={
+            "type": "object",
+            "required": ["connected"],
+            "properties": {
+                "connected": {"type": "boolean"},
+                "staad_version": {"type": "string"},
+                "model_path": {"type": ["string", "null"]},
+                "alias": {"type": "string"},
+                "analyzing": {"type": "boolean"},
+                "warning": {"type": "string"},
+                "error": {"type": "string"},
+            },
+        },
     )
-    def get_status(instance: str | None = None) -> dict[str, Any]:
+    def openstaad_get_status(instance: str | None = None) -> dict[str, Any]:
         """Check the connection to a STAAD.Pro instance.
 
-        Pass ``instance`` (alias from ``list_instances``) to target a
+        Pass ``instance`` (alias from ``openstaad_list_instances``) to target a
         specific instance.  Omit it when only one instance is running.
 
         Returns connection state, STAAD version, and model path.
@@ -176,19 +213,32 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
             destructiveHint=True,
             idempotentHint=False,  # Different result for repeated calls
             openWorldHint=False,  # Only internal data
-        )
+        ),
+        output_schema={
+            "type": "object",
+            "required": ["success", "stdout", "stderr", "duration_seconds"],
+            "properties": {
+                "success": {"type": "boolean"},
+                "result": {"description": "Return value of the executed code"},
+                "stdout": {"type": "string"},
+                "stderr": {"type": "string"},
+                "error": {"type": ["string", "null"]},
+                "duration_seconds": {"type": "number"},
+                "warning": {"type": "string"},
+            },
+        },
     )
-    def execute_code(code: str, instance: str | None = None) -> dict[str, Any]:
+    def openstaad_execute_code(code: str, instance: str | None = None) -> dict[str, Any]:
         """Execute Python code against the OpenSTAAD API.
+
+        Imports and filesystem access are blocked for security.
 
         The sandbox provides a pre-connected ``staad`` variable (the
         OpenSTAAD root object) plus ``json`` and ``math`` modules.
-        Imports and filesystem access are blocked for security.
-
         The last expression value or an explicit ``result = ...``
         assignment is returned as the result.
 
-        Pass ``instance`` (alias from ``list_instances``, e.g. ``staadPro1``)
+        Pass ``instance`` (alias from ``openstaad_list_instances``, e.g. ``staadPro1``)
         to target a specific STAAD instance.  Omit it when only one instance
         is running — it will be selected automatically.
         """
@@ -236,25 +286,28 @@ def create_mcp_server(fastmcp_kwargs: dict | None = None) -> FastMCP:
     """Create an MCP server instance with tools registered"""
     fastmcp_kwargs = fastmcp_kwargs or {}
 
-    registry = InstanceRegistry()
-
     @lifespan
     async def mcp_lifespan(server: Any) -> AsyncIterator[None]:
+        registry = InstanceRegistry()
+        exc = Executor()
+        skills_mgr = SkillsManager()
+        _register_tools(server, registry, exc, skills_mgr)
+        logger.info("OpenSTAAD MCP server started")
         yield
+        logger.info("OpenSTAAD MCP server shut down")
 
     mcp = FastMCP(
         "OpenSTAAD MCP",
         instructions=(
             "This MCP server bridges AI agents to Bentley STAAD.Pro via the "
-            "OpenSTAAD COM API. Use `discover_api` first to list available skills "
-            "and guidance, then call `read_skills` with skill names to load detailed "
-            "instructions. Use `list_instances` to see running STAAD instances, "
-            "`execute_code` to run code against a live STAAD.Pro model, and "
-            "`get_status` to check connection. "
+            "OpenSTAAD COM API. Use `openstaad_discover_api` first to list available "
+            "skills and guidance, then call `openstaad_read_skills` with skill names "
+            "to load detailed instructions. Use `openstaad_list_instances` to see "
+            "running STAAD instances, `openstaad_execute_code` to run code against a "
+            "live STAAD.Pro model, and `openstaad_get_status` to check connection. "
             "When a `warning` field appears in any tool response, report it to the user."
         ),
         lifespan=mcp_lifespan,
         **fastmcp_kwargs,
     )
-    _register_tools(mcp, registry, Executor(), SkillsManager())
     return mcp

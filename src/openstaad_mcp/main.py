@@ -89,7 +89,7 @@ def setup_logging(log_level: str) -> None:
             logging.StreamHandler(sys.stderr),
         ],
     )
-    logging.info(f"Logging initialized at {log_level} level")
+    logging.info("Logging initialized at %s level", log_level)
 
 
 def main(argv: list[str] | None = None) -> None:

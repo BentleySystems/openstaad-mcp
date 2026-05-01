@@ -128,6 +128,16 @@ def _mock_get_active_instances(instances: list[StaadInstance]):
     return patch.object(InstanceRegistry, "get_active_instances", return_value=instances)
 
 
+def _call_tool(mcp, tool_name: str, arguments: dict):
+    """Call an MCP tool within the server lifespan and return the result."""
+
+    async def _run():
+        async with mcp._lifespan_manager():
+            return await mcp.call_tool(tool_name, arguments)
+
+    return asyncio.run(_run())
+
+
 class TestInstanceSelection:
     def test_auto_select_single_instance(self):
         """With one instance and no 'instance' param, it is selected automatically."""
@@ -141,7 +151,7 @@ class TestInstanceSelection:
             patch("openstaad_mcp.server.connect_and_run", return_value=expected) as mock_run,
         ):
             mcp = create_mcp_server()
-            asyncio.run(mcp.call_tool("execute_code", {"code": "result = 42"}))
+            _call_tool(mcp, "openstaad_execute_code", {"code": "result = 42"})
             assert mock_run.called
             called_path = mock_run.call_args[0][1]
             assert called_path == "C:\\A.std"
@@ -151,7 +161,7 @@ class TestInstanceSelection:
             from openstaad_mcp.server import create_mcp_server
 
             mcp = create_mcp_server()
-            result = asyncio.run(mcp.call_tool("execute_code", {"code": "result = 1"}))
+            result = _call_tool(mcp, "openstaad_execute_code", {"code": "result = 1"})
             text = result.content[0].text
             assert "No STAAD.Pro instances found" in text
 
@@ -164,7 +174,7 @@ class TestInstanceSelection:
             from openstaad_mcp.server import create_mcp_server
 
             mcp = create_mcp_server()
-            result = asyncio.run(mcp.call_tool("execute_code", {"code": "result = 1"}))
+            result = _call_tool(mcp, "openstaad_execute_code", {"code": "result = 1"})
             text = result.content[0].text
             assert "staadPro1" in text
             assert "staadPro2" in text

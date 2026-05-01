@@ -22,23 +22,23 @@
     },
     "tools": [
         {
-            "name": "discover_api",
-            "description": "Discover available API guidance and skills. Call this before using other openstaad-mcp tools to understand the API surface and see what skills are available. Then use ``read_skills`` with one or more specific skill names to load full guidance."
+            "name": "openstaad_discover_api",
+            "description": "Discover available API guidance and skills. Call this before using other openstaad-mcp tools to understand the API surface and see what skills are available. Then use ``openstaad_read_skills`` with one or more specific skill names to load full guidance."
         },
         {
-            "name": "read_skills",
-            "description": "Read one or more skills by name. Use ``discover_api`` first to list available skills. Each skill provides domain-specific guidance (e.g. analysis, geometry, loads). Pass skill names like ``['staad-analysis']`` or sub-paths like ``['staad-steel-design/assets/DESIGN_CODES']`` to read reference files within a skill."
+            "name": "openstaad_read_skills",
+            "description": "Read one or more skills by name. Use ``openstaad_discover_api`` first to list available skills. Each skill provides domain-specific guidance (e.g. analysis, geometry, loads). Pass skill names like ``['staad-analysis']`` or sub-paths like ``['staad-steel-design/assets/DESIGN_CODES']`` to read reference files within a skill."
         },
         {
-            "name": "list_instances",
+            "name": "openstaad_list_instances",
             "description": "List currently active STAAD instances. Returns instance IDs, model paths, and STAAD versions. Use instance IDs to target specific models in other tools."
         },
         {
-            "name": "execute_code",
+            "name": "openstaad_execute_code",
             "description": "Execute Python code against the OpenSTAAD API. The sandbox provides a pre-connected 'staad' variable (the OpenSTAAD root object) plus ``json`` and ``math`` modules. Imports and filesystem access are blocked for security. The last expression value or an explicit ``result = ...`` assignment is returned as the result."
         },
         {
-            "name": "get_status",
+            "name": "openstaad_get_status",
             "description": "Check the connection to STAAD.Pro. Returns connection state, STAAD version, model path, and analysis status."
         }
     ],

@@ -1,6 +1,6 @@
 ﻿---
 name: staad-core
-description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), units and axis check via execute_code, unit conversion (English=inches/KIP, Metric=meters/kN), GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeModel/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit). Do not auto-save."
+description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), units and axis check via openstaad_execute_code, unit conversion (English=inches/KIP, Metric=meters/kN), GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeModel/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit). Do not auto-save."
 ---
 
 # STAAD.Pro Core — Sandbox & Model Setup
@@ -18,20 +18,20 @@ description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python san
 
 Before writing any script:
 
-1. Call `discover_api` → lists available skills and usage guidance
-2. Call `read_skills` with skill names → detailed instructions for that domain
+1. Call `openstaad_discover_api` → lists available skills and usage guidance
+2. Call `openstaad_read_skills` with skill names → detailed instructions for that domain
 
 Never guess or invent function names — only use names from the skill documentation.
 
 ### Multi-Instance
 
-- Call `list_instances` to see all running STAAD.Pro instances (lightweight ROT scan)
-- Call `get_status(instance)` to verify a specific instance is reachable
-- Pass `instance` (alias like `staadPro1`) to `execute_code` when multiple instances are running
+- Call `openstaad_list_instances` to see all running STAAD.Pro instances (lightweight ROT scan)
+- Call `openstaad_get_status(instance)` to verify a specific instance is reachable
+- Pass `instance` (alias like `staadPro1`) to `openstaad_execute_code` when multiple instances are running
 
 ### Units & Axis
 
-- Before any modeling operation, query units via `execute_code`:
+- Before any modeling operation, query units via `openstaad_execute_code`:
   - `staad.GetBaseUnit()` → `"English"` or `"Metric"`
   - `staad.Geometry.IsZUp()` → `True` if Z is up
   - `staad.GetInputUnitForLength()` / `staad.GetInputUnitForForce()` → current input unit strings

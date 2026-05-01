@@ -1,7 +1,7 @@
 ﻿# Function → Skill Map
 
 Use this table to look up which skill governs a given openstaadpy function.
-Load the governing skill via `read_skills(["skill-name"])` before writing any script that uses those functions.
+Load the governing skill via `openstaad_read_skills(["skill-name"])` before writing any script that uses those functions.
 
 ---
 
