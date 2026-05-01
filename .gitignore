@@ -51,3 +51,5 @@ venv/
 
 # Logs
 mcp_server.log
+
+docs/plan-research-support/claude-migrate.md
