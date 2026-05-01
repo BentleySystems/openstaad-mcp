@@ -176,14 +176,6 @@ The server supports two transport modes:
 
 ---
 
-## Security Notes
-
-- **Bearer token authentication.** Pass `--token MY_SECRET_TOKEN` when running in HTTP mode and include `Authorization: Bearer <token>` in client requests.
-- **DNS rebinding protection.** Starlette Middlewares validate `Host`, `Sec-Fetch-Site` and `Origin` headers.
-- **Code sandbox.** The `execute_code` tool validates all Python code via
-  AST analysis before execution. Imports, file access, and dangerous
-  builtins are blocked.
-
 ## Available MCP Tools
 
 | Tool | Description |
@@ -193,6 +185,19 @@ The server supports two transport modes:
 | `list_instances` | Lists active STAAD.Pro instances with model paths and versions |
 | `execute_code` | Runs validated Python code against the connected STAAD.Pro model |
 | `get_status` | Returns connection state, STAAD version, model path, analysis status |
+
+
+## Security Notes
+
+- **Bearer token authentication.** Pass `--token MY_SECRET_TOKEN` when running in HTTP mode and include `Authorization: Bearer <token>` in client requests.
+- **DNS rebinding protection.** Starlette Middlewares validate `Host`, `Sec-Fetch-Site` and `Origin` headers.
+- **Code sandbox.** The `execute_code` tool validates all Python code via
+  AST analysis before execution. Imports, file access, and dangerous
+  builtins are blocked.
+
+## Privacy Policy
+
+Please find the Bentley Systems privacy policy [here](https://www.bentley.com/legal/privacy-policy/).
 
 ---
 
