@@ -13,6 +13,7 @@ import argparse
 import logging
 import os
 import secrets
+import sys
 import warnings
 
 from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
@@ -21,6 +22,9 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from openstaad_mcp.http_middleware import SecFetchMiddleware
 from openstaad_mcp.server import create_mcp_server
+
+# Suppress authlib deprecation warning that pollutes stderr on import
+warnings.filterwarnings("ignore", message="authlib.jose module is deprecated")
 
 _HTTP_ONLY_DEFAULTS = {"port": 18120, "token": None}
 
@@ -82,7 +86,7 @@ def setup_logging(log_level: str) -> None:
         level=log_level,
         format="[%(asctime)s] %(levelname)s - %(message)s",
         handlers=[
-            logging.StreamHandler(),
+            logging.StreamHandler(sys.stderr),
         ],
     )
     logging.info(f"Logging initialized at {log_level} level")
@@ -97,7 +101,7 @@ def main(argv: list[str] | None = None) -> None:
         # Run FastMCP server in the main thread, the COM thread will be started by the lifespan.
         mcp = create_mcp_server()
         try:
-            mcp.run(transport="stdio")
+            mcp.run(transport="stdio", show_banner=False)
         except KeyboardInterrupt:
             logging.info("Shutting down MCP server due to keyboard interrupt")
 
