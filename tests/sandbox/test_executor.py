@@ -7,8 +7,11 @@ See LICENSE.md in the project root for license terms and full copyright notice.
 Tests for the sandboxed code executor.
 """
 
+from textwrap import dedent
+
 import pytest
 
+from openstaad_mcp.sandbox.const import ALLOWED_BUILTIN_EXCEPTIONS
 from openstaad_mcp.sandbox.executor import Executor
 
 
@@ -91,7 +94,12 @@ class TestResultCapture:
         assert r.result == 42
 
     def test_result_variable_takes_priority(self, staad, executor):
-        code = "result = 'explicit'\n99"
+        code = dedent(
+            """
+            result = 'explicit'
+            99
+            """
+        )
         r = executor.execute(code, staad)
         assert r.success
         assert r.result == "explicit"
@@ -102,19 +110,23 @@ class TestResultCapture:
         assert r.result == 42
 
     def test_staad_complex_workflow(self, staad, executor):
-        code = """
-coords = staad.Geometry.GetNodeCoordinates(1)
-result = {"x": coords[0], "y": coords[1], "z": coords[2]}
-"""
+        code = dedent(
+            """
+            coords = staad.Geometry.GetNodeCoordinates(1)
+            result = {"x": coords[0], "y": coords[1], "z": coords[2]}
+            """
+        )
         r = executor.execute(code, staad)
         assert r.success
         assert r.result == {"x": 1.0, "y": 2.0, "z": 3.0}
 
     def test_list_result(self, staad, executor):
-        code = """
-forces = staad.Output.GetBeamEndForces(1, 1)
-result = forces
-"""
+        code = dedent(
+            """
+            forces = staad.Output.GetBeamEndForces(1, 1)
+            result = forces
+            """
+        )
         r = executor.execute(code, staad)
         assert r.success
         assert r.result == [100.0, -50.0, 25.0, 10.0, -5.0, 2.5]
@@ -146,10 +158,12 @@ class TestStdoutCapture:
         assert "hello world" in r.stdout
 
     def test_multiple_prints(self, staad, executor):
-        code = """
-print("line 1")
-print("line 2")
-"""
+        code = dedent(
+            """
+            print("line 1")
+            print("line 2")
+            """
+        )
         r = executor.execute(code, staad)
         assert r.success
         assert "line 1" in r.stdout
@@ -244,7 +258,12 @@ class TestErrorHandling:
         assert "syntax error" in r.error.lower()
 
     def test_error_includes_stdout(self, staad, executor):
-        code = 'print("before error")\n1 / 0'
+        code = dedent(
+            """
+            print("before error")
+            1 / 0
+            """
+        )
         r = executor.execute(code, staad)
         assert not r.success
         assert "before error" in r.stdout
@@ -293,12 +312,14 @@ class TestModuleProxySandboxEscape:
 
     def test_json_codecs_traversal_blocked(self, staad, executor):
         """CVE-style PoC: json.codecs.builtins must not be reachable."""
-        code = """
-b = json.codecs.builtins
-ns = {}
-b.exec("import os; result = os.getcwd()", {"__builtins__": b}, ns)
-result = ns["result"]
-"""
+        code = dedent(
+            """
+            b = json.codecs.builtins
+            ns = {}
+            b.exec("import os; result = os.getcwd()", {"__builtins__": b}, ns)
+            result = ns["result"]
+            """
+        )
         r = executor.execute(code, staad)
         assert not r.success, "Sandbox escape via json.codecs.builtins must be blocked"
 
@@ -324,17 +345,32 @@ result = ns["result"]
 
     def test_json_non_whitelisted_attr_blocked_by_proxy(self, staad, executor):
         """Alias bypasses AST check; _ModuleProxy must block at runtime."""
-        code = "j = json\nresult = j.codecs"
+        code = dedent(
+            """
+            j = json
+            result = j.codecs
+            """
+        )
         r = executor.execute(code, staad)
         assert not r.success
 
     def test_json_dunder_attr_blocked_by_proxy(self, staad, executor):
-        code = "j = json\nresult = j.__class__"
+        code = dedent(
+            """
+            j = json
+            result = j.__class__
+            """
+        )
         r = executor.execute(code, staad)
         assert not r.success
 
     def test_math_non_whitelisted_attr_blocked_by_proxy(self, staad, executor):
-        code = "m = math\nresult = m.__loader__"
+        code = dedent(
+            """
+            m = math
+            result = m.__loader__
+            """
+        )
         r = executor.execute(code, staad)
         assert not r.success
 
@@ -463,7 +499,13 @@ class TestStackTraceSanitization:
 
     def test_sandbox_line_numbers_preserved(self, staad, executor):
         """Sandbox frame line numbers should still be available."""
-        code = "x = 1\ny = 2\nz = 1/0"
+        code = dedent(
+            """
+            x = 1
+            y = 2
+            z = 1/0
+            """
+        )
         r = executor.execute(code, staad)
         assert not r.success
         assert "ZeroDivisionError" in r.error
@@ -477,3 +519,149 @@ class TestOutputSanitization:
         r = executor.execute(code, staad)
         assert r.success
         assert len(str(r.result)) <= 110000  # some margin for truncation message
+
+
+class TestExceptionHandling:
+    """Exception classes must be available in the sandbox."""
+
+    @pytest.mark.parametrize("exc_name", ALLOWED_BUILTIN_EXCEPTIONS)
+    def test_builtin_exception_available(self, staad, executor, exc_name):
+        """Each built-in exception class can be referenced by name."""
+        code = f"result = issubclass({exc_name}, Exception)"
+        r = executor.execute(code, staad)
+        assert r.success, f"{exc_name} should be available in sandbox: {r.error}"
+        assert r.result is True
+
+    def test_catch_exception_from_api_call(self, staad, executor):
+        """catch Exception from a failing call."""
+        code = dedent(
+            """
+            try:
+                r = staad.Geometry.NonExistentMethod()
+                result = {"data": r}
+            except Exception as e:
+                result = {"error": str(e)}
+            """
+        )
+        r = executor.execute(code, staad)
+        assert r.success, f"try/except Exception should work: {r.error}"
+        assert "error" in r.result
+
+    def test_catch_zero_division(self, staad, executor):
+        """Catch a specific built-in exception by name."""
+        code = dedent(
+            """
+            try:
+                x = 1 / 0
+            except ZeroDivisionError as e:
+                result = str(e)
+            """
+        )
+        r = executor.execute(code, staad)
+        assert r.success, f"try/except ZeroDivisionError should work: {r.error}"
+        assert "division" in r.result.lower()
+
+    def test_exception_hierarchy_catch(self, staad, executor):
+        """except Exception catches ValueError (subclass)."""
+        code = dedent(
+            """
+            try:
+                int("not_a_number")
+            except Exception as e:
+                result = str(e)
+            """
+        )
+        r = executor.execute(code, staad)
+        assert r.success, f"except Exception should catch ValueError: {r.error}"
+        assert "invalid literal" in r.result
+
+    def test_isinstance_with_exception_type(self, staad, executor):
+        """isinstance() works with exception types inside a handler."""
+        code = dedent(
+            """
+            try:
+                1 / 0
+            except Exception as e:
+                result = isinstance(e, ZeroDivisionError)
+            """
+        )
+        r = executor.execute(code, staad)
+        assert r.success, f"isinstance with exception type should work: {r.error}"
+        assert r.result is True
+
+    def test_raise_and_except(self, staad, executor):
+        """raise ValueError(...) + catch it works."""
+        code = dedent(
+            """
+            try:
+                raise ValueError("test message")
+            except ValueError as e:
+                result = str(e)
+            """
+        )
+        r = executor.execute(code, staad)
+        assert r.success, f"raise + catch should work: {r.error}"
+        assert r.result == "test message"
+
+    def test_raise_and_multiple_excepts(self, staad, executor):
+        """Multiple except clauses with different exception types."""
+        code = dedent(
+            """
+            try:
+                d = {}
+                d["missing"]
+            except KeyError:
+                result = "key_error"
+            except ValueError:
+                result = "value_error"
+            """
+        )
+        r = executor.execute(code, staad)
+        assert r.success, f"multiple except clauses should work: {r.error}"
+        assert r.result == "key_error"
+
+    def test_tuple_except(self, staad, executor):
+        """except (TypeError, ValueError) tuple syntax works."""
+        code = dedent(
+            """
+            try:
+                int("bad")
+            except (TypeError, ValueError):
+                result = "caught"
+            """
+        )
+        r = executor.execute(code, staad)
+        assert r.success, f"except tuple should work: {r.error}"
+        assert r.result == "caught"
+
+    def test_bare_except(self, staad, executor):
+        """bare except: (no exception type)."""
+        code = dedent(
+            """
+            try:
+                1 / 0
+            except:
+                result = "caught"
+            """
+        )
+        r = executor.execute(code, staad)
+        assert r.success, f"bare except should work: {r.error}"
+        assert r.result == "caught"
+
+    def test_base_exception_not_available(self, staad, executor):
+        """BaseException must NOT be available (could catch SystemExit etc.)."""
+        code = "result = BaseException"
+        r = executor.execute(code, staad)
+        assert not r.success, "BaseException should not be available in sandbox"
+
+    def test_system_exit_not_available(self, staad, executor):
+        """SystemExit must NOT be available."""
+        code = "result = SystemExit"
+        r = executor.execute(code, staad)
+        assert not r.success, "SystemExit should not be available in sandbox"
+
+    def test_keyboard_interrupt_not_available(self, staad, executor):
+        """KeyboardInterrupt must NOT be available."""
+        code = "result = KeyboardInterrupt"
+        r = executor.execute(code, staad)
+        assert not r.success, "KeyboardInterrupt should not be available in sandbox"

@@ -1,3 +1,76 @@
+# Allowed builtins exceptions.
+# Excludes BaseException and its direct subclasses (SystemExit,
+# KeyboardInterrupt, GeneratorExit) to prevent interference with executor
+# control flow.
+ALLOWED_BUILTIN_EXCEPTIONS: frozenset[str] = frozenset(
+    {
+        "Exception",
+        # ArithmeticError hierarchy
+        "ArithmeticError",
+        "FloatingPointError",
+        "OverflowError",
+        "ZeroDivisionError",
+        # LookupError hierarchy
+        "LookupError",
+        "IndexError",
+        "KeyError",
+        # NameError hierarchy
+        "NameError",
+        "UnboundLocalError",
+        # OSError hierarchy
+        "OSError",
+        "BlockingIOError",
+        "BrokenPipeError",
+        "ChildProcessError",
+        "ConnectionError",
+        "ConnectionAbortedError",
+        "ConnectionRefusedError",
+        "ConnectionResetError",
+        "FileExistsError",
+        "FileNotFoundError",
+        "InterruptedError",
+        "IsADirectoryError",
+        "NotADirectoryError",
+        "PermissionError",
+        "ProcessLookupError",
+        "TimeoutError",
+        # RuntimeError hierarchy
+        "RuntimeError",
+        "NotImplementedError",
+        "RecursionError",
+        # Other concrete exceptions
+        "AssertionError",
+        "AttributeError",
+        "BufferError",
+        "EOFError",
+        "ImportError",
+        "ModuleNotFoundError",
+        "MemoryError",
+        "ReferenceError",
+        "StopAsyncIteration",
+        "StopIteration",
+        "SystemError",
+        "TypeError",
+        "ValueError",
+        "UnicodeError",
+        "UnicodeDecodeError",
+        "UnicodeEncodeError",
+        "UnicodeTranslateError",
+        # Warning hierarchy
+        "Warning",
+        "BytesWarning",
+        "DeprecationWarning",
+        "FutureWarning",
+        "ImportWarning",
+        "PendingDeprecationWarning",
+        "ResourceWarning",
+        "RuntimeWarning",
+        "SyntaxWarning",
+        "UnicodeWarning",
+        "UserWarning",
+    }
+)
+
 # Builtins that are safe to expose in the sandbox.
 ALLOWED_BUILTINS: frozenset[str] = frozenset(
     {
@@ -45,6 +118,8 @@ ALLOWED_BUILTINS: frozenset[str] = frozenset(
         "True",
         "False",
         "None",
+        # Exception types
+        *ALLOWED_BUILTIN_EXCEPTIONS,
     }
 )
 
