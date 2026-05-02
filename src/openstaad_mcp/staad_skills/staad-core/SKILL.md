@@ -1,6 +1,6 @@
 ﻿---
 name: staad-core
-description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), units and axis check via openstaad_execute_code, unit conversion (English=inches/KIP, Metric=meters/kN), GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeModel/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit). Do not auto-save."
+description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad/progress pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), 3-tool execution flow (openstaad_execute_code → openstaad_get_job_status → openstaad_get_job_result), unit conversion (English=inches/KIP, Metric=meters/kN), GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeModel/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit), progress reporting, timeout, large model query patterns. Do not auto-save."
 ---
 
 # STAAD.Pro Core — Sandbox & Model Setup
@@ -9,10 +9,201 @@ description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python san
 
 ### Sandbox
 
-- Pre-injected names (do NOT import): `staad`, `json`, `math`
+- Pre-injected names (do NOT import): `staad`, `json`, `math`, `progress`
 - `import` statements are **BLOCKED** — only use pre-injected names
 - `staad` is already connected and ready — do NOT call any initialization function
 - Sub-modules: `geo = staad.Geometry`, `prop = staad.Property`, `sup = staad.Support`, `load = staad.Load`, `cmd = staad.Command`, `out = staad.Output`, `design = staad.Design`
+- `progress(message)` — send a real-time status update (e.g. `progress(f"Node {i}/{total}")`)
+
+### Progress
+
+Call `progress()` inside any loop that iterates over more than ~20 elements, or before any operation that may take more than a few seconds (analysis, bulk queries, large result extraction). This prevents the client from appearing frozen.
+
+```python
+node_ids = staad.Geometry.GetNodeList()
+total = len(node_ids)
+for i, nid in enumerate(node_ids):
+    if i % 10 == 0:
+        progress(f"Processing node {i}/{total}")
+    # ... do work ...
+```
+
+Rules:
+
+- Call every 10–50 iterations (not every iteration — avoid flooding).
+- Include a counter: `f"{i}/{total}"` is more useful than a static string.
+- Call once before long single operations: `progress("Running analysis...")`
+
+### Pre-Execution Check
+
+**ALWAYS** call `openstaad_get_status` before `openstaad_execute_code` if a previous execution may still be running. The response includes `executor_busy: true/false`. If `executor_busy` is `true`, the executor is still processing a previous call — wait and retry rather than sending a new execution (it will be rejected with "Executor busy").
+
+```
+openstaad_get_status()
+→ {"connected": true, "executor_busy": false, ...}   ← safe to execute
+→ {"connected": true, "executor_busy": true, ...}    ← wait and retry
+```
+
+### Execution Pattern (3-tool flow)
+
+Code execution supports two modes via the `mode` parameter:
+
+**Sync mode (default, `mode="sync"`)** — blocks and returns the result directly in one call:
+
+```
+openstaad_execute_code(code="result = staad.Geometry.GetNodeCount()")
+→ {"success": true, "result": 220, "stdout": "", "stderr": "", ...}
+```
+
+Use for fast operations (<30 s): queries, property assignments, small loops.
+
+**Async mode (`mode="async"`)** — returns a `job_id` immediately, then poll:
+
+```
+openstaad_execute_code(code="...", mode="async", timeout=300)
+→ {"job_id": "abc123def456"}
+
+openstaad_get_job_status(job_id="abc123def456")
+→ {"status": "running", "progress": "Node 50/200", "elapsed_seconds": 12.3}
+
+openstaad_get_job_result(job_id="abc123def456")
+→ {"success": true, "result": ..., "status": "completed"}
+```
+
+Use for slow operations (>30 s): analysis, bulk result extraction, large model queries.
+
+Rules:
+- Default to `mode="sync"` unless the operation is known to be slow.
+- In async mode, call `openstaad_get_job_result` to collect; if `status: "running"`, call again later.
+- Use `openstaad_get_job_status` to read progress messages without consuming the result.
+- The `progress` field reflects the last `progress()` call from the sandbox code.
+
+### Reporting Progress to the User
+
+**IMPORTANT:** MCP notifications are NOT visible in the chat UI. The only way the user sees progress is if you **write it in your text response**. Follow this pattern for async operations:
+
+1. Start the job with `mode="async"`
+2. Poll `openstaad_get_job_status` every 5–10 seconds
+3. **Write the `message` field to the user** in each response between polls (e.g. "⏳ Running (12s): Processing plate 500/111684...")
+4. When `status` is `"completed"`, call `openstaad_get_job_result` and present the final result
+
+Example conversation flow:
+```
+→ openstaad_execute_code(code="...", mode="async", timeout=300)
+← {"job_id": "abc123"}
+
+[Tell user: "Starting computation..."]
+
+→ openstaad_get_job_status(job_id="abc123")
+← {"status": "running", "message": "⏳ Running (8s): Reading nodes 5000/52000", "elapsed_seconds": 8.2}
+
+[Tell user: "⏳ Running (8s): Reading nodes 5000/52000"]
+
+→ openstaad_get_job_status(job_id="abc123")
+← {"status": "running", "message": "⏳ Running (25s): Plate 40000/111684", "elapsed_seconds": 25.1}
+
+[Tell user: "⏳ Running (25s): Plate 40000/111684"]
+
+→ openstaad_get_job_result(job_id="abc123")
+← {"success": true, "result": {...}, "status": "completed"}
+
+[Present final result to user]
+```
+
+For **sync mode** on long operations: progress is logged server-side but not displayed to the user. If you expect >30 s, prefer async mode so you can report progress between polls.
+
+### Timeout
+
+The `timeout` parameter (seconds) on `openstaad_execute_code` controls how long execution runs before the server aborts it. Default is 120 s. Raise it when the operation is known to be slow:
+
+| Operation | Suggested timeout | Mode |
+| --- | --- | --- |
+| Small model (<500 nodes), read-only | 60 s | sync |
+| Large model geometry / load queries | 180–300 s | async |
+| Analysis run or bulk result extraction | 300–600 s | async |
+| Unknown model size | 120 s (default) | sync |
+
+Always combine a raised timeout with `progress()` calls so status shows what is happening.
+
+### Result Structure for Bulk Queries
+
+Build a **dict keyed by element ID** rather than parallel lists or nested loops. This avoids O(n²) lookups, produces self-describing JSON, and keeps results compact.
+
+**Preferred pattern:**
+
+```python
+node_ids = staad.Geometry.GetNodeList()
+nodes = {}
+total = len(node_ids)
+for i, nid in enumerate(node_ids):
+    if i % 20 == 0:
+        progress(f"Reading node {i}/{total}")
+    x, y, z = staad.Geometry.GetNodeCoordinates(nid)
+    nodes[nid] = {"x": x, "y": y, "z": z}
+result = nodes
+```
+
+Rules:
+
+- Use `result = {...}` assignment so the sandbox returns it as the tool result.
+- Top-level key: entity type in plural (`"nodes"`, `"beams"`, `"loads"`).
+- Each value: a flat dict of properties; avoid deeply nested structures.
+- For cross-entity data nest one level: `{beam_id: {"loads": [...]}}`.
+- Never use parallel lists (`ids = [...]`, `xs = [...]`) — they break if order differs.
+
+### Large Model Queries
+
+For models with >500 nodes/beams, query counts first and adapt strategy before bulk-fetching.
+
+**Step 1 — count before fetch:**
+
+```python
+node_count = staad.Geometry.GetNodeCount()
+beam_count = staad.Geometry.GetMemberCount()
+progress(f"Model: {node_count} nodes, {beam_count} beams")
+```
+
+**Step 2 — choose strategy:**
+
+| Count | Strategy |
+| --- | --- |
+| < 500 | Fetch all, return full dict |
+| 500–2 000 | Fetch all with `progress()`, summarise if result near 200 KB |
+| > 2 000 | Targeted ranges or summary statistics |
+
+**Summary statistics (avoids large result):**
+
+```python
+node_ids = staad.Geometry.GetNodeList()
+xs, ys, zs = [], [], []
+for nid in node_ids:
+    x, y, z = staad.Geometry.GetNodeCoordinates(nid)
+    xs.append(x); ys.append(y); zs.append(z)
+result = {
+    "node_count": len(node_ids),
+    "x_range": [min(xs), max(xs)],
+    "y_range": [min(ys), max(ys)],
+    "z_range": [min(zs), max(zs)],
+}
+```
+
+**Sampling for initial exploration:**
+
+```python
+step = max(1, node_count // 50)   # ~50 samples
+sample_ids = node_ids[::step]
+nodes = {}
+for nid in sample_ids:
+    x, y, z = staad.Geometry.GetNodeCoordinates(nid)
+    nodes[nid] = {"x": x, "y": y, "z": z}
+result = {"sampled": True, "sample_size": len(sample_ids), "nodes": nodes}
+```
+
+Rules:
+
+- Never fetch all coordinates for >2 000 nodes in a single call — result will exceed the 200 KB limit.
+- If the tool returns a `result_size_bytes` value close to 200 000, restructure the next query.
+- Prefer summary statistics for initial exploration; fetch raw data only when the user needs specific elements.
 
 ### Discovery
 
@@ -28,6 +219,18 @@ Never guess or invent function names — only use names from the skill documenta
 - Call `openstaad_list_instances` to see all running STAAD.Pro instances (lightweight ROT scan)
 - Call `openstaad_get_status(instance)` to verify a specific instance is reachable
 - Pass `instance` (alias like `staadPro1`) to `openstaad_execute_code` when multiple instances are running
+
+### Tool Reference
+
+| Tool | Purpose |
+| --- | --- |
+| `openstaad_discover_api` | List available skills |
+| `openstaad_read_skills` | Load skill instructions |
+| `openstaad_list_instances` | List running STAAD.Pro instances |
+| `openstaad_get_status` | Check connection to instance |
+| `openstaad_execute_code` | Run code (sync: result direct; async: returns job_id) |
+| `openstaad_get_job_status` | Check job progress |
+| `openstaad_get_job_result` | Collect completed result |
 
 ### Units & Axis
 
@@ -120,7 +323,7 @@ staad.CloseSTAADFile()
 
 ## Gotchas
 
-- `import` is blocked — only `staad`, `json`, `math` are available
+- `import` is blocked — only `staad`, `json`, `math`, `progress` are available
 - Use `staad.GetSTAADFile()` to get the current model path after a file switch
 - Always wrap `UpdateStructure`/`AnalyzeModel`/`AnalyzeEx`/`SaveModel` inside `SetSilentMode(True/False)`
 - **Never** call `SaveModel` without explicit user instruction

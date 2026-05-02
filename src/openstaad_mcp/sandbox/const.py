@@ -275,3 +275,7 @@ MAX_EXECUTION_STDOUT = 256_000
 
 # Maximum length for a single result value to prevent large injection payloads
 MAX_RESULT_LENGTH = 100_000
+
+# Maximum serialised byte size for the result value.
+# Results larger than this are replaced with a guidance message.
+MAX_RESULT_BYTES = 200_000

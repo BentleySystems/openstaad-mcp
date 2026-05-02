@@ -21,12 +21,13 @@ import json
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from openstaad_mcp.sandbox.ast import capture_last_expr, validate_code
 from openstaad_mcp.sandbox.com_proxy import COMProxy
-from openstaad_mcp.sandbox.const import ALLOWED_BUILTINS, ALLOWED_MODULE_ATTRS
+from openstaad_mcp.sandbox.const import ALLOWED_BUILTINS, ALLOWED_MODULE_ATTRS, MAX_RESULT_BYTES
 from openstaad_mcp.sandbox.module_proxy import ModuleProxy
 from openstaad_mcp.sandbox.stdio_helpers import LimitedStringIO, sanitize_output, sanitize_traceback
 
@@ -41,6 +42,7 @@ class ExecutionResult:
     stderr: str = ""
     error: str | None = None
     duration_seconds: float = 0.0
+    result_size_bytes: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -50,6 +52,7 @@ class ExecutionResult:
             "stderr": self.stderr,
             "error": self.error,
             "duration_seconds": self.duration_seconds,
+            "result_size_bytes": self.result_size_bytes,
         }
 
 
@@ -78,10 +81,21 @@ class Executor:
         # sys.stdout / sys.stderr reassignment.
         self._exec_lock = threading.Lock()
 
+    @property
+    def is_busy(self) -> bool:
+        """Return True if the executor lock is currently held (execution in progress)."""
+        acquired = self._exec_lock.acquire(blocking=False)
+        if acquired:
+            self._exec_lock.release()
+            return False
+        return True
+
     def execute(
         self,
         code: str,
         staad_object: Any,
+        progress_fn: Callable[[str], None] | None = None,
+        lock_timeout: float = 5.0,
     ) -> ExecutionResult:
         """Validate and execute *code* in the sandbox.
 
@@ -91,6 +105,14 @@ class Executor:
             Python source code to execute.
         staad_object:
             The connected OpenSTAAD root object (or a mock for testing).
+        progress_fn:
+            Optional callable injected as ``progress`` in the sandbox.
+            Called with a human-readable message string for real-time updates.
+        lock_timeout:
+            How long (seconds) to wait for the execution lock before returning
+            an "Executor busy" error.  Callers should pass a value at least as
+            large as the expected execution duration so that a second call waits
+            for the first to finish rather than failing instantly.
 
         Returns
         -------
@@ -111,16 +133,18 @@ class Executor:
         sandbox_globals: dict[str, Any] = {"__builtins__": self.safe_builtins.copy()}
         sandbox_globals.update(self.injected_modules)
         sandbox_globals["staad"] = COMProxy(staad_object)
+        sandbox_globals["progress"] = progress_fn if progress_fn is not None else lambda _: None
 
         # ── 4. Execute with stdout/stderr capture ───────────────────
         captured_out, captured_err = LimitedStringIO(), LimitedStringIO()
         exec_error: BaseException | None = None
         duration = 0.0
 
-        if not self._exec_lock.acquire(timeout=5.0):
+        if not self._exec_lock.acquire(timeout=lock_timeout):
             return ExecutionResult(
                 success=False,
-                error="Executor busy — a previous operation may have timed out. Restart the server.",
+                error="Executor busy — a previous operation is still running. "
+                "Check openstaad_get_status() and retry when executor_busy is false.",
             )
         try:
             old_stdout, old_stderr = sys.stdout, sys.stderr
@@ -160,9 +184,20 @@ class Executor:
 
         # Attempt JSON-safe serialisation; fall back to repr.
         try:
-            json.dumps(result_value)
+            serialized = json.dumps(result_value)
         except (TypeError, ValueError):
             result_value = repr(result_value)
+            serialized = result_value
+
+        result_size_bytes = len(serialized.encode())
+        if result_size_bytes > MAX_RESULT_BYTES:
+            result_value = (
+                f"Result too large ({result_size_bytes:,} bytes > {MAX_RESULT_BYTES:,} limit). "
+                "Use targeted queries: check element counts first, then query ranges or "
+                "compute summary statistics instead of returning all raw data. "
+                "See staad-core skill > Large Model Queries for patterns."
+            )
+            result_size_bytes = len(result_value.encode())
 
         return ExecutionResult(
             success=True,
@@ -170,4 +205,5 @@ class Executor:
             stdout=stdout_text,
             stderr=stderr_text,
             duration_seconds=duration,
+            result_size_bytes=result_size_bytes,
         )

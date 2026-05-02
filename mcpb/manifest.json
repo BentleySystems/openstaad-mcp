@@ -17,7 +17,15 @@
         "entry_point": "openstaad-mcp.exe",
         "mcp_config": {
             "command": "${__dirname}/openstaad-mcp.exe",
-            "args": []
+            "args": [],
+            "alwaysAllow": [
+                "openstaad_discover_api",
+                "openstaad_read_skills",
+                "openstaad_list_instances",
+                "openstaad_get_status",
+                "openstaad_get_job_status",
+                "openstaad_get_job_result"
+            ]
         }
     },
     "tools": [
@@ -31,15 +39,23 @@
         },
         {
             "name": "openstaad_list_instances",
-            "description": "List currently active STAAD instances. Returns instance IDs, model paths, and STAAD versions. Use instance IDs to target specific models in other tools."
-        },
-        {
-            "name": "openstaad_execute_code",
-            "description": "Execute Python code against the OpenSTAAD API. The sandbox provides a pre-connected 'staad' variable (the OpenSTAAD root object) plus ``json`` and ``math`` modules. Imports and filesystem access are blocked for security. The last expression value or an explicit ``result = ...`` assignment is returned as the result."
+            "description": "List all running STAAD.Pro instances. Returns alias (e.g. staadPro1), pid, file_path, and version for each. Pass the alias to openstaad_execute_code when multiple instances are running."
         },
         {
             "name": "openstaad_get_status",
-            "description": "Check the connection to STAAD.Pro. Returns connection state, STAAD version, model path, and analysis status."
+            "description": "Check the connection to a STAAD.Pro instance. Pass instance alias (from openstaad_list_instances) to target a specific instance. Returns connection state, STAAD version, model path, and whether the executor is currently busy (executor_busy). Always call this before openstaad_execute_code if a previous execution may still be running."
+        },
+        {
+            "name": "openstaad_execute_code",
+            "description": "Execute Python code against the OpenSTAAD API. Imports are blocked; sandbox provides staad, json, math, progress. mode='sync' (default) returns the result directly. mode='async' returns {job_id} immediately for long operations — monitor with openstaad_get_job_status, collect with openstaad_get_job_result."
+        },
+        {
+            "name": "openstaad_get_job_status",
+            "description": "Check execution status for a running async job. IMPORTANT: always display the returned `message` field to the user in text so they see progress. Returns status (running/completed/failed), elapsed_seconds, and a pre-formatted `message` ready to show."
+        },
+        {
+            "name": "openstaad_get_job_result",
+            "description": "Collect the result of a completed async job. Returns status: 'running' with latest progress if not yet done — call again when ready. Once complete, the job is removed from the store."
         }
     ],
     "tools_generated": false,

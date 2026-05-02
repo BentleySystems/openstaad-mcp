@@ -221,6 +221,7 @@ class TestToDict:
             "stderr",
             "error",
             "duration_seconds",
+            "result_size_bytes",
         }
 
 

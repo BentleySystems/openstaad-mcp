@@ -79,7 +79,7 @@ foot_id = sup.CreateElasticFooting(length, width, direction, subgrade)
 
 ### Workflow
 
-1. Use `openstaad_execute_code` to call `staad.Geometry.GetNodeCount()` and confirm the model has nodes
+1. Call `openstaad_execute_code` with code that calls `staad.Geometry.GetNodeCount()` — then check the result via `openstaad_get_job_status` / `openstaad_get_job_result` to confirm nodes exist
 2. After adding geometry in the same script, call `SaveModel(True)` before assigning supports (see staad-core for SaveModel vs UpdateStructure)
 3. Create support type once → assign to base nodes in a loop
 

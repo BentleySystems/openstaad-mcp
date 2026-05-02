@@ -129,6 +129,7 @@ pm_count = geo.GetPhysicalMemberCount()
 - [portal-frame.py](./scripts/portal-frame.py) — create a simple portal frame with supports
 - [add-beam.py](./scripts/add-beam.py) — add a single beam between two new nodes
 - [select-members.py](./scripts/select-members.py) — select single and multiple beams
+- [plate-max-area.py](./scripts/plate-max-area.py) — find plate with maximum area (uses `GetPlateIncidence`, cross-product)
 
 ## Gotchas
 - `AddPlate` takes 4 separate int arguments, NOT a list — `geo.AddPlate(n1, n2, n3, n4)` not `geo.AddPlate([n1,n2,n3,n4])`

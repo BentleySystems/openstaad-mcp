@@ -120,7 +120,15 @@ class SkillsManager:
         # Reference sub-path
         ref_path = Path("/".join(parts[1:]))
         if not ref_path.suffix:
-            ref_path = ref_path.with_suffix(".md")
+            # Try .md first, then .py for scripts
+            md_file = skill_dir / ref_path.with_suffix(".md")
+            py_file = skill_dir / ref_path.with_suffix(".py")
+            if md_file.is_file():
+                ref_path = ref_path.with_suffix(".md")
+            elif py_file.is_file():
+                ref_path = ref_path.with_suffix(".py")
+            else:
+                ref_path = ref_path.with_suffix(".md")
         ref_file = skill_dir / ref_path
 
         # Verify ref_file stays within skills_root
@@ -143,6 +151,11 @@ class SkillsManager:
         lines = ["## Available Skills", ""]
         for entry in self._skills.values():
             lines.append(f"- **{html.escape(entry.name)}**: {html.escape(entry.description)}")
+            # Show example scripts so the LLM knows they exist and can load them
+            scripts = [r for r in entry.references if str(r).startswith("scripts")]
+            if scripts:
+                script_names = ", ".join(f"`{entry.name}/{str(s).replace(chr(92), '/')}`" for s in scripts)
+                lines.append(f"  - Example scripts (load via `openstaad_read_skills`): {script_names}")
         return "\n".join(lines)
 
     def read_skill(self, name: str) -> str:
