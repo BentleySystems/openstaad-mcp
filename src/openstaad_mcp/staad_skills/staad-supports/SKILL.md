@@ -74,12 +74,12 @@ foot_id = sup.CreateElasticFooting(length, width, direction, subgrade)
 
 ### Assigning Supports
 
-- `sup.AssignSupportToNode(nodeID, supportID)` — assigns to a **SINGLE node**
-- Use a `for` loop to assign to multiple nodes
+- `sup.AssignSupportToNode(nodeID, supportID)` — assigns to a **SINGLE node**; use a `for` loop to assign to multiple nodes
+- `sup.AssignSupportToEntityList(supportID, nodeList)` — assigns to a **list of nodes** in one call (preferred for elastic mat and bulk assignments)
 
 ### Workflow
 
-1. Call `openstaad_execute_code` with code that calls `staad.Geometry.GetNodeCount()` — then check the result via `openstaad_get_job_status` / `openstaad_get_job_result` to confirm nodes exist
+1. Call `openstaad_execute_code` with code that calls `staad.Geometry.GetNodeCount()` — confirm the result shows nodes exist
 2. After adding geometry in the same script, call `SaveModel(True)` before assigning supports (see staad-core for SaveModel vs UpdateStructure)
 3. Create support type once → assign to base nodes in a loop
 

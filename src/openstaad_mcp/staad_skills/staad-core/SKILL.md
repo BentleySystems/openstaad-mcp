@@ -1,6 +1,6 @@
 ﻿---
 name: staad-core
-description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad/progress pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), 3-tool execution flow (openstaad_execute_code → openstaad_get_job_status → openstaad_get_job_result), unit conversion (English=inches/KIP, Metric=meters/kN), GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeModel/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit), progress reporting, timeout, large model query patterns. Do not auto-save."
+description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad/progress pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), execution modes (sync/async auto-detected from code keywords — override with timeout= and mode= when you know better; async long-polls with strategy field), unit conversion (English=inches/KIP, Metric=meters/kN), GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeModel/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit), progress reporting, timeout guidelines, large model query patterns. Do not auto-save."
 ---
 
 # STAAD.Pro Core — Sandbox & Model Setup
@@ -44,7 +44,7 @@ openstaad_get_status()
 → {"connected": true, "executor_busy": true, ...}    ← wait and retry
 ```
 
-### Execution Pattern (3-tool flow)
+### Execution Pattern
 
 Code execution supports two modes via the `mode` parameter:
 
@@ -55,75 +55,121 @@ openstaad_execute_code(code="result = staad.Geometry.GetNodeCount()")
 → {"success": true, "result": 220, "stdout": "", "stderr": "", ...}
 ```
 
-Use for fast operations (<30 s): queries, property assignments, small loops.
+Use for operations expected to finish in under ~60 s: queries, property assignments, small loops. Zero polling overhead.
 
-**Async mode (`mode="async"`)** — returns a `job_id` immediately, then poll:
+**Async mode (`mode="async"`)** — returns a `job_id` immediately, then long-poll with `openstaad_get_job_result`:
 
 ```
-openstaad_execute_code(code="...", mode="async", timeout=300)
+openstaad_execute_code(code="...", mode="async")
 → {"job_id": "abc123def456"}
 
-openstaad_get_job_status(job_id="abc123def456")
-→ {"status": "running", "progress": "Node 50/200", "elapsed_seconds": 12.3}
+openstaad_get_job_result(job_id="abc123def456", wait_seconds=10)
+→ {"status": "running", "message": "⏳ Running (8s): Node 50/200", "strategy": "poll", "next_wait_seconds": 10}
 
-openstaad_get_job_result(job_id="abc123def456")
-→ {"success": true, "result": ..., "status": "completed"}
+openstaad_get_job_result(job_id="abc123def456", wait_seconds=12)
+→ {"status": "completed", "success": true, "result": ..., "message": "✅ Completed in 31s"}
 ```
 
-Use for slow operations (>30 s): analysis, bulk result extraction, large model queries.
+Use for slow operations (>60 s): analysis, bulk result extraction, large model queries.
 
 Rules:
-- Default to `mode="sync"` unless the operation is known to be slow.
-- In async mode, call `openstaad_get_job_result` to collect; if `status: "running"`, call again later.
-- Use `openstaad_get_job_status` to read progress messages without consuming the result.
-- The `progress` field reflects the last `progress()` call from the sandbox code.
+- Mode and timeout are auto-detected — omit both unless you need to override.
+- In async mode, pass `wait_seconds` (default 10, max 55) — the server holds the response until done or that window elapses, reducing round-trips.
+- Check `strategy` in every running response:
+  - `"poll"` → call again immediately with `wait_seconds=next_wait_seconds`
+  - `"await_user_trigger"` → stop all autonomous polling; tell the user the job is still running (include job_id) and wait for them to ask
+- When `status` is `"completed"` or `"failed"`, the result payload is included directly in the response.
 
 ### Reporting Progress to the User
 
 **IMPORTANT:** MCP notifications are NOT visible in the chat UI. The only way the user sees progress is if you **write it in your text response**. Follow this pattern for async operations:
 
 1. Start the job with `mode="async"`
-2. Poll `openstaad_get_job_status` every 5–10 seconds
-3. **Write the `message` field to the user** in each response between polls (e.g. "⏳ Running (12s): Processing plate 500/111684...")
-4. When `status` is `"completed"`, call `openstaad_get_job_result` and present the final result
+2. Call `openstaad_get_job_result(job_id, wait_seconds=10)` — the server holds for up to 10 s
+3. **Write the `message` field to the user** before calling again (e.g. "⏳ Running (18s): Processing plate 40000/111684...")
+4. Check `strategy`: `"poll"` → repeat; `"await_user_trigger"` → stop, tell user, wait for their request
+5. When `status` is `"completed"` or `"failed"`, present the final result
 
 Example conversation flow:
 ```
-→ openstaad_execute_code(code="...", mode="async", timeout=300)
+→ openstaad_execute_code(code="...", mode="async")
 ← {"job_id": "abc123"}
 
 [Tell user: "Starting computation..."]
 
-→ openstaad_get_job_status(job_id="abc123")
-← {"status": "running", "message": "⏳ Running (8s): Reading nodes 5000/52000", "elapsed_seconds": 8.2}
+→ openstaad_get_job_result(job_id="abc123", wait_seconds=10)
+← {"status": "running", "message": "⏳ Running (8s): Reading nodes 5000/52000", "strategy": "poll", "next_wait_seconds": 10}
 
-[Tell user: "⏳ Running (8s): Reading nodes 5000/52000"]
+[Tell user: "⏳ Running (18s): Reading nodes 5000/52000"]
 
-→ openstaad_get_job_status(job_id="abc123")
-← {"status": "running", "message": "⏳ Running (25s): Plate 40000/111684", "elapsed_seconds": 25.1}
-
-[Tell user: "⏳ Running (25s): Plate 40000/111684"]
-
-→ openstaad_get_job_result(job_id="abc123")
-← {"success": true, "result": {...}, "status": "completed"}
+→ openstaad_get_job_result(job_id="abc123", wait_seconds=12)
+← {"status": "completed", "success": true, "result": {...}, "message": "✅ Completed in 31s"}
 
 [Present final result to user]
 ```
 
-For **sync mode** on long operations: progress is logged server-side but not displayed to the user. If you expect >30 s, prefer async mode so you can report progress between polls.
+For **long analyses (>10 min)** the server returns `strategy="await_user_trigger"`:
+```
+→ openstaad_get_job_result(job_id="abc123", wait_seconds=60)
+← {"status": "running", "strategy": "await_user_trigger", "message": "⏳ Still running (12 min). Stop polling — tell the user the analysis is still in progress (job_id='abc123') and wait for them to ask for an update."}
+
+[Stop polling. Tell user: "The analysis is still running. I'll check back when you're ready — just ask me (job_id='abc123')."]
+```
+
+For **sync mode**: progress is not displayed to the user. If you expect >60 s, prefer async mode.
 
 ### Timeout
 
-The `timeout` parameter (seconds) on `openstaad_execute_code` controls how long execution runs before the server aborts it. Default is 120 s. Raise it when the operation is known to be slow:
+Timeout and mode are **auto-detected** from code keywords — the server uses a simple heuristic:
 
-| Operation | Suggested timeout | Mode |
+| Code pattern | Default timeout | Default mode |
 | --- | --- | --- |
-| Small model (<500 nodes), read-only | 60 s | sync |
-| Large model geometry / load queries | 180–300 s | async |
-| Analysis run or bulk result extraction | 300–600 s | async |
-| Unknown model size | 120 s (default) | sync |
+| No loops, no analysis/design | 120 s | sync |
+| Has `for`/`while` loop | 600 s | async |
+| Has `AnalyzeModel`/`AnalyzeEx`/`PerformDesign` | 3600 s | async |
 
-Always combine a raised timeout with `progress()` calls so status shows what is happening.
+The heuristic doesn't know model size or iteration count — **override when you know better:**
+
+```
+openstaad_execute_code(code="...", timeout=1800, mode="async")
+```
+
+#### By script type
+
+| Script type | Examples | Suggested timeout | Mode |
+| --- | --- | --- | --- |
+| **Quick query** — single property read, node/member count, coordinates of one element | `GetNodeCount`, `GetNodeCoordinates(nid)`, `GetBaseUnit` | omit (120 s default) | omit (sync) |
+| **Small mutation** — add one node/beam, assign properties to a known list | `AddNode`, `AddBeam`, `AssignBeamProperty`, `AssignPlateThickness` | omit (120 s default) | omit (sync) |
+| **Medium loop** — iterate <500 elements, apply loads/supports, build geometry | Hydrostatic pressure assignment, assign supports to node list, force report for a few beams | omit (600 s default) | omit (async) |
+| **Heavy loop** — iterate >5 000 elements with per-element COM calls | Plate area scan (100k plates), bulk coordinate read, result extraction over all members × load cases | `timeout=elements × 0.005` | `mode="async"` |
+| **Analysis — linear** — small/medium model (<5 000 nodes) | `AnalyzeEx(1, 0, 1)` on a portal frame or building | omit (3600 s default) | omit (async) |
+| **Analysis — linear** — large model (>5 000 nodes, many load cases) | `AnalyzeEx(1, 0, 1)` on a large industrial structure | `timeout=3600` | `mode="async"` |
+| **Nonlinear / P-Delta / Buckling** — any model size | `PerformPDeltaAnalysisEx`, `PerformNonlinearAnalysisEx`, `PerformBucklingAnalysisEx` | `timeout=3600` | `mode="async"` |
+| **Analysis + Design** — full workflow in one script | `AnalyzeEx` followed by design result extraction loops | `timeout=3600` | `mode="async"` |
+
+#### Estimating timeout for loops
+
+Each COM call takes ~3 ms on average (including marshalling overhead). Use this formula:
+
+```
+timeout ≈ elements × calls_per_element × 0.003
+```
+
+Common patterns:
+
+- **Single property per element** (1 call/element): `timeout = elements × 0.003`
+- **Coordinates + 1 property** (2 calls/element): `timeout = elements × 0.006`
+- **Results for all load cases** (elements × LCs calls): `timeout = elements × load_cases × 0.003`
+- **Nested loop** (elements × sub-elements): multiply both counts
+
+Examples:
+- 50 000 plates × 1 call → `timeout=150` (2.5 min)
+- 10 000 beams × 5 load cases → `timeout=150` (2.5 min)
+- 100 000 plates × 2 calls → `timeout=600` (10 min)
+
+When in doubt, round up generously — a timeout that's too short kills the operation and wastes all progress.
+
+Always add `progress()` calls inside loops so status is visible during long operations.
 
 ### Result Structure for Bulk Queries
 
@@ -205,12 +251,26 @@ Rules:
 - If the tool returns a `result_size_bytes` value close to 200 000, restructure the next query.
 - Prefer summary statistics for initial exploration; fetch raw data only when the user needs specific elements.
 
+### Typical Workflows
+
+Load skills in this order for common tasks:
+
+| Task | Skills to load |
+| --- | --- |
+| Query an existing model | `staad-core` → `staad-results` |
+| Build a model from scratch | `staad-core` → `staad-geometry` → `staad-properties` → `staad-supports` → `staad-loading` → `staad-analysis` → `staad-results` |
+| Run steel design | `staad-core` → `staad-steel-design` |
+| Add loads to existing geometry | `staad-core` → `staad-loading` → `staad-analysis` → `staad-results` |
+| Export a screenshot | `staad-core` → `staad-view` |
+| Robust scripting / error handling | Add `staad-errors` to any of the above |
+
 ### Discovery
 
 Before writing any script:
 
 1. Call `openstaad_discover_api` → lists available skills and usage guidance
 2. Call `openstaad_read_skills` with skill names → detailed instructions for that domain
+3. If you already know a function name but not which skill covers it, read `./assets/FUNCTION_SKILL_MAP.md` for a quick function → skill lookup
 
 Never guess or invent function names — only use names from the skill documentation.
 
@@ -228,9 +288,8 @@ Never guess or invent function names — only use names from the skill documenta
 | `openstaad_read_skills` | Load skill instructions |
 | `openstaad_list_instances` | List running STAAD.Pro instances |
 | `openstaad_get_status` | Check connection to instance |
-| `openstaad_execute_code` | Run code (sync: result direct; async: returns job_id) |
-| `openstaad_get_job_status` | Check job progress |
-| `openstaad_get_job_result` | Collect completed result |
+| `openstaad_execute_code` | Run code — timeout/mode auto-detected; pass `timeout=` to override |
+| `openstaad_get_job_result` | Long-poll a running job or collect its result when done |
 
 ### Units & Axis
 

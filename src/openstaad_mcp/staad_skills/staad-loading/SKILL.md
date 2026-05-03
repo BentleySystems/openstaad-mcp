@@ -41,10 +41,10 @@ description: "Use when defining load cases, applying self-weight, nodal loads, m
 
 ```python
 # Apply to all elements
-load.AddSelfWeightInXYZ(3 if geo.IsZUp() else 2, -1.0)
+load.AddSelfWeightInXYZ(3 if staad.Geometry.IsZUp() else 2, -1.0)
 
 # Apply to specific elements only
-load.AddSelfWeightInXYZToGeometry(elementIds, 3 if geo.IsZUp() else 2, -1.0)
+load.AddSelfWeightInXYZToGeometry(elementIds, 3 if staad.Geometry.IsZUp() else 2, -1.0)
 ```
 
 ### Nodal Loads

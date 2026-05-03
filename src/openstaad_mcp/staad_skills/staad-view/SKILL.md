@@ -5,7 +5,21 @@ description: "Use when controlling the STAAD.Pro user interface: camera views, s
 
 # STAAD.Pro View Control
 
-All view operations go through `view = staad.View`.
+- Define the shorthand once per script: `view = staad.View`
+
+## Prerequisites
+
+Call these before any view operation:
+
+```python
+staad.ShowApplication()   # bring the STAAD.Pro window to the foreground
+```
+
+Before showing result diagrams, also switch to post-processing mode:
+
+```python
+view.SetInterfaceMode(5)  # 5 = Post-processing
+```
 
 ## Interface Modes
 

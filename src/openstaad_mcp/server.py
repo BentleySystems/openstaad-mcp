@@ -11,14 +11,14 @@ Exposes MCP tools:
 - ``openstaad_read_skills``   — returns requested skill content
 - ``openstaad_list_instances`` — lists running STAAD.Pro instances
 - ``openstaad_get_status``    — reports connection health
-- ``openstaad_execute_code``  — starts validated Python execution (returns job_id)
-- ``openstaad_get_job_status`` — checks job progress
-- ``openstaad_get_job_result`` — collects completed job result
+- ``openstaad_execute_code``      — runs code with auto-detected timeout/mode (overridable)
+- ``openstaad_get_job_result``    — long-polls a running job or collects its result when done
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import functools
 import logging
 import time
@@ -49,22 +49,25 @@ class _Job:
     future: asyncio.Future[dict[str, Any]]
     created: float
     progress_message: str = ""
+    last_progress_time: float = 0.0
+    task: asyncio.Task[None] | None = None
 
 
 class _JobStore:
     """Minimal in-memory store for background code executions.
 
-    Jobs are evicted after *ttl_seconds* (default 10 min).
+    Jobs are evicted after *ttl_seconds* (default 2 h).
     """
 
-    def __init__(self, ttl_seconds: float = 600.0) -> None:
+    def __init__(self, ttl_seconds: float = 7200.0) -> None:
         self._jobs: dict[str, _Job] = {}
         self._ttl = ttl_seconds
 
     def create(self, future: asyncio.Future[dict[str, Any]]) -> str:
         self._evict()
         job_id = uuid.uuid4().hex[:12]
-        self._jobs[job_id] = _Job(future=future, created=time.monotonic())
+        now = time.monotonic()
+        self._jobs[job_id] = _Job(future=future, created=now, last_progress_time=now)
         return job_id
 
     def get(self, job_id: str) -> _Job | None:
@@ -81,6 +84,61 @@ class _JobStore:
         for k in expired:
             job = self._jobs.pop(k)
             job.future.cancel()
+
+
+# ── Adaptive polling hint ─────────────────────────────────────────
+
+
+def _poll_hint(job: _Job) -> tuple[str, int]:
+    """Return (strategy, next_wait_seconds) for a still-running job.
+
+    strategy="poll"               → call get_job_result again with next_wait_seconds
+    strategy="await_user_trigger" → stop autonomous polling; wait for user to ask
+    """
+    now = time.monotonic()
+    elapsed = now - job.created
+    if elapsed < 10:  # first few seconds: quick check
+        return "poll", 5
+    if elapsed < 120:  # < 2 min: match default cadence
+        return "poll", 10
+    if elapsed < 600:  # 2-10 min: slow down
+        return "poll", 20
+    if elapsed < 1200:  # 10-20 min: back off
+        return "poll", 30
+    return "await_user_trigger", 0  # > 20 min: let the user decide when to check
+
+
+# ── Execution mode classifier ─────────────────────────────────────
+
+_ANALYSIS_KWS: frozenset[str] = frozenset({"analyzemodel", "analyzeex"})
+_DESIGN_KWS: frozenset[str] = frozenset(
+    {
+        "performdesign",
+        "performsteeldesign",
+        "performconcretedesign",
+        "perform_design",
+    }
+)
+
+
+def _classify_mode(code: str) -> tuple[float, Literal["sync", "async"]]:
+    """Return (default_timeout, mode) based on code keywords.
+
+    Simple heuristic — the LLM can override via explicit timeout/mode params.
+    """
+    lower = code.lower()
+    has_loop = "for " in lower or "while " in lower
+
+    if any(kw in lower for kw in _ANALYSIS_KWS):
+        return 3600.0, "async"
+
+    if any(kw in lower for kw in _DESIGN_KWS):
+        return 3600.0, "async"
+
+    if has_loop:
+        return 600.0, "async"
+
+    return 120.0, "sync"
 
 
 # ── Tool registrations ────────────────────────────────────────────
@@ -275,22 +333,46 @@ def _register_tools(
             idempotentHint=False,
             openWorldHint=False,
         ),
+        output_schema={
+            "type": "object",
+            "description": "sync mode: execution result. async mode: job handle ({job_id, message}).",
+            "properties": {
+                "job_id": {"type": "string", "description": "async mode: pass to openstaad_get_job_result"},
+                "message": {"type": "string", "description": "async mode: polling instructions"},
+                "success": {"type": "boolean", "description": "sync mode"},
+                "result": {"description": "sync mode: return value of the executed code"},
+                "stdout": {"type": "string"},
+                "stderr": {"type": "string"},
+                "error": {"type": ["string", "null"]},
+                "duration_seconds": {"type": "number"},
+                "result_size_bytes": {"type": "integer"},
+                "warning": {"type": "string"},
+            },
+        },
     )
     async def openstaad_execute_code(
         code: str,
         instance: str | None = None,
-        timeout: float = 120.0,
-        mode: Literal["sync", "async"] = "sync",
+        timeout: float | None = None,
+        mode: Literal["sync", "async"] | None = None,
         ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Execute Python code against the OpenSTAAD API.
 
         Imports are blocked; sandbox provides ``staad``, ``json``, ``math``,
-        ``progress``.  ``mode="sync"`` (default) blocks and returns the result
-        directly.  ``mode="async"`` returns a job_id — you MUST then poll
-        ``openstaad_get_job_status`` every 5-10 seconds and display each
-        ``message`` field to the user immediately so they see live progress.
-        Do not silently poll. See staad-core skill for patterns.
+        ``progress``.
+
+        Timeout and execution mode are auto-detected from code keywords but
+        can be overridden:
+
+        - ``timeout`` — max seconds before the execution is killed (default:
+          120 for simple code, 600 for loops, 3600 for analysis/design).
+        - ``mode="sync"`` — block and return result directly.
+        - ``mode="async"`` — return ``job_id`` immediately; poll with
+          ``openstaad_get_job_result``.
+
+        **Async polling:** call ``openstaad_get_job_result(job_id, wait_seconds=N)``.
+        Check ``strategy``: ``"poll"`` → call again; ``"await_user_trigger"`` → stop, tell user.
         """
         try:
             target = _resolve_target(instance)
@@ -299,6 +381,11 @@ def _register_tools(
 
         loop = asyncio.get_running_loop()
         start = time.monotonic()
+
+        # Auto-detect timeout and mode from code keywords; LLM can override both
+        _default_timeout, _auto_mode = _classify_mode(code)
+        _timeout = timeout if timeout is not None else _default_timeout
+        effective_mode: Literal["sync", "async"] = mode if mode is not None else _auto_mode
 
         # In async mode, progress updates the job object.
         # In sync mode, progress is forwarded to the MCP client via log notifications.
@@ -310,6 +397,7 @@ def _register_tools(
         def _progress_fn(message: str) -> None:
             if job_ref is not None:
                 job_ref.progress_message = message
+                job_ref.last_progress_time = time.monotonic()
             elif ctx is not None:
                 asyncio.run_coroutine_threadsafe(
                     ctx.log(message, level="info"),
@@ -317,13 +405,13 @@ def _register_tools(
                 )
 
         def _run(staad: Any) -> dict[str, Any]:
-            return exc.execute(code, staad, progress_fn=_progress_fn, lock_timeout=timeout).to_dict()
+            return exc.execute(code, staad, progress_fn=_progress_fn, lock_timeout=_timeout).to_dict()
 
         # ── Sync mode: block and return result directly ──────────────
-        if mode == "sync":
+        if effective_mode == "sync":
             try:
                 result = await loop.run_in_executor(
-                    None, functools.partial(connect_and_run, _run, target.file_path, timeout)
+                    None, functools.partial(connect_and_run, _run, target.file_path, _timeout)
                 )
             except TimeoutError:
                 return {
@@ -331,7 +419,10 @@ def _register_tools(
                     "result": None,
                     "stdout": "",
                     "stderr": "",
-                    "error": "Code execution timed out",
+                    "error": (
+                        f"Code execution timed out after {_timeout:.0f}s. "
+                        "Retry with mode='async' to run in the background."
+                    ),
                     "duration_seconds": round(time.monotonic() - start, 1),
                     "result_size_bytes": 0,
                 }
@@ -357,7 +448,7 @@ def _register_tools(
         async def _bg_task() -> None:
             try:
                 result = await loop.run_in_executor(
-                    None, functools.partial(connect_and_run, _run, target.file_path, timeout)
+                    None, functools.partial(connect_and_run, _run, target.file_path, _timeout)
                 )
                 if target.warning:
                     result["warning"] = target.warning
@@ -371,8 +462,12 @@ def _register_tools(
                             "result": None,
                             "stdout": "",
                             "stderr": "",
-                            "error": "Code execution timed out",
-                            "duration_seconds": timeout,
+                            "error": (
+                                f"Code execution timed out after {_timeout:.0f}s. "
+                                "The operation took longer than expected — consider splitting "
+                                "it into smaller chunks."
+                            ),
+                            "duration_seconds": _timeout,
                             "result_size_bytes": 0,
                         }
                     )
@@ -390,7 +485,8 @@ def _register_tools(
                         }
                     )
 
-        asyncio.create_task(_bg_task())  # noqa: RUF006
+        if job_ref is not None:
+            job_ref.task = asyncio.create_task(_bg_task())
 
         return {
             "job_id": job_id,
@@ -400,18 +496,19 @@ def _register_tools(
 
     @mcp.tool(
         annotations=ToolAnnotations(
-            title="Get job status — SHOW message to user",
+            title="Poll job — ALWAYS show message to user",
             readOnlyHint=True,
             destructiveHint=False,
-            idempotentHint=True,
+            idempotentHint=False,  # Job state can change between calls
             openWorldHint=False,
         ),
         output_schema={
             "type": "object",
-            "required": ["status", "message"],
+            "required": ["status"],
             "properties": {
                 "status": {"type": "string", "enum": ["running", "completed", "failed", "unknown"]},
-                "progress": {"type": "string", "description": "Last progress message from the sandbox"},
+                "message": {"type": "string", "description": "Always display this to the user"},
+                "progress": {"type": "string", "description": "Last progress message (running only)"},
                 "elapsed_seconds": {"type": "number"},
                 "message": {
                     "type": "string",
@@ -455,46 +552,71 @@ def _register_tools(
                 "duration_seconds": {"type": "number"},
                 "result_size_bytes": {"type": "integer"},
                 "warning": {"type": "string"},
-                "status": {"type": "string", "enum": ["running", "completed", "failed", "unknown"]},
-                "progress": {"type": "string"},
             },
         },
     )
-    def openstaad_get_job_result(job_id: str) -> dict[str, Any]:
-        """Collect the result of a completed job.
+    async def openstaad_get_job_result(job_id: str, wait_seconds: float = 10.0) -> dict[str, Any]:
+        """IMPORTANT: Always display the ``message`` field to the user — it is the only way they see progress.
 
-        If the job is still running, returns ``status: "running"`` with
-        the latest progress message — call again when ready.
-        Once complete, the job is removed from the store.
+        Poll a running job or collect its result when done. Pass ``wait_seconds``
+        (default 10, max 55) — the server holds the response until the job finishes
+        or the timeout elapses, so each call covers a block of time rather than a
+        single instant. Pass ``wait_seconds=0`` to return immediately without waiting
+        (useful for a non-blocking status check).
+
+        When ``status="running"``, check the ``strategy`` field:
+
+        - ``"poll"`` — display ``message`` to the user, then call again immediately
+          with ``wait_seconds=next_wait_seconds``.
+        - ``"await_user_trigger"`` — display ``message`` to the user, then stop all
+          autonomous polling; wait for the user to ask for an update.
+
+        When ``status="completed"`` or ``"failed"``, the full result payload is included
+        and the job is removed from the store.
         """
         job = jobs.get(job_id)
         if job is None:
             return {
-                "success": False,
-                "result": None,
-                "stdout": "",
-                "stderr": "",
-                "error": f"Unknown or expired job_id: {job_id!r}",
-                "duration_seconds": 0.0,
-                "result_size_bytes": 0,
                 "status": "unknown",
+                "message": f"Job not found or expired: {job_id!r}. Results are kept for 2 hours.",
             }
+
+        # Long-poll: hold until done or timeout — returns as soon as the job finishes
+        if not job.future.done() and wait_seconds > 0:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(asyncio.shield(job.future), timeout=min(wait_seconds, 55.0))
+
+        elapsed = round(time.monotonic() - job.created, 1)
+
         if not job.future.done():
+            strategy, next_wait = _poll_hint(job)
+            progress = job.progress_message
+            if strategy == "await_user_trigger":
+                msg = (
+                    f"⏳ Still running ({elapsed:.0f}s). "
+                    "Stop polling — tell the user the analysis is still in progress "
+                    f"(job_id={job_id!r}) and wait for them to ask for an update."
+                )
+            else:
+                msg = f"⏳ Running ({elapsed:.0f}s): {progress}" if progress else f"⏳ Running ({elapsed:.0f}s)..."
             return {
-                "success": True,
-                "result": None,
-                "stdout": "",
-                "stderr": "",
-                "error": None,
-                "duration_seconds": round(time.monotonic() - job.created, 1),
-                "result_size_bytes": 0,
                 "status": "running",
-                "progress": job.progress_message,
+                "message": msg,
+                "progress": progress,
+                "elapsed_seconds": elapsed,
+                "strategy": strategy,
+                "next_wait_seconds": next_wait,
             }
-        # Done — pop and return
+
+        # Done — pop and return full result
         jobs.pop(job_id)
         result = job.future.result()
-        result["status"] = "completed" if result.get("success") else "failed"
+        status = "completed" if result.get("success") else "failed"
+        result["status"] = status
+        result["elapsed_seconds"] = elapsed
+        result["message"] = (
+            f"✅ Completed in {elapsed:.0f}s" if status == "completed" else f"❌ Failed after {elapsed:.0f}s"
+        )
         return result
 
 
@@ -520,17 +642,21 @@ def create_mcp_server(fastmcp_kwargs: dict | None = None) -> FastMCP:
             "OpenSTAAD COM API. Use `openstaad_discover_api` first to list available "
             "skills and guidance, then call `openstaad_read_skills` with skill names "
             "to load detailed instructions. Use `openstaad_list_instances` to see "
-            "running STAAD instances. Use `openstaad_execute_code` to run Python code "
-            "— sync mode (default) returns the result directly; for long operations use "
-            "mode='async', which returns a job_id, then monitor with "
-            "`openstaad_get_job_status` and collect with `openstaad_get_job_result`. "
+            "running STAAD instances. Use `openstaad_execute_code` to run Python code. "
             "Use `openstaad_get_status` to check connection health. "
             "When a `warning` field appears in any tool response, report it to the user.\n\n"
-            "PROGRESS VISIBILITY: When using async mode, poll `openstaad_get_job_status` "
-            "every 5-10 seconds and DISPLAY the `message` field to the user in your text "
-            "response (e.g. '⏳ Running (12s): Processing plate 500/111684...'). This is "
-            "the only way the user sees execution progress — MCP notifications are not "
-            "displayed in the chat UI. Always show the `message` value between polls."
+            "EXECUTION MODES: Timeout and mode are auto-detected from code keywords "
+            "(120s sync for simple code, 600s async for loops, 3600s async for analysis/design). "
+            "Override with `timeout=` for precise control when you know the expected duration "
+            "(e.g. `timeout=elements*0.005` for large loops at ~3ms per COM call). "
+            "Override with `mode='async'` to force background execution. "
+            "If the response has a job_id key, the job is running in the background.\n\n"
+            "ASYNC POLLING: Call `openstaad_get_job_result(job_id, wait_seconds=N)` — the "
+            "server holds the response until the job finishes or N seconds elapse (default 10, "
+            "max 55). Always display the `message` field to the user. Check `strategy`: "
+            "'poll' → call again immediately with wait_seconds=next_wait_seconds; "
+            "'await_user_trigger' → stop all autonomous polling, tell the user the job is "
+            "still running (include the job_id), and wait for them to ask for an update."
         ),
         lifespan=mcp_lifespan,
         **fastmcp_kwargs,

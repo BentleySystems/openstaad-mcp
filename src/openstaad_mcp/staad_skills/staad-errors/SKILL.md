@@ -1,6 +1,6 @@
 ﻿---
 name: staad-errors
-description: 'Use when handling errors from OpenSTAAD operations, interpreting negative return codes, or writing robust error-handling patterns. Covers: common error code groups (general, file, node, beam, plate, solid, property, group, load, results), try/except patterns for COM exceptions, checking return values. NOTE: In the MCP sandbox import is blocked — catch generic Exception, not typed oserrors classes.'
+description: 'Load whenever writing any script that modifies the model, adds geometry, assigns properties, or runs analysis — most OpenSTAAD functions return negative integers on failure rather than raising exceptions, so callers must check return values explicitly. Covers: common error code groups (general -1, file -1003, node -2001, beam -3001, plate -4001, solid -5001, property -6001, load -8001, results -9004/-9911), try/except patterns for COM exceptions, checking return values, robust model-building patterns. NOTE: In the MCP sandbox import is blocked — catch generic Exception, not typed oserrors classes.'
 ---
 
 # STAAD.Pro Error Handling

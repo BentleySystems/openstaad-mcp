@@ -17,15 +17,7 @@
         "entry_point": "openstaad-mcp.exe",
         "mcp_config": {
             "command": "${__dirname}/openstaad-mcp.exe",
-            "args": [],
-            "alwaysAllow": [
-                "openstaad_discover_api",
-                "openstaad_read_skills",
-                "openstaad_list_instances",
-                "openstaad_get_status",
-                "openstaad_get_job_status",
-                "openstaad_get_job_result"
-            ]
+            "args": []
         }
     },
     "tools": [
@@ -47,15 +39,11 @@
         },
         {
             "name": "openstaad_execute_code",
-            "description": "Execute Python code against the OpenSTAAD API. Imports are blocked; sandbox provides staad, json, math, progress. mode='sync' (default) returns the result directly. mode='async' returns {job_id} immediately for long operations — monitor with openstaad_get_job_status, collect with openstaad_get_job_result."
-        },
-        {
-            "name": "openstaad_get_job_status",
-            "description": "Check execution status for a running async job. IMPORTANT: always display the returned `message` field to the user in text so they see progress. Returns status (running/completed/failed), elapsed_seconds, and a pre-formatted `message` ready to show."
+            "description": "Execute Python code against the OpenSTAAD API. Imports are blocked; sandbox provides staad, json, math, progress. Timeout and mode are auto-detected from code keywords (120s sync, 600s async for loops, 3600s async for analysis/design). Override with timeout= for precise control (e.g. elements×0.005 for large loops at ~3ms/call). Override with mode='async' to force background execution — returns {job_id}, poll with openstaad_get_job_result."
         },
         {
             "name": "openstaad_get_job_result",
-            "description": "Collect the result of a completed async job. Returns status: 'running' with latest progress if not yet done — call again when ready. Once complete, the job is removed from the store."
+            "description": "IMPORTANT: always display the returned `message` field to the user so they see progress. Long-polls a running job (server holds up to wait_seconds before responding) or returns the full result when done. Check `strategy`: 'poll' → call again with wait_seconds=next_wait_seconds; 'await_user_trigger' → stop polling, tell user job is still running, wait for their request."
         }
     ],
     "tools_generated": false,

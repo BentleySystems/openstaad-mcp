@@ -7,6 +7,8 @@ description: 'Use when performing steel member design, code checking, computing 
 
 ## Instructions
 
+- Define the shorthand once per script: `design = staad.Design`
+
 ### Design Workflow — 5 Steps
 
 **Step 1 — Create design brief**

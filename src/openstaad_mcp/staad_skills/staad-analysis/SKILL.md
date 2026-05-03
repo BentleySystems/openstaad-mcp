@@ -7,6 +7,8 @@ description: 'Use when running structural analysis, solving the model, or execut
 
 ## Instructions
 
+- Define the shorthand once per script: `cmd = staad.Command`
+
 ### Linear Static Analysis (two steps)
 1. `cmd.PerformAnalysis(printOption)` — adds the `PERFORM ANALYSIS` command. Call **ONCE only**.
 2. `staad.SaveModel(True)` + `staad.AnalyzeEx(1, 0, 1)` — saves the file, then runs the solver.
@@ -124,7 +126,7 @@ For workflows, prefer the staad-steel-design skill which uses the `Design` sub-m
 See [run-analysis.py](./scripts/run-analysis.py) for a complete working example.
 
 ## Gotchas
-- Do NOT call `PerformAnalysis` more than once — it adds duplicate commands
+- Do NOT call `PerformAnalysis` again in the same script session if you haven't added new load cases or changed the analysis type — it adds a duplicate `PERFORM ANALYSIS` command. Multiple calls are valid across sessions or when the analysis setup has genuinely changed (new load cases, different analysis type, etc.)
 - Must call `SaveModel` before `AnalyzeModel` — the engine reads from the `.std` file on disk
 - Wrap `AnalyzeModel`/`AnalyzeEx` in `SetSilentMode(True/False)` to prevent blocking dialogs
 - For design workflows always use `AnalyzeEx(1, 0, 1)` — never `AnalyzeModel`

@@ -60,10 +60,12 @@ class TestMCPProtocol:
             assert result is not None
 
     @pytest.mark.asyncio
-    async def test_describe_api_module(self):
+    async def test_discover_api_returns_skills(self):
         async with Client(SERVER_URL) as client:
-            result = await client.call_tool("openstaad_discover_api", {"module": "geometry"})
+            result = await client.call_tool("openstaad_discover_api", {})
             assert result is not None
+            text = result.content[0].text
+            assert "staad-core" in text
 
     @pytest.mark.asyncio
     async def test_execute_code_simple(self):
