@@ -33,7 +33,6 @@ from dataclasses import dataclass
 _VERSION_RE = re.compile(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?")
 
 
-
 @dataclass(frozen=True, order=True)
 class Version:
     """A comparable semantic version with up to four segments.
