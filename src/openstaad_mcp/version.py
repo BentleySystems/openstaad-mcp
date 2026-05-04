@@ -31,7 +31,7 @@ from dataclasses import dataclass
 # ---------------------------------------------------------------------------
 
 _VERSION_RE = re.compile(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?")
-_BRACKETED_RE = re.compile(r"\[v?(\d+(?:\.\d+)*)\]", re.IGNORECASE)
+
 
 
 @dataclass(frozen=True, order=True)
@@ -56,20 +56,9 @@ class Version:
 def parse_version(raw: str) -> Version:
     """Parse a dotted version string into a :class:`Version`.
 
-    Handles formats like:
-    - ``"26.00.01.05"``
-    - ``"26.0.1"``
-    - ``"30"``
-    - ``"STAAD.Pro 2024 [v30.00.01.01]"`` — bracketed version preferred
-
-    Leading zeros are stripped (``"01"`` → 1).  If a bracketed version
-    (e.g. ``[v30.00.01.01]``) is present, it takes priority over any
-    preceding numbers.
+    Handles formats like ``"26.00.01.05"``, ``"26.0.1"``, ``"30"``.
+    Leading zeros are stripped (``"01"`` → 1).
     """
-    # Prefer bracketed version like [v30.00.01.01]
-    bm = _BRACKETED_RE.search(raw)
-    if bm:
-        raw = bm.group(1)
     m = _VERSION_RE.search(raw)
     if not m:
         raise ValueError(f"Cannot parse version from: {raw!r}")

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from dataclasses import fields
 from typing import Any
 
 from fastmcp import FastMCP
@@ -117,11 +116,7 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         """
         results = []
         for inst in registry.get_active_instances():
-            d = {f.name: getattr(inst, f.name) for f in fields(inst)}
-            # Omit warning key entirely when None to keep response clean
-            if d.get("warning") is None:
-                d.pop("warning", None)
-            results.append(d)
+            results.append(inst.asdict())
         return results
 
     @mcp.tool(

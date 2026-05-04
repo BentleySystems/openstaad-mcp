@@ -38,10 +38,6 @@ class TestParseVersion:
     def test_leading_zeros_stripped(self) -> None:
         assert parse_version("026.001.007") == Version(26, 1, 7)
 
-    def test_embedded_in_text(self) -> None:
-        # Handles formats like "STAAD.Pro 2024 [v30.00.01.01]"
-        assert parse_version("STAAD.Pro 2024 [v30.00.01.01]") == Version(30, 0, 1, 1)
-
     def test_no_match_raises(self) -> None:
         with pytest.raises(ValueError, match="Cannot parse version"):
             parse_version("no-version-here")
