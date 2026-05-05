@@ -109,7 +109,7 @@ The only way out of the sandbox is through two allowlist-gated host functions th
 
 ### Per-call resource limits
 
-A single `execute_code` call is capped at 30 seconds wall-clock, 64 MiB of linear memory, 256 KiB of source code, and 256 KiB of captured `console` output. Exceeding any of these returns a sanitized error. A process-wide limit of 20 concurrent COM worker threads prevents runaway accumulation if calls time out repeatedly.
+A single `execute_code` call is capped at 30 seconds wall-clock, 128 MiB of linear memory, 256 KiB of source code, and 256 KiB of captured `console` output. Exceeding any of these returns a sanitized error. A process-wide limit of 20 concurrent COM worker threads prevents runaway accumulation if calls time out repeatedly.
 
 ### HTTP transport authentication
 

@@ -71,7 +71,7 @@ openstaad-mcp's `execute_code` tool is textbook **User "Code Mode"** -- an MCP s
 
 | Guideline | What We Built | Verdict |
 |---|---|---|
-| Behavioral baseline, execution monitoring, rate limiting, audit logging | 30s timeout, 64 MiB memory cap, 256 KiB console output cap. No rate limiting, no audit log, no behavioral baseline beyond resource limits. | **Partial.** Resource limits are in place (OMCP-007 fix). No audit trail or anomaly detection. The guideline itself acknowledges "client-side/desktop logs are NOT tamper-proof." Acceptable for desktop v2. Needs work if this server moves to shared/cloud deployment. |
+| Behavioral baseline, execution monitoring, rate limiting, audit logging | 30s timeout, 128 MiB memory cap, 256 KiB console output cap. No rate limiting, no audit log, no behavioral baseline beyond resource limits. | **Partial.** Resource limits are in place (OMCP-007 fix). No audit trail or anomaly detection. The guideline itself acknowledges "client-side/desktop logs are NOT tamper-proof." Acceptable for desktop v2. Needs work if this server moves to shared/cloud deployment. |
 
 ### Control 6 (LLM Gateway) and Control 7 (Input Parameterization)
 

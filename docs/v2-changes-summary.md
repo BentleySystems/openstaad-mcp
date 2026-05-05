@@ -112,7 +112,7 @@ Resource limits (none of these existed in v1):
 | Limit | Value |
 |-------|-------|
 | Wall-clock timeout | 30 s |
-| WASM memory | 64 MiB |
+| WASM memory | 128 MiB |
 | Max source code | 256 KiB |
 | Max stdout/stderr | 256 KiB |
 | COM worker threads | 20 (process-wide semaphore) |
@@ -253,7 +253,7 @@ Full writeups live in [`code-review/`](../code-review/). The index is [`openstaa
 | [OMCP-001](../code-review/OMCP-001-sandbox-format-string-dunder-bypass.md) | `str.format()` reached arbitrary dunders, path to builtins. | Gone. JavaScript has no dunders. |
 | [OMCP-003](../code-review/OMCP-003-sandbox-escape-com-internals.md) | Raw COM object in `exec()` globals exposed `_oleobj_`, `_dispobj_`, etc. | Gone. COM objects never enter the WASM address space. |
 | [OMCP-004](../code-review/OMCP-004-executor-deadlock-after-timeout.md) | Threading lock held after timeout, deadlocking subsequent calls. | Gone. No threading lock; timeout is a deadline check. |
-| [OMCP-007](../code-review/OMCP-007-dos-unbounded-resource-consumption.md) | No memory, CPU, or output caps. | Fixed. 64 MiB / 30 s / 256 KiB caps enforced by WASM runtime. |
+| [OMCP-007](../code-review/OMCP-007-dos-unbounded-resource-consumption.md) | No memory, CPU, or output caps. | Fixed. 128 MiB / 30 s / 256 KiB caps enforced by WASM runtime. |
 | [OMCP-008](../code-review/OMCP-008-sandbox-mro-type-hierarchy-leak.md) | `type.__mro__` traversal reached protected types. | Gone. No MRO in JavaScript. |
 
 All five exploited the same root cause. Moving user code to a WASM isolate removes the attack surface entirely.

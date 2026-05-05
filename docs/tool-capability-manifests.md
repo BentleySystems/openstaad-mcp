@@ -497,7 +497,7 @@ in the same call, completely bypassing the gate. MCP elicitation eliminates this
 | Limit | Value | Enforcement |
 |-------|-------|-------------|
 | Wall-clock timeout | 30 s | Wasmtime epoch-based interruption (preemptive) + cooperative `assert_deadline()` in host functions |
-| WASM memory | 64 MiB (1024 pages) | Extism manifest `memory.max_pages` → Wasmtime linear memory cap |
+| WASM memory | 128 MiB (2048 pages) | Extism manifest `memory.max_pages` → Wasmtime linear memory cap |
 | Source code size | 256 KiB | Checked before plugin instantiation |
 | stdout/stderr capture | 256 KiB | Truncated silently; execution continues |
 | Concurrent COM threads | 20 | Process-wide semaphore; fail-fast `RuntimeError` at limit |

@@ -10,6 +10,8 @@ Users want workflows like "read this CSV and create a beam for each row" or "run
 
 The current architecture gives the agent exactly one way to interact with STAAD: `execute_code`. That tool runs JavaScript inside a WebAssembly isolate with zero filesystem access. We are not going to change that. The sandbox stays clean. So how do we get data in and out of files without opening a hole in the isolation model?
 
+[Skip straight to Proposed solution](#proposed-solution-mcp-layer-compound-tools-outside-the-sandbox)
+
 ## Constraints
 
 ### Anthropic Software Directory Policy
@@ -48,31 +50,37 @@ Source: [security-architecture.md](security-architecture.md), §5 Control 4 "Exp
 
 12. **Control 4.** "Applications integrating the MCP Host must implement an approval gate for operations that modify state or have external side effects, as determined by the TCM's requiresUserApproval field."
 
-## Proposed solution: MCP-layer file tools (outside the sandbox)
+## Proposed solution: MCP-layer compound tools (outside the sandbox)
 
-Two new MCP tools at the server layer. Completely outside the WASM sandbox. The agent orchestrates data flow between them and `execute_code`.
+Two new MCP tools at the server layer. Completely outside the WASM sandbox. Both are "compound" tools: they combine file I/O with code execution in a single call so bulk data stays server-side and never enters the agent's context window. This is the core design constraint. A 10,000-row member force extraction is ~1.4 MB of JSON. If that transits through agent context (read tool returns data, agent passes data to write tool), it consumes ~350K tokens each direction. That blows the context window on every non-trivial export. The compound architecture eliminates this entirely: bulk data flows from file to sandbox to file without ever touching the LLM.
+
+### Architecture: server-side data brokering
 
 ```
-Agent context
+Agent context (only sees summaries + sample rows)
   |
-  +-- read_tabular_data(path, max_rows?)              -> JSON rows
-  |       (agent holds data in context or embeds in code)
+  +-- read_and_execute(path, code, instance?)
+  |       server: read file -> inject as __input -> run code -> return result
+  |       agent sees: code output + first N rows of input for verification
   |
-  +-- execute_code(code)                              -> results via console.log / return
-  |       (agent captures structured output)
-  |
-  +-- write_tabular_data(path, rows, columns)         -> {success, path, rows_written}
+  +-- execute_and_write(code, path, columns, instance?)
+          server: run code -> capture return value -> write to file
+          agent sees: row count + first N rows for verification
 ```
 
-The agent is the data broker. Same pattern as a human copying data between a CSV and a script. No sandbox modification, no new host functions, no filesystem access from inside WASM.
+Both tools keep bulk data in Python server memory. The sandbox sees data arrive via `__input` (read path) or leave via return value (write path). Neither direction grants new capabilities to the sandbox. The agent never holds raw file content or raw result sets.
+
+**How "peek" works without a simple read tool:** The `read_and_execute` response always includes `input_summary.sample_rows` (first 5 rows). If the agent needs more visibility, it writes code like `return __input.slice(0, 50)` to return a subset as the execution result. This covers the "show me what's in this file" case without a dedicated read tool.
+
+**Why there is no simple write tool:** `execute_and_write` handles both cases. For STAAD extraction (the dominant case), the code is a small loop and the output is huge: 500 members x 20 load cases = 10,000 rows from ~200 bytes of iteration logic. Code size is irrelevant. For agent-assembled data with no STAAD source (e.g. a summary table the agent built in context), the agent puts the data directly in the code as a literal: `return [[1, "W12X26", 3.5], ...]`. The 256 KiB code size limit caps this at ~1,800 rows of inline data. That is not a real constraint because any dataset larger than that should be coming from STAAD extraction or from a file via `read_and_execute`, not from the agent's context window.
 
 ### Design decision: CSV + xlsx via openpyxl
 
 We support `.csv` and `.xlsx`. No `.xls`, no `.xlsm`, no `.tsv`.
 
 Both tools are a common data broker. Regardless of file format, the interface is:
-- **Read:** file on disk → library parses → JSON rows to agent context
-- **Write:** JSON rows from agent context → library serializes → file on disk
+- **Read path (`read_and_execute`):** file on disk → library parses → array of arrays injected into sandbox as `__input`
+- **Write path (`execute_and_write`):** sandbox returns array of arrays → library serializes → file on disk
 
 The agent never sees format-specific details (encoding, quoting, XML structure). It sees JSON arrays in, JSON arrays out. The libraries handle serialization:
 
@@ -106,16 +114,16 @@ The agent never sees format-specific details (encoding, quoting, XML structure).
 
 openpyxl runs in the MCP server process (Python side), NOT in the WASM sandbox. The security control sequence is:
 
-1. Agent calls `read_tabular_data(path="schedule.xlsx")`
+1. Agent calls `read_and_execute(path="schedule.xlsx", code="...")`
 2. Path validation fires (see "Path validation strategy"): model guard, resolve, UNC reject, containment check, existence check.
-3. File size check fires (10 MB on-disk cap)
+3. File size check fires (50 MB on-disk cap)
 4. Only THEN does openpyxl open the file
-5. openpyxl reads cell values, server converts to JSON rows
-6. JSON rows returned to agent context
+5. openpyxl reads cell values, server converts to Python list of lists
+6. Data injected into sandbox as frozen `__input`
 
-openpyxl never sees an unvalidated path. The file has already passed all security gates before the library touches it. The 10 MB file size cap also limits the blast radius from any hypothetical XML parsing issue (billion laughs payloads need large files to be effective, and `defusedxml` blocks them regardless).
+openpyxl never sees an unvalidated path. The file has already passed all security gates before the library touches it. The 50 MB file size cap also limits the blast radius from any hypothetical XML parsing issue (billion laughs payloads need large files to be effective, and `defusedxml` blocks them regardless).
 
-**Write path:** `write_tabular_data` constructs the workbook from the agent-supplied `rows` JSON array. The data originates from the agent's context (already validated as JSON arrays of primitives). openpyxl never parses untrusted xlsx content on the write path.
+**Write path:** `execute_and_write` constructs the workbook from the sandbox's return value (array of arrays of JSON primitives). The data originates from controlled code execution inside the WASM isolate. openpyxl never parses untrusted xlsx content on the write path.
 
 **Supply-chain risk mitigation:** Exact version pins in `pyproject.toml`. Both packages are pure Python, no native compilation step, reproducible installs. See Dependencies section for version details.
 
@@ -133,45 +141,188 @@ This sequence runs identically for both tools. It is a single function in the co
 
 ### Why this works
 
-The sandbox never touches files. Each tool is independently auditable with a clear risk profile. `read_tabular_data` is read-only (`readOnlyHint=true`, auto-approved, no confirmation dialog). `write_tabular_data` is destructive (`destructiveHint=true`, host confirmation dialog fires before invocation). No elicitation required at any point.
+The sandbox never touches files. Each tool is independently auditable with a clear risk profile:
 
-The data flow is explicit and visible to the agent's host. The host can inspect what the agent intends to write before it happens. This is exactly the trust model Claude Desktop already uses for destructive tools.
+| Tool | Reads file? | Writes file? | Modifies STAAD? | `destructiveHint` |
+|------|------------|-------------|----------------|-------------------|
+| `read_and_execute` | Yes | No | Yes (via code) | `true` |
+| `execute_and_write` | No | Yes | Maybe (via code) | `true` |
 
-### `read_tabular_data`
+Both tools are `destructiveHint=true`. Both require host confirmation before invocation. The agent cannot silently read or write files. The data flow is explicit and visible to the host. Bulk data stays server-side, reducing both token cost and prompt-injection surface. This is exactly the trust model Claude Desktop already uses for destructive tools.
 
-| Control                | Implementation                                                                                                                                    |
-|------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
-| Path validation        | See "Path validation strategy" above. Shared validation function handles model guard, resolve, UNC rejection, and containment.                    |
-| Format                 | `.csv` (comma delimiter, first row = headers) or `.xlsx` (openpyxl read-only mode, `data_only=True`, active sheet by default)                     |
-| Size cap               | 10 MB on-disk file size. `max_rows` parameter (default 10,000). Hard ceiling 50,000 rows, 500 columns.                                             |
-| Output shape           | `{"success": true, "columns": [...], "rows": [[...], ...], "truncated": bool, "total_rows": int}`                                              |
-| Tool annotation        | `readOnlyHint=true`, `openWorldHint=false`, `title="Read tabular file"`. Auto-approved: tool is read-only on the filesystem                        |
+### `read_and_execute` (compound: file → STAAD)
+
+The bulk-import tool. Reads a file server-side, injects the data into the sandbox as a pre-bound `__input` variable, and executes user code that operates on it. The full dataset never enters agent context.
+
+**Data flow:**
+1. Path validation (shared function)
+2. Server reads file via csv/openpyxl, converting cell values to JSON primitives during row iteration (datetime → ISO 8601 string, numeric coercion for CSV text)
+3. Data injected into sandbox as `Object.freeze`'d `__input` global before code execution
+4. User code accesses `__input` directly (no function call, no host function)
+5. Return value sent back to agent as normal `execute_code` result
+
+**Example agent call:**
+```json
+{
+  "tool": "read_and_execute",
+  "arguments": {
+    "path": "D:\\project\\beam_schedule.xlsx",
+    "code": "const geo = staad.Geometry;\nconst prop = staad.Property;\nfor (const [label, x1, y1, z1, x2, y2, z2, section] of __input) {\n  const n1 = geo.AddNode(x1, y1, z1);\n  const n2 = geo.AddNode(x2, y2, z2);\n  geo.AddBeam(n1, n2);\n}\nreturn `Created ${__input.length} beams`;",
+    "sheet_name": "Beams"
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "result": "Created 2847 beams",
+  "stdout": "",
+  "stderr": "",
+  "input_summary": {
+    "total_rows": 2847,
+    "columns": ["label", "x1", "y1", "z1", "x2", "y2", "z2", "section"],
+    "sample_rows": [[1, 0, 0, 0, 0, 120, 0, "W12X26"], [2, 0, 0, 0, 120, 0, 0, "W10X19"], [3, 0, 120, 0, 120, 120, 0, "W12X26"]]
+  },
+  "duration_seconds": 4.2
+}
+```
+
+The agent sees 3 sample rows (enough to confirm the data shape was correct) and the code's return value. It never holds 2,847 rows in context.
+
+| Control                | Implementation |
+|------------------------|----------------|
+| Path validation        | Shared function (model guard, resolve, UNC reject, containment, existence) |
+| Format                 | `.csv` or `.xlsx` (same parsing as `read_and_execute`) |
+| File size cap          | 50 MB on-disk. Prevents pathological xlsx decompression. |
+| Row/column caps        | 100,000 rows, 500 columns. Driven by WASM linear memory (128 MiB). |
+| `__input` binding      | Deep-frozen array of arrays of JSON primitives. No functions, no prototypes, no proxies. Pre-serialized through JSON round-trip. |
+| Code execution         | Same sandbox, same timeout, same allowlist gates as `execute_code` |
+| Destructive method detection | Same pre-flight scan as `execute_code` (if code contains destructive methods, elicitation fires) |
+| Tool annotation        | `destructiveHint=true` (modifies STAAD model), `idempotentHint=false`, `openWorldHint=false`, `title="Import file data into STAAD"` |
+| Sample rows in response | First 5 rows of `__input` returned in `input_summary` for agent verification |
 
 Parameters:
-- `path` (required): Absolute path to the `.csv` or `.xlsx` file. Validated and resolved before any read.
-- `max_rows` (optional): Maximum rows to return. Defaults to 10,000. Hard ceiling at 50,000.
-- `columns` (optional): Column name or index filter. Only return specified columns to reduce token usage.
-- `start_row` (optional): Pagination support. Skip this many rows before returning data.
-- `sheet_name` (optional): For `.xlsx` files only. Name of the worksheet to read. Defaults to the active sheet. Ignored for `.csv`.
+- `path` (required): Absolute path to `.csv` or `.xlsx` file in the model directory.
+- `code` (required): JavaScript code to execute. Has access to `staad`, `console`, and `__input`.
+- `instance` (optional): Target STAAD instance alias.
+- `sheet_name` (optional): For xlsx files. Defaults to active sheet.
+- `columns` (optional): Column filter. Only load specified columns into `__input`.
+- `start_row` (optional): Skip N rows before loading into `__input`.
+- `max_rows` (optional): Limit rows loaded into `__input`. Defaults to 100,000. Hard ceiling 100,000.
 
-### `write_tabular_data`
+### `execute_and_write` (compound: STAAD → file)
 
-| Control                | Implementation                                                                            |
-|------------------------|-------------------------------------------------------------------------------------------|
-| Path validation        | See "Path validation strategy" above. Same shared validation function as `read_tabular_data`. |
-| Format                 | `.csv` (comma delimiter, all text quoted) or `.xlsx` (openpyxl write-only mode, single sheet)                                                     |
-| Overwrite protection   | If file exists and `overwrite=false` (default), return error with `"error": "FILE_EXISTS"` and the existing file path. Agent can retry with `overwrite=true`. The host's `destructiveHint` confirmation dialog is the consent gate, not a separate existence check. |
-| Size cap               | 100,000 rows max, 500 columns max, 50 MB output file size                                 |
-| Data-only input        | `rows` parameter is a JSON array of arrays. No formulas, no macros, no embedded objects   |
-| Tool annotation        | `destructiveHint=true`, `idempotentHint=true`, `openWorldHint=false`, `title="Write tabular file"` |
-| No directory creation  | Parent directory must already exist. We do not mkdir.                                      |
-| Atomic write           | Write to `.~omcp_{random}.tmp` in same directory, then `os.replace()` to target. `try/finally` deletes temp on failure. Stale `.~omcp_*.tmp` files older than 1 hour are cleaned up on each invocation. |
+The bulk-export tool. Executes code in the sandbox, captures the return value (expected to be an array of arrays), and writes it directly to a file server-side. The full result set never enters agent context.
+
+**Data flow:**
+1. Code executes in sandbox (same as `execute_code`)
+2. Return value captured in Python server memory
+3. Server validates: must be an array of arrays of JSON primitives
+4. Path validation (shared function)
+5. Server writes to file via csv/openpyxl (atomic write)
+6. Agent receives: row count, column headers, and first N sample rows
+
+**Example agent call:**
+```json
+{
+  "tool": "execute_and_write",
+  "arguments": {
+    "code": "const out = staad.Output;\nconst load = staad.Load;\nconst beams = staad.Geometry.GetBeamList();\nconst cases = load.GetPrimaryLoadCaseNumbers();\nconst rows = [];\nfor (const beam of beams) {\n  for (const lc of cases) {\n    const f = out.GetMemberEndForces(beam, 0, lc, 0);\n    rows.push([beam, lc, f[0], f[1], f[2], f[3], f[4], f[5]]);\n  }\n}\nreturn rows;",
+    "path": "D:\\project\\member_forces.xlsx",
+    "columns": ["Member", "LC", "Fx", "Fy", "Fz", "Mx", "My", "Mz"]
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "path": "D:\\project\\member_forces.xlsx",
+  "rows_written": 10000,
+  "columns": ["Member", "LC", "Fx", "Fy", "Fz", "Mx", "My", "Mz"],
+  "sample_rows": [[1, 1, -12.4, 3.2, 0.0, 0.0, 0.0, 45.6], [1, 2, -8.1, 5.7, 0.0, 0.0, 0.0, 32.1], [1, 3, -15.9, 2.1, 0.0, 0.0, 0.0, 51.3]],
+  "duration_seconds": 12.8
+}
+```
+
+The agent sees 3 sample rows (enough to verify correct extraction) and the total count. It never holds 10,000 rows in context.
+
+| Control                | Implementation |
+|------------------------|----------------|
+| Path validation        | Shared function (model guard, resolve, UNC reject, containment, parent must exist) |
+| Format                 | `.csv` or `.xlsx` (determined by file extension) |
+| Output file size cap   | 50 MB. Sanity cap; typical 100K-row export is ~14 MB. |
+| Row/column caps        | 100,000 rows, 500 columns. Same WASM memory constraint as `read_and_execute`. |
+| Return value validation | Must be array of arrays of JSON primitives. Non-conforming return → error with message explaining expected shape. |
+| Overwrite protection   | `overwrite` parameter, defaults to `false`. If file exists and `overwrite=false`, returns `FILE_EXISTS` error. Host confirmation via `destructiveHint=true` is the consent gate. |
+| Atomic write           | Write to `.~omcp_{random}.tmp` in same directory, then `os.replace()` to target. `try/finally` deletes temp on failure. Stale `.~omcp_*.tmp` files older than 1 hour cleaned up on each invocation. |
+| Code execution         | Same sandbox, same timeout as `execute_code`. No destructive method detection needed (extraction code is read-only on STAAD). Actually: destructive detection still runs, because the code COULD modify STAAD before returning results. Same gate as `execute_code`. |
+| Tool annotation        | `destructiveHint=true` (writes to filesystem), `idempotentHint=true`, `openWorldHint=false`, `title="Export STAAD data to file"` |
+| Sample rows in response | First 5 rows of the written data returned for agent verification |
+| Columns parameter      | Required. Agent must declare column headers. Serves as documentation and xlsx header row. |
 
 Parameters:
-- `path` (required): Absolute path for the output `.csv` or `.xlsx` file. Extension determines format.
+- `code` (required): JavaScript code to execute. Must `return` an array of arrays.
+- `path` (required): Absolute path for the output file. Extension determines format.
 - `columns` (required): Array of column header strings.
-- `rows` (required): Array of arrays (each inner array is one row, positionally matched to columns).
+- `instance` (optional): Target STAAD instance alias.
 - `overwrite` (optional): Boolean. Defaults to `false`.
+
+### `__input` injection: security analysis
+
+`__input` is a pre-bound variable injected into the sandbox before code execution. It is NOT a host function. It adds data, not capability.
+
+**What `__input` is:**
+- A deeply frozen (`Object.freeze` recursively) array of arrays
+- Contains only JSON primitives: string, number, boolean, null
+- Read-only (frozen, assignment to `__input` or mutation of contents throws TypeError)
+- Guaranteed primitive-only by typed cell conversion during file parsing (openpyxl returns str/int/float/bool/None natively; datetime cells converted to ISO 8601 strings; CSV values coerced to int/float where parseable)
+
+**What `__input` is NOT:**
+- Not a function (cannot be called)
+- Not a Proxy (no trap handlers, no capability to intercept operations)
+- Not connected to the host (no reference to Python objects, no COM handle)
+- Not accessible from the prototype chain of any other sandbox global
+
+**Comparison to existing pre-injected globals:**
+
+| Global | Type | Reaches outside sandbox? | Risk |
+|--------|------|--------------------------|------|
+| `staad` | COM Proxy (callable) | YES, dispatches to Windows COM | High (gated by allowlists) |
+| `console` | Function (callable) | YES, writes to captured buffers | Low (exfil to agent context) |
+| `__input` | Frozen array (inert data) | NO | **None** |
+
+`__input` is equivalent to the agent writing `const data = [[1,2,3],[4,5,6]];` as a literal at the top of their code. The sandbox already permits arbitrary data literals. We are changing WHERE the literal is assembled (server-side vs. inline in the code string), not WHAT the sandbox can do.
+
+**Implementation requirements:**
+1. Server MUST convert cell values to JSON primitives during row iteration. openpyxl cells are already str/int/float/bool/None; only datetime needs conversion (`.isoformat()`). CSV values are all strings; server attempts `int(val)` then `float(val)` then keeps `str`. No separate JSON round-trip step. The parsing libraries produce clean types directly.
+2. Server MUST `Object.freeze` the top-level array AND each inner array (prevents sandbox code from using `__input` as mutable shared state across hypothetical re-executions)
+3. `__input` MUST be `undefined` when `read_and_execute` is not being used (no stale data from previous calls)
+4. Size cap on `__input` enforced server-side before injection (see "Size limits" section)
+
+**Sandbox isolation unchanged:** The WASM linear memory boundary is the security boundary. `__input` exists inside that boundary as initialized data. It does not create a channel across the boundary. It does not grant the sandbox any new ability to affect the host.
+
+### Size limits
+
+Limits are driven by the WASM linear memory allocation: 128 MiB (2048 pages x 64 KiB, defined in `src/openstaad_mcp/sandbox/constants.py` as `WASM_MAX_MEMORY_PAGES`). QuickJS heap lives inside this allocation. At ~200-300 bytes per row (JSValue overhead + array pointers + primitive storage), 100K rows = 20-30 MB. Worst case for `execute_and_write`: `__input` (30 MB) + return value (30 MB) + engine (10 MB) = ~70 MB, well within the 128 MiB cap.
+
+| Parameter | Limit | Constraint driver |
+|-----------|-------|-------------------|
+| `read_and_execute` file size cap | 50 MB on-disk | Prevents pathological xlsx decompression; `defusedxml` handles XML bombs independently |
+| `read_and_execute` max rows (`__input`) | 100,000 | WASM linear memory (128 MiB). ~30 MB at worst case. Ample headroom for engine + return value. |
+| `read_and_execute` max columns | 500 | Sanity check; structural data rarely exceeds 20 columns |
+| `execute_and_write` max return rows | 100,000 | Same WASM memory constraint (return value lives in WASM until serialized out) |
+| `execute_and_write` max columns | 500 | Consistent with read side |
+| `execute_and_write` output file size | 50 MB | Disk space sanity; 100K rows x 8 cols x 140 B = ~14 MB typical |
+| Code size (both tools) | 256 KiB | Existing `MAX_CODE_BYTES` constant. Unchanged. |
+| Execution timeout (both tools) | 30 seconds | Existing `EXECUTION_TIMEOUT_SECONDS` constant. Unchanged. |
+
+These limits are defined as constants alongside the existing sandbox limits in `constants.py`. They can be tuned empirically if real-world usage shows they're too conservative or too generous.
+
+**Chunking for extreme cases.** If a file exceeds 100K rows (rare in structural engineering, possible with survey data), `read_and_execute` supports `start_row` and `max_rows` parameters. The agent calls it N times with offset pagination. Each call processes a chunk independently.
 
 ### How the consent model works across hosts
 
@@ -184,16 +335,16 @@ Our primary target is Claude Desktop (top-management priority, Anthropic Extensi
 
 **Claude Desktop (primary target):**
 
-Claude Desktop respects `destructiveHint` and `readOnlyHint` annotations from the MCP spec. When a tool is marked `destructiveHint=true`, Claude shows its own confirmation dialog before invoking it. When `readOnlyHint=true`, Claude invokes without prompting. This is our consent mechanism for file I/O:
+Claude Desktop respects `destructiveHint` and `readOnlyHint` annotations from the MCP spec. When a tool is marked `destructiveHint=true`, Claude shows its own confirmation dialog before invoking it. This is our consent mechanism for file I/O:
 
-- `read_tabular_data` is `readOnlyHint=true`. Claude invokes it without prompting. The tool is read-only on the filesystem. Prompt injection risk from file content is an accepted risk (same class as COM output per OMCP-009), not something we gate on per-call user consent.
-- `write_tabular_data` is `destructiveHint=true`. Claude shows its own confirmation before invocation. The user sees the intent ("writing 847 rows to D:\project\results.csv") and approves or declines.
+- `read_and_execute` is `destructiveHint=true`. Claude shows confirmation before invocation. The user sees the intent (file path + code description) and approves or declines. Bulk file content never enters agent context, so prompt injection from file content is neutralized at the architecture level.
+- `execute_and_write` is `destructiveHint=true`. Same confirmation. The user sees the target file path and approves or declines.
 
-The user confirms writes only. Reads flow without interruption. This matches the mental model: reading a file is not a decision point, writing one is.
+Both tools require user confirmation. There are no auto-approved file operations.
 
-**§10(3) consent justification for reads:** For reads, user consent is established at server connection time. The user explicitly adds openstaad-mcp to their MCP client configuration, opting into its declared capabilities. Directory selection occurs when the user opens a STAAD model file. Path validation (see "Path validation strategy") enforces the boundary regardless of agent behaviour.
+**§10(3) consent justification:** Both tools are gated by `destructiveHint=true`. The host confirmation dialog satisfies §10(3) per-call consent. Additionally, the user establishes directory-level consent at server connection time (they add openstaad-mcp to their MCP client, selecting the model directory implicitly). Path validation (see "Path validation strategy") enforces the boundary regardless of agent behaviour.
 
-Claude Desktop also offers an "Allow always" option for destructive tools (source: [support.claude.com/en/articles/11175166](https://support.claude.com/en/articles/11175166), "Taking actions with tools" section). Power users click "Allow always" on `write_tabular_data` once and never see a dialog again. Conservative users keep per-call write approval as a safety net.
+Claude Desktop also offers an "Allow always" option for destructive tools (source: [support.claude.com/en/articles/11175166](https://support.claude.com/en/articles/11175166), "Taking actions with tools" section). Power users click "Allow always" on `read_and_execute` and `execute_and_write` once and never see a dialog again. Conservative users keep per-call approval as a safety net.
 
 **VS Code GitHub Copilot (also supported):**
 
@@ -207,51 +358,42 @@ VS Code also supports MCP elicitation. This means the existing consent gate in `
 
 ### Scale considerations
 
-Typical structural engineering tabular inputs for STAAD workflows (engineering estimates based on common model sizes):
+Typical structural engineering tabular data for STAAD workflows:
 
-| Input type | Typical rows | Columns | ~Bytes/row (JSON) | ~Total JSON size |
-|------------|-------------|---------|-------------------|-----------------|
-| Beam schedule (small building, 2-3 stories) | 20-80 | 5-8 (label, section, material, length, orientation) | ~120 B | 2-10 KB |
-| Beam schedule (medium building, 5-10 stories) | 100-500 | 5-8 | ~120 B | 12-60 KB |
-| Load table (floor loads per zone) | 10-50 | 4-6 (zone, dead, live, wind, seismic) | ~80 B | 1-4 KB |
-| Node coordinate import | 50-2,000 | 4 (label, X, Y, Z) | ~60 B | 3-120 KB |
-| Material properties | 5-20 | 6-8 (name, E, density, Poisson, Fy, Fu) | ~100 B | 0.5-2 KB |
-| Analysis results export | 50-5,000 | 6-10 (member, LC, Fx, Fy, Fz, Mx, My, Mz) | ~140 B | 7-700 KB |
+| Data type | Typical rows | Columns | ~Bytes/row (JSON) | ~Total JSON size |
+|-----------|-------------|---------|-------------------|-----------------|
+| Beam schedule (small, 2-3 stories) | 20-80 | 5-8 | ~120 B | 2-10 KB |
+| Beam schedule (medium, 5-10 stories) | 100-500 | 5-8 | ~120 B | 12-60 KB |
+| Load table (floor loads per zone) | 10-50 | 4-6 | ~80 B | 1-4 KB |
+| Node coordinate import | 50-2,000 | 4 | ~60 B | 3-120 KB |
+| Material properties | 5-20 | 6-8 | ~100 B | 0.5-2 KB |
+| Member forces (small model) | 2,000 | 8 | ~140 B | 280 KB |
+| Member forces (medium model, 500 members x 20 LC) | 10,000 | 8 | ~140 B | 1.4 MB |
+| Displacement envelope (1,000 nodes x 50 combos) | 50,000 | 8 | ~100 B | 5 MB |
 
-The 256 KiB `execute_code` input limit is the binding constraint when the agent inlines data into JavaScript code. For the majority of structural engineering workflows (beam schedules, load tables, material lists), the data fits comfortably: a 500-row beam schedule at ~120 bytes/row produces ~60 KB of JSON, well within the 256 KiB limit.
+**The context window problem.** The first 5 rows in this table fit comfortably in agent context (~60 KB worst case, ~15K tokens). The last 3 rows do not. A 10,000-row extraction at 1.4 MB is ~350K tokens. If the agent holds that data AND passes it to a write tool, it transits context twice (~700K tokens). No current LLM handles this.
 
-The edge case is large node-coordinate imports or analysis-result exports (1,000+ rows). At 2,000 rows x 140 bytes/row = ~280 KB, we hit the limit. This is where chunked execution applies: the agent splits data into batches of ~1,000 rows and calls `execute_code` multiple times. Each call creates a subset of the model elements. This works today with no architectural changes.
+**The compound tools eliminate this problem.** With `execute_and_write`, the 10,000-row extraction stays in Python server memory and goes directly to the file. The agent receives ~500 bytes (row count + 3 sample rows). With `read_and_execute`, the 2,000-row node import goes from file to WASM heap directly. The agent sends only the code (~1 KB).
 
-**Key insight:** The file I/O tools themselves have no 256 KiB limit. `read_tabular_data` can return up to 50,000 rows (the `max_rows` ceiling). The constraint only applies when the agent wants to pass that data INTO the sandbox via `execute_code`. The typical workflow ("read 200 beams, create them in STAAD") fits in a single `execute_code` call. The rare workflow ("import 5,000 nodes from a survey CSV") uses chunking.
-
-The "embed data in code" pattern has limits:
-
-| Rows   | ~JSON size | Fits in 256 KiB code limit? |
-|--------|------------|-----------------------------|
-| 100    | ~10 KB     | Yes                         |
-| 1,000  | ~100 KB    | Yes                         |
-| 3,000  | ~250 KB    | Borderline                  |
-| 10,000 | ~1 MB      | No                          |
-
-For datasets up to ~2,000 rows, the agent can inline data directly into the `execute_code` call. This covers the majority of structural engineering use cases (a building rarely has more than a few hundred beams).
-
-For larger datasets, two options:
-
-**Option A: Chunked execution.** The agent breaks the work into batches of ~1,000 rows, calling `execute_code` multiple times. Each call creates a subset of beams. This works today with no changes.
-
-**Option B (future): `context_data` parameter.** Add a `context_data` parameter to `execute_code` that pre-loads JSON data into the sandbox as a bound `__input` variable via a new read-only host function (`get_input_data()`). The data is loaded server-side from the `read_tabular_data` result and passed through the same JSON serialization boundary as COM results. No filesystem access granted. This is a Phase 2 enhancement if chunked execution proves insufficient.
+**Chunking as fallback.** If the dataset exceeds the 100K row limit, `read_and_execute` supports `start_row` and `max_rows` parameters. The agent calls it N times with offset pagination. Each call processes a chunk independently. This only applies to extreme datasets (100K+ rows, which is rare in structural engineering outside survey data imports).
 
 ### Prompt injection risk
 
-Same class as OMCP-009. Cell content (CSV or xlsx) is untrusted data from external files. A malicious file could embed PI payloads in cell values ("IGNORE PREVIOUS INSTRUCTIONS..."). When `read_tabular_data` returns that data to the agent, the payloads enter the agent's context.
+Same class as OMCP-009. Cell content (CSV or xlsx) is untrusted data from external files. A malicious file could embed PI payloads in cell values ("IGNORE PREVIOUS INSTRUCTIONS...").
 
-The same accepted-risk reasoning applies:
+However, the compound-only architecture largely neutralizes this risk. `read_and_execute` sends file content to the WASM sandbox as `__input`, NOT to the agent. PI payloads in cell values are treated as string data by the JavaScript code. They never reach the LLM. The only way file content reaches the agent is:
+1. The `input_summary.sample_rows` (first 5 rows) in the response. Limited surface area.
+2. If user code explicitly returns file content via `return __input.slice(...)`. This is user-initiated, not automatic.
+
+For `execute_and_write`, data flows from STAAD (via COM) to file. No external untrusted input enters the pipeline at all.
+
+The accepted-risk reasoning for the small exposure in sample rows:
 - The MCP server is a data conduit. It faithfully relays what the file contains.
 - Output sanitization is the wrong layer (blocklist arms race, breaks legitimate data).
-- The blast radius through our server is bounded by the sandbox controls.
+- The blast radius is bounded: 5 sample rows, not the full dataset.
 - The agent's system prompt and tool-use policy are the correct mitigation point.
 
-One additional consideration: unlike COM output (which is generated by STAAD's solver from model data), tabular files are directly user-sourced. The agent should treat `read_tabular_data` output with the same caution as any user-provided file content. Host applications should include guidance in the system prompt that tool output from file reads may contain untrusted data.
+Host applications should include guidance in the system prompt that tool output from file reads may contain untrusted data.
 
 ### Dependencies
 
@@ -265,9 +407,11 @@ One additional consideration: unlike COM output (which is generated by STAAD's s
 ### What this does NOT do
 
 - Does not give the sandbox filesystem access.
+- Does not give the sandbox new callable host functions. `__input` is inert data, not a function.
+- Does not put bulk data into agent context. The entire point is keeping large datasets server-side.
 - Does not initiate network connections. UNC paths are rejected. If the user has mapped a network share to a drive letter, the OS handles that transparently; the tool does not distinguish mapped drives from local drives.
-- Does not require elicitation.
-- Does not need a new host function for Phase 1.
+- Does not provide a "simple read" that puts raw file content into agent context. The agent gets sample rows only.
+- Does not require elicitation (tool annotations handle consent).
 - Does not break Anthropic §1B.
 - Does not support legacy Excel formats (`.xls`) or macro-enabled workbooks (`.xlsm`).
 - Does not execute VBA macros or process embedded objects/images/charts.
@@ -276,65 +420,75 @@ One additional consideration: unlike COM output (which is generated by STAAD's s
 
 Both tools follow the same response shape as `execute_code`, adapted for file operations:
 
-**Success (read):**
+**Success (read_and_execute):**
 ```json
-{"success": true, "columns": [...], "rows": [[...], ...], "truncated": false, "total_rows": 147}
+{"success": true, "result": "Created 2847 beams", "stdout": "", "stderr": "", "input_summary": {"total_rows": 2847, "columns": ["label", "x1", "y1", "z1", "x2", "y2", "z2", "section"], "sample_rows": [["B1", 0, 0, 0, 120, 0, 0, "W12X26"]]}, "duration_seconds": 4.2}
 ```
 
-**Success (write):**
+**Success (execute_and_write):**
 ```json
-{"success": true, "path": "D:\\project\\results.csv", "rows_written": 847}
+{"success": true, "path": "D:\\project\\results.csv", "rows_written": 10000, "columns": ["Member", "LC", "Fx", "Fy", "Fz", "Mx", "My", "Mz"], "sample_rows": [[1, 1, -12.4, 3.2, 0.0, 0.0, 0.0, 45.6]], "duration_seconds": 12.8}
 ```
 
 **Error:**
 ```json
-{"success": false, "error": "FILE_TOO_LARGE", "message": "File is 14.2 MB, limit is 10 MB", "limit_mb": 10, "actual_mb": 14.2}
+{"success": false, "error": "FILE_TOO_LARGE", "message": "File is 62 MB, limit is 50 MB", "limit_mb": 50, "actual_mb": 62}
 ```
 
-Error codes: `NO_MODEL_OPEN`, `UNC_REJECTED`, `PATH_OUTSIDE_MODEL_DIR`, `FILE_NOT_FOUND`, `FILE_TOO_LARGE`, `FILE_EXISTS`, `UNSUPPORTED_FORMAT`, `PARENT_DIR_MISSING`, `PERMISSION_DENIED`, `ENCODING_ERROR`, `CORRUPTED_WORKBOOK`, `SHEET_NOT_FOUND`, `TOO_MANY_ROWS`, `TOO_MANY_COLUMNS`.
+Error codes: `NO_MODEL_OPEN`, `UNC_REJECTED`, `PATH_OUTSIDE_MODEL_DIR`, `FILE_NOT_FOUND`, `FILE_TOO_LARGE`, `FILE_EXISTS`, `UNSUPPORTED_FORMAT`, `PARENT_DIR_MISSING`, `PERMISSION_DENIED`, `ENCODING_ERROR`, `CORRUPTED_WORKBOOK`, `SHEET_NOT_FOUND`, `TOO_MANY_ROWS`, `TOO_MANY_COLUMNS`, `INVALID_RETURN_SHAPE`.
 
 The `error` field is a stable machine-readable code. The `message` field is a human-readable explanation the agent can relay to the user. Additional fields (like `limit_mb`, `actual_mb`) are error-specific context.
 
 ### Design decisions
 
-**Atomic writes via temp file.** `write_tabular_data` writes to a temporary file in the same directory (pattern: `.~omcp_{random}.tmp`), then calls `os.replace()` to atomically move it to the target path. The temp file is created and cleaned up inside a `try/finally`: if serialization fails or the tool raises, the finally block deletes the temp file. The only scenario that leaves an orphan is a hard process kill (SIGKILL, power loss, machine crash). To handle that edge case, the tool deletes any `.~omcp_*.tmp` files in the model directory older than 1 hour at the start of each invocation. Self-healing, no user action required. MCP tool execution is sequential (one tool call at a time per session), so there is no risk of deleting an in-progress temp file from a concurrent write.
+**Atomic writes via temp file.** `execute_and_write` writes to a temporary file in the same directory (pattern: `.~omcp_{random}.tmp`), then calls `os.replace()` to atomically move it to the target path. The temp file is created and cleaned up inside a `try/finally`: if serialization fails or the tool raises, the finally block deletes the temp file. The only scenario that leaves an orphan is a hard process kill (SIGKILL, power loss, machine crash). To handle that edge case, the tool deletes any `.~omcp_*.tmp` files in the model directory older than 1 hour at the start of each invocation. Self-healing, no user action required. MCP tool execution is sequential (one tool call at a time per session), so there is no risk of deleting an in-progress temp file from a concurrent write.
 
-**CSV formula injection: accepted risk, not mitigated.** `write_tabular_data` does not prefix cell values that start with `=`, `+`, `-`, `@`, or `\t`. Reasoning: the data written by this tool originates from the agent context. In practice, the agent is writing STAAD model data extracted via COM (member numbers, section names like "W12X26", force values). None of these start with formula-triggering characters. Adding `'` prefixes would corrupt legitimate numeric data (negative numbers start with `-`). The risk is theoretical, the mitigation would break real workflows.
+**CSV formula injection: accepted risk, not mitigated.** `execute_and_write` does not prefix cell values that start with `=`, `+`, `-`, `@`, or `\t`. Reasoning: the data written by this tool originates from code execution inside the sandbox, operating on STAAD COM data (member numbers, section names like "W12X26", force values). None of these start with formula-triggering characters. Adding `'` prefixes would corrupt legitimate numeric data (negative numbers start with `-`). The risk is theoretical, the mitigation would break real workflows.
 
-**File size cap is on-disk bytes.** The 10 MB read cap measures `os.path.getsize()` (compressed size for xlsx, raw size for CSV). xlsx is a zip archive, so a 10 MB file could decompress to more in memory. openpyxl's read-only mode streams rows one at a time, so memory usage is bounded by row size, not total file size. The 10 MB cap is generous for structural engineering data (a 5,000-row beam schedule is ~600 KB on disk) and conservative enough to block billion-laughs XML payloads.
+**File size cap is on-disk bytes.** The 50 MB cap measures `os.path.getsize()` (compressed size for xlsx, raw size for CSV). xlsx is a zip archive, so a 50 MB file could decompress to more in memory. openpyxl's read-only mode streams rows one at a time, so memory usage is bounded by row size, not total file size. The 50 MB cap is generous for structural engineering data (a 5,000-row beam schedule is ~600 KB on disk) and conservative enough to block billion-laughs XML payloads (and `defusedxml` blocks them regardless).
 
-**Overwrite UX: single confirmation.** When the agent calls `write_tabular_data` with `overwrite=true`, the host's `destructiveHint` confirmation dialog is the only consent gate. There is no additional "file exists, are you sure?" prompt from the tool. If the agent calls with `overwrite=false` (default) and the file exists, the tool returns a `FILE_EXISTS` error with the path. The agent can then ask the user or retry with `overwrite=true` (which triggers a fresh confirmation dialog). One decision, one dialog.
+**Overwrite UX: single confirmation.** When the agent calls `execute_and_write` with `overwrite=true`, the host's `destructiveHint` confirmation dialog is the only consent gate. There is no additional "file exists, are you sure?" prompt from the tool. If the agent calls with `overwrite=false` (default) and the file exists, the tool returns a `FILE_EXISTS` error with the path. The agent can then ask the user or retry with `overwrite=true` (which triggers a fresh confirmation dialog). One decision, one dialog.
 
-**`idempotentHint=true` on write.** Same input data and path produces the same file. This lets MCP hosts safely retry after network/timeout failures without duplicating side effects. Combined with atomic writes, a retry either succeeds identically or fails cleanly.
+**`idempotentHint=true` on `execute_and_write`.** Same input code and path produces the same file. This lets MCP hosts safely retry after network/timeout failures without duplicating side effects. Combined with atomic writes, a retry either succeeds identically or fails cleanly.
 
 **openpyxl version maintenance.** Exact pin means we own the upgrade schedule. A quarterly check of openpyxl releases + Snyk/NVD is sufficient. If a security advisory lands, we bump the pin in a PR with a test run. This is not a high-velocity dependency (6-8 releases per year, mostly bug fixes).
 
-**File locking (write path).** On Windows, Excel holds an exclusive lock on open files. If the write target is open in Excel, `os.replace()` will fail with `PermissionError`. The tool returns `PERMISSION_DENIED` with message: "Cannot write to this file because it is open in another program. Close the file and try again." Reads are not affected: Windows allows shared read access, so `read_tabular_data` works fine even if the file is open in Excel.
+**File locking (write path).** On Windows, Excel holds an exclusive lock on open files. If the write target is open in Excel, `os.replace()` will fail with `PermissionError`. The tool returns `PERMISSION_DENIED` with message: "Cannot write to this file because it is open in another program. Close the file and try again." Reads are not affected: Windows allows shared read access, so `read_and_execute` works fine even if the source file is open in Excel.
 
 ## Success criteria
 
 Happy-path scenarios for local manual testing before shipping:
 
-1. **Read CSV.** Agent asks to read a 50-row CSV in the model directory. Tool returns JSON with correct columns, rows, `total_rows: 50`, `truncated: false`.
-2. **Read xlsx.** Agent reads a 200-row `.xlsx` beam schedule. Returns same shape. Numeric cells come back as numbers, text as strings.
-3. **Read with pagination.** Agent reads with `start_row=50, max_rows=50` on a 200-row file. Returns rows 51-100, `truncated: true`, `total_rows: 200`.
-4. **Write CSV.** Agent writes 100 rows to a new `.csv`. File appears on disk, opens correctly in Excel, values match.
-5. **Write xlsx.** Agent writes 500 rows to a new `.xlsx`. File opens in Excel, column headers present, data matches.
-6. **Overwrite flow.** Agent calls write with `overwrite=false` on existing file. Gets `FILE_EXISTS`. Retries with `overwrite=true`. File is replaced. Single host confirmation dialog.
-7. **Path escape rejected.** Agent tries `../../etc/passwd` or `C:\Windows\system32\something`. Gets `PATH_OUTSIDE_MODEL_DIR`.
-8. **UNC rejected.** Agent tries `\\server\share\file.csv`. Gets `UNC_REJECTED` with helpful message about mapping a drive letter.
-9. **No model open.** Agent calls tool with no model loaded. Gets `NO_MODEL_OPEN` with guidance to open a file.
-10. **Large file rejected.** Agent reads a 15 MB file. Gets `FILE_TOO_LARGE` with limit and actual size.
-11. **File locked.** Agent writes to a file open in Excel. Gets `PERMISSION_DENIED` with "close the file" guidance.
+**read_and_execute:**
+1. **Bulk import (CSV).** Agent imports a 2,000-row node coordinate CSV. Tool reads file, injects as `__input`, code creates 2,000 nodes. Response shows `input_summary.total_rows: 2000` and code result. Agent context cost: ~2 KB (not 120 KB).
+2. **Bulk import (xlsx).** Agent imports a 500-row beam schedule xlsx. Same flow. Numeric cells come back as numbers in `__input`, text as strings.
+3. **Peek at data.** Agent wants to see file contents. Uses `read_and_execute` with code `return __input.slice(0, 20)`. Response includes first 20 rows as the execution result plus `input_summary.sample_rows`.
+4. **Pagination.** Agent imports a 20,000-row file using `start_row=0, max_rows=5000` four times. Each chunk processes correctly. All 20,000 nodes created.
+5. **`__input` is frozen.** Code attempts `__input.push([99])` or `__input[0][0] = "hacked"`. Gets TypeError (Object.freeze). Execution continues, `__input` unchanged.
+6. **Sheet selection.** Agent reads an xlsx with `sheet_name="Loads"`. Only that sheet's data appears in `__input`.
+
+**execute_and_write:**
+7. **Bulk export (CSV).** Agent extracts 500 members x 20 load cases = 10,000 force rows to CSV. Response shows `rows_written: 10000` and 5 sample rows. File opens correctly in Excel.
+8. **Bulk export (xlsx).** Same extraction to xlsx. Column headers present, data matches.
+9. **Compose and write.** Agent writes a 50-row summary table using inline data literals in code (`return [[...], ...]`). File correct.
+10. **Invalid return shape.** Code returns a string instead of array of arrays. Gets `INVALID_RETURN_SHAPE` error with explanation.
+11. **Overwrite flow.** Agent calls with `overwrite=false` on existing file. Gets `FILE_EXISTS`. Retries with `overwrite=true`. File is replaced. Single host confirmation dialog.
+
+**Shared error paths:**
+12. **Path escape rejected.** Agent tries `../../etc/passwd` or `C:\Windows\system32\something`. Gets `PATH_OUTSIDE_MODEL_DIR`.
+13. **UNC rejected.** Agent tries `\\server\share\file.csv`. Gets `UNC_REJECTED` with helpful message about mapping a drive letter.
+14. **No model open.** Agent calls tool with no model loaded. Gets `NO_MODEL_OPEN` with guidance to open a file.
+15. **Large file rejected.** Agent reads a file exceeding 50 MB. Gets `FILE_TOO_LARGE` with limit and actual size.
+16. **File locked.** Agent writes to a file open in Excel. Gets `PERMISSION_DENIED` with "close the file" guidance.
 
 ## Testing strategy
 
 File I/O gets its own test suite (`tests/test_file_io.py`) covering:
 - Path validation edge cases: symlinks, junctions, `..` sequences, mixed separators, relative paths, UNC variants
-- Read: CSV and xlsx happy paths, encoding fallback (UTF-8 then cp1252), formula cached values, empty files, files at size/row/column limits
-- Write: CSV and xlsx output correctness, atomic write (verify no partial files on simulated failure), overwrite semantics, temp cleanup
+- `read_and_execute`: CSV and xlsx parsing correctness, `__input` injection, `__input` freeze enforcement, pagination (start_row/max_rows), encoding fallback (UTF-8 then cp1252), formula cached values, empty files, column filtering, code execution with injected data, sample_rows in response, error paths (bad code + valid file, valid code + bad file)
+- `execute_and_write`: return value validation (must be array of arrays), CSV and xlsx output correctness, atomic write (no partial files on failure), overwrite semantics, temp cleanup, sample_rows in response, error paths (code throws, code returns wrong shape, code returns too many rows)
 - Error paths: every error code exercised at least once
-- Adversarial: path traversal attempts, oversized files, malformed xlsx, xlsm rejection
+- Adversarial: path traversal attempts, oversized files, malformed xlsx, xlsm rejection, prompt injection in cell values (verify it stays in `__input` and never reaches agent context beyond sample_rows)
 
 Integration tests with real STAAD model (in `tests/test_integration.py`) once implementation is stable.
 
@@ -351,15 +505,15 @@ Integration tests with real STAAD model (in `tests/test_integration.py`) once im
 
 | # | Constraint | Result | How satisfied |
 |---|-----------|--------|---------------|
-| 1 | §1B | **PASS** | File tools are MCP-layer endpoints in the Python server process. The WASM sandbox gains zero new capabilities, zero new host functions, zero filesystem access from inside the isolate. |
-| 2 | §1D | **PASS** | Tools do not collect or log conversation data. They read only the file content the user explicitly requests via the `path` parameter. No telemetry, no extraneous data retention. |
-| 3 | §2B | **PASS** | `read_tabular_data` is annotated `readOnlyHint=true` and is genuinely read-only. `write_tabular_data` is annotated `destructiveHint=true` and genuinely writes to disk. Annotations match actual behaviour. Tool descriptions state formats, size limits, containment boundary. |
-| 4 | §2D | **PASS** | Tools are standalone. They do not auto-invoke `execute_code` or chain to other tools. The agent decides workflow orchestration. |
-| 5 | §5A | **PASS** | Structured error responses with machine-readable `error` code and human-readable `message`. 14 distinct error codes: `NO_MODEL_OPEN`, `UNC_REJECTED`, `PATH_OUTSIDE_MODEL_DIR`, `FILE_NOT_FOUND`, `FILE_TOO_LARGE`, `FILE_EXISTS`, `UNSUPPORTED_FORMAT`, `PARENT_DIR_MISSING`, `PERMISSION_DENIED`, `ENCODING_ERROR`, `CORRUPTED_WORKBOOK`, `SHEET_NOT_FOUND`, `TOO_MANY_ROWS`, `TOO_MANY_COLUMNS`. |
-| 6 | §5B | **PASS** | `max_rows` default 10,000 (ceiling 50,000), `columns` filter, `start_row` pagination, `truncated` flag. Agent requests only what it needs. |
-| 7 | §5E | **PASS** | `read_tabular_data`: `readOnlyHint=true`, `openWorldHint=false`, `title="Read tabular file"`. `write_tabular_data`: `destructiveHint=true`, `idempotentHint=true`, `openWorldHint=false`, `title="Write tabular file"`. |
-| 8 | §10(1) | **PASS** | `Path.resolve()` normalizes all path variants. Resolved paths starting with `\\` are rejected unconditionally. Neither `csv` nor `openpyxl` initiate network connections. If the model directory is on a mapped network drive (e.g. Z:\), file I/O traverses the network transparently via the OS; this is the user's own environment configuration, not a connection initiated by the server. |
-| 9 | §10(3) | **PASS** | Restricted to `GetSTAADFile().parent`. Path validation (see "Path validation strategy") enforces containment. User consent established at server connection time. Directory selection occurs when user opens a model file. |
-| 10 | §10(4) | **PASS** | Write requires explicit consent (`destructiveHint=true`). Read is auto-approved (`readOnlyHint=true`) because it does not modify state. Progressive exposure: read is frictionless, write requires approval. |
-| 11 | §10 shadow API | **PASS** | Tools are first-class MCP tools with annotations and consent gates, visible to the host, inspectable by the user. Not host functions inside the sandbox. Sandbox retains zero filesystem access. |
-| 12 | Control 4 | **PASS** | `write_tabular_data` triggers host confirmation dialog (`destructiveHint=true`). `read_tabular_data` is read-only, does not modify state or cause external side effects. Control 4 does not apply to it. |
+| 1 | §1B | **PASS** | Both tools are MCP-layer endpoints in the Python server process. The WASM sandbox gains zero new capabilities, zero new callable host functions, zero filesystem access from inside the isolate. `__input` is pre-initialized inert data (equivalent to a code literal), not a sandbox escape. |
+| 2 | §1D | **PASS** | Tools do not collect or log conversation data. They read only the file content the user explicitly requests via the `path` parameter. No telemetry, no extraneous data retention. Compound tools are MORE private than simple reads would be (bulk data never enters agent context where it could be logged by the host). |
+| 3 | §2B | **PASS** | All annotations match actual behaviour. Both tools: `destructiveHint=true` (one modifies STAAD, the other writes to filesystem). Tool descriptions state formats, size limits, containment boundary. No hidden functionality. |
+| 4 | §2D | **PASS** | Each tool composes file I/O and code execution into a single tool call, but this is explicit in the tool description. The agent calls ONE tool. The server does not auto-invoke other MCP tools or chain calls behind the scenes. The composition is internal to the server process, same as `execute_code` internally calling host functions. |
+| 5 | §5A | **PASS** | Structured error responses with machine-readable `error` code and human-readable `message`. 15 distinct error codes including `INVALID_RETURN_SHAPE` for compound write (return value was not array of arrays). |
+| 6 | §5B | **PASS** | These tools ARE the §5B mechanism. They reduce token usage by orders of magnitude for bulk operations (10,000-row extraction: ~500 bytes response vs. ~1.4 MB if data transited through agent context). Agent receives only summaries and sample rows. |
+| 7 | §5E | **PASS** | Both tools annotated. `read_and_execute`: `destructiveHint=true`, `idempotentHint=false`. `execute_and_write`: `destructiveHint=true`, `idempotentHint=true`. Both: `openWorldHint=false`, `title` set. |
+| 8 | §10(1) | **PASS** | All paths validated through shared function. UNC paths rejected unconditionally. Neither `csv` nor `openpyxl` initiate network connections. `__input` data originates from a validated local file, not from the network. |
+| 9 | §10(3) | **PASS** | Both tools restricted to `GetSTAADFile().parent`. Shared path validation enforces containment. User consent established via `destructiveHint=true` confirmation per call, plus directory-level consent at server connection time. |
+| 10 | §10(4) | **PASS** | Progressive exposure preserved. Both tools are `destructiveHint=true` (host confirmation required). No file operation executes without explicit user approval. |
+| 11 | §10 shadow API | **PASS** | Both tools are first-class MCP tools with annotations, visible to the host, inspectable by the user. `__input` is NOT a host function (it's a frozen variable). The sandbox does not gain any new callable. It gains read-only data that was already expressible as a code literal. |
+| 12 | Control 4 | **PASS** | `execute_and_write` triggers host confirmation (write to filesystem). `read_and_execute` triggers host confirmation (modifies STAAD model via code execution). Both tools satisfy Control 4 unconditionally. |

@@ -28,7 +28,7 @@ Complete sandbox rewrite. The Python `exec()`-based sandbox is gone, replaced by
 - WASM sandbox (`sandbox/wasm_executor.py`). Fresh plugin per `execute_code` call. No filesystem, network, or host-memory access from user code.
 - Allowlist-gated COM bridge. Two host functions (`com_get`, `com_invoke`) are the only way out of the sandbox. Root object gated by 26 allowed methods and 9 named sub-objects. Sub-objects gated by per-object method allowlists (deny-by-default, 727 methods total). Global deny list blocks `SetStandardProfileDBFolder`.
 - Consent gate for destructive operations (Control 4 — Explicit Consent). Filesystem-write and session-destructive COM methods (`NewSTAADFile`, `SaveModel`, `ExportView`, `Quit`, etc.) are blocked by default inside the sandbox. When destructive method names are detected, the server triggers MCP elicitation — a host-mediated confirmation dialog the user must approve. The LLM cannot self-confirm this gate. UNC paths are always rejected regardless of consent (NTLM relay prevention).
-- Per-call execution limits: 30s wall-clock, 64 MiB WASM memory, 256 KiB stdout/stderr, 256 KiB max code size.
+- Per-call execution limits: 30s wall-clock, 128 MiB WASM memory, 256 KiB stdout/stderr, 256 KiB max code size.
 - `HostHeaderMiddleware` for DNS rebinding defense (HTTP 421 before auth). Default: loopback only. Extend via `--allowed-host`.
 - OTS-based HTTP auth (`ots_delivery.py`). Bearer token auto-generated and pushed to OneTimeSecret; one-time share URL displayed in the terminal auth banner. Fallback: raw token printed in the banner if OTS is unreachable. *(Updated in 2.1.0: `--email` flag removed entirely.)*
 - `--ots-base-url` flag (default: `https://uk.onetimesecret.com`).

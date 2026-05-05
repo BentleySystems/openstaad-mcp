@@ -479,8 +479,10 @@ ALLOWED_SUB_OBJECT_METHODS: Final[dict[str, frozenset[str]]] = {
 EXECUTION_TIMEOUT_SECONDS: Final[float] = 30.0
 
 #: Maximum WASM linear memory (in WASM pages of 64 KiB each).
-#: 64 MiB = 1024 pages. Enforced by the Extism manifest.
-WASM_MAX_MEMORY_PAGES: Final[int] = 1024
+#: 128 MiB = 2048 pages. Enforced by the Extism manifest.
+#: Sized to accommodate file-I/O compound tools: __input (up to 100K rows,
+#: ~30 MB) + return value (up to 100K rows, ~30 MB) + QuickJS engine (~10 MB).
+WASM_MAX_MEMORY_PAGES: Final[int] = 2048
 
 #: Maximum captured stdout/stderr size in bytes. Further output is silently
 #: dropped to keep agents running rather than hard-failing mid-script.
