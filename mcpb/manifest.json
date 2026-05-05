@@ -2,7 +2,7 @@
     "manifest_version": "0.4",
     "name": "openstaad-mcp",
     "display_name": "OpenSTAAD MCP Server",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "description": "MCP server for Bentley STAAD.Pro via the OpenSTAAD API",
     "long_description": "The OpenSTAAD MCP server enables Claude to interact with your STAAD.Pro models and perform various time-consuming tasks like load cases definition, data extraction, repetitive property setting and more.\n\n## Key Features\n- **Fast and flexible**: Enjoy minimal latency, interact with every STAAD.Pro features covered by the OpenSTAAD API.\n- **AI-friendly**: Provides documentation, guidance and feedback via dedicated tools to help your AI agent ramp up quickly on the STAAD.Pro API.\n- **Multi-instance support**: Connects to multiple running STAAD.Pro instances simultaneously to parallelize tasks across models.\n- **Privacy-first**: All processing happens locally on your machine. No data is sent to the cloud. No telemetry.\n\nThis server requires having STAAD.Pro installed locally and running. If you don't already have it, download [STAAD.Pro (www.bentley.com)](https://www.bentley.com/software/staad) to get started.\n\nTerms: Your use of this connector is subject to the [Bentley Systems Terms of Use (www.bentley.com)](https://www.bentley.com/legal/web-properties-terms-of-use).",
     "author": {
