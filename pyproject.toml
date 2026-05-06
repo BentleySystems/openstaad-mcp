@@ -23,6 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "fastmcp>=3.2.3,<4",
+    "packaging>=24",
     "starlette>=1.0.0,<2.0.0",
     "pywin32>=311; platform_system == 'Windows'",
     "openstaadpy @ git+https://github.com/BentleySystems/openstaadpy.git@306b77ba6a4bed68fd91f21df19c9fd5fc9fb2e1",
