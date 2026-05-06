@@ -9,6 +9,8 @@ Tests for the AST-based sandbox validator.
 
 from textwrap import dedent
 
+import pytest
+
 from openstaad_mcp.sandbox.ast import validate_code
 
 # ── Tests for VALID code ─────────────────────────────────────────
@@ -439,3 +441,63 @@ class TestMroBlocked:
     def test_list_mro_blocked(self):
         r = validate_code("result = list.mro()")
         assert not r.is_valid
+
+
+# ── Exception usage in AST ───────────────────────────
+
+# Representative set of exception names to validate AST acceptance.
+_EXCEPTION_NAMES = [
+    "Exception",
+    "ValueError",
+    "TypeError",
+    "AttributeError",
+    "RuntimeError",
+    "KeyError",
+    "IndexError",
+    "ZeroDivisionError",
+    "OSError",
+    "StopIteration",
+    "ArithmeticError",
+    "LookupError",
+    "OverflowError",
+    "NotImplementedError",
+    "Warning",
+    "DeprecationWarning",
+]
+
+
+class TestExceptionAstValidation:
+    """Exception class references must pass AST validation."""
+
+    @pytest.mark.parametrize("exc_name", _EXCEPTION_NAMES)
+    def test_try_except_single(self, exc_name):
+        code = dedent(f"""
+            try:
+                x = 1
+            except {exc_name} as e:
+                result = str(e)
+        """)
+        assert validate_code(code).is_valid, f"except {exc_name} should pass validation"
+
+    @pytest.mark.parametrize("exc_name", _EXCEPTION_NAMES)
+    def test_raise_exception(self, exc_name):
+        code = f'raise {exc_name}("test")'
+        assert validate_code(code).is_valid, f"raise {exc_name} should pass validation"
+
+    def test_try_except_multiple_tuple(self):
+        code = dedent("""
+            try:
+                x = 1
+            except (ValueError, TypeError, KeyError) as e:
+                result = str(e)
+        """)
+        assert validate_code(code).is_valid
+
+    def test_try_except_bare(self):
+        code = dedent("""
+            try:
+                x = 1
+            except:
+                result = "error"
+        """)
+        assert validate_code(code).is_valid
