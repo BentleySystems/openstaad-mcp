@@ -15,6 +15,8 @@ Run with::
     pytest tests/test_integration.py -v -m integration
 """
 
+from textwrap import dedent
+
 import pytest
 
 from openstaad_mcp.connection import InstanceRegistry, connect_and_run
@@ -62,3 +64,23 @@ class TestIntegration:
         result = connect_and_run(_run, staad_instance.file_path)
         assert result["success"]
         assert isinstance(result["result"], int)
+
+    def test_exception_handling(self, staad_instance, executor):
+        def _run(staad):
+            return executor.execute(
+                dedent(
+                    """
+                    try:
+                        r = staad.Geometry.NonExistentMethod()
+                        result = {"data": r}
+                    except Exception as e:
+                        result = {"error": str(e)}
+                    """
+                ),
+                staad,
+            ).to_dict()
+
+        result = connect_and_run(_run, staad_instance.file_path)
+        assert result["success"]
+        assert isinstance(result["result"], dict)
+        assert "error" in result["result"]
