@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.BentleySystems/openstaad-mcp",
+  "title": "OpenSTAAD MCP Server",
+  "description": "MCP server for Bentley STAAD.Pro via the OpenSTAAD API",
+  "repository": {
+    "url": "https://github.com/BentleySystems/openstaad-mcp",
+    "source": "github"
+  },
+  "version": "<AUTO_GENERATED>",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/BentleySystems/openstaad-mcp/releases/download/v<AUTO_GENERATED>/openstaad-mcp.mcpb",
+      "fileSha256": "<AUTO_GENERATED>",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
