@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from dataclasses import asdict
 from typing import Any
 
 from fastmcp import FastMCP
@@ -27,6 +26,7 @@ from mcp.types import ToolAnnotations
 from openstaad_mcp.connection import InstanceRegistry, StaadInstance, connect_and_run
 from openstaad_mcp.sandbox.executor import Executor
 from openstaad_mcp.skills import SkillsManager
+from openstaad_mcp.version import check_version_warning
 
 logger = logging.getLogger(__name__)
 
@@ -110,9 +110,14 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         when multiple STAAD instances may be running so you can pick the
         right one.  The ``alias`` (e.g. ``staadPro1``) is stable for the
         server session even if the model file changes.
-        """
 
-        return [asdict(i) for i in registry.get_active_instances()]
+        If a version is below the minimum supported (26.0.1), a ``warning``
+        field is included with details about potential data inaccuracies.
+        """
+        results = []
+        for inst in registry.get_active_instances():
+            results.append(inst.asdict())
+        return results
 
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -145,13 +150,17 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
                 model_path = staad.GetSTAADFile()
             except Exception:
                 model_path = None
-            return {
+            result: dict[str, Any] = {
                 "connected": True,
                 "staad_version": version,
                 "model_path": model_path,
                 "alias": target.alias,
                 "analyzing": analyzing,
             }
+            warning = check_version_warning(version)
+            if warning:
+                result["warning"] = warning
+            return result
 
         try:
             return connect_and_run(_read_status, target.file_path, timeout=10.0)
@@ -199,7 +208,7 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
             return exc.execute(code, staad).to_dict()
 
         try:
-            return connect_and_run(_run, target.file_path)
+            result = connect_and_run(_run, target.file_path)
         except TimeoutError:
             return {
                 "success": False,
@@ -218,6 +227,9 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
                 "error": str(e),
                 "duration_seconds": 0.0,
             }
+        if target.warning:
+            result["warning"] = target.warning
+        return result
 
 
 def create_mcp_server(fastmcp_kwargs: dict | None = None) -> FastMCP:
@@ -238,7 +250,8 @@ def create_mcp_server(fastmcp_kwargs: dict | None = None) -> FastMCP:
             "and guidance, then call `read_skills` with skill names to load detailed "
             "instructions. Use `list_instances` to see running STAAD instances, "
             "`execute_code` to run code against a live STAAD.Pro model, and "
-            "`get_status` to check connection."
+            "`get_status` to check connection. "
+            "When a `warning` field appears in any tool response, report it to the user."
         ),
         lifespan=mcp_lifespan,
         **fastmcp_kwargs,

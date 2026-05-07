@@ -32,8 +32,10 @@ import logging
 import sys
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+
+from openstaad_mcp.version import check_version_warning
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,19 @@ class StaadInstance:
     pid: int
     file_path: str
     version: str
+    warning: str | None = field(default=None)
+
+    def asdict(self) -> dict[str, object]:
+        """Return a JSON-serializable dict, omitting ``warning`` when ``None``."""
+        d: dict[str, object] = {
+            "alias": self.alias,
+            "pid": self.pid,
+            "file_path": self.file_path,
+            "version": self.version,
+        }
+        if self.warning is not None:
+            d["warning"] = self.warning
+        return d
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +161,7 @@ class InstanceRegistry:
                                 pid=pid,
                                 file_path=display_name,
                                 version=version,
+                                warning=check_version_warning(version),
                             )
                         )
                 finally:
