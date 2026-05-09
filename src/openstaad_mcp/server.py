@@ -249,9 +249,7 @@ def _register_tools(
         If a version is below the minimum supported (26.0.1), a ``warning``
         field is included with details about potential data inaccuracies.
         """
-        results = []
-        for inst in registry.get_active_instances():
-            results.append(inst.asdict())
+        results = [inst.asdict() for inst in registry.get_active_instances()]
         return {"instances": results}
 
     @mcp.tool(
@@ -305,18 +303,15 @@ def _register_tools(
                 model_path = staad.GetSTAADFile()
             except Exception:
                 model_path = None
-            result: dict[str, Any] = {
+            return {
                 "connected": True,
                 "staad_version": version,
                 "model_path": model_path,
                 "alias": target.alias,
                 "analyzing": analyzing,
                 "executor_busy": exc.is_busy,
+                "warning": check_version_warning(version),
             }
-            warning = check_version_warning(version)
-            if warning:
-                result["warning"] = warning
-            return result
 
         try:
             return connect_and_run(_read_status, target.file_path, timeout=10.0)
@@ -436,8 +431,7 @@ def _register_tools(
                     "duration_seconds": 0.0,
                     "result_size_bytes": 0,
                 }
-            if target.warning:
-                result["warning"] = target.warning
+            result["warning"] = target.warning
             return result
 
         # ── Async mode: start background job, return job_id ──────────
@@ -450,8 +444,7 @@ def _register_tools(
                 result = await loop.run_in_executor(
                     None, functools.partial(connect_and_run, _run, target.file_path, _timeout)
                 )
-                if target.warning:
-                    result["warning"] = target.warning
+                result["warning"] = target.warning
                 if not future.done():
                     future.set_result(result)
             except TimeoutError:
@@ -490,8 +483,14 @@ def _register_tools(
 
         return {
             "job_id": job_id,
-            "message": f"Job started. Poll openstaad_get_job_status('{job_id}') every 5-10s "
-            "and show each 'message' field to the user so they see progress.",
+            "message": (
+                f"Job started (job_id={job_id!r}). "
+                "Call openstaad_get_job_result(job_id, wait_seconds=10) — the server holds "
+                "the response until done or 10s elapses. Check the 'strategy' field: "
+                "'poll' → call again with wait_seconds=next_wait_seconds; "
+                "'await_user_trigger' → stop polling, tell the user the job is still running "
+                "(include the job_id), and wait for their request."
+            ),
         }
 
     @mcp.tool(
@@ -510,40 +509,19 @@ def _register_tools(
                 "message": {"type": "string", "description": "Always display this to the user"},
                 "progress": {"type": "string", "description": "Last progress message (running only)"},
                 "elapsed_seconds": {"type": "number"},
-                "message": {
+                "strategy": {
                     "type": "string",
-                    "description": "IMPORTANT: Always display this message to the user so they can see execution progress",
+                    "enum": ["poll", "await_user_trigger"],
+                    "description": (
+                        "poll: call again with wait_seconds=next_wait_seconds; "
+                        "await_user_trigger: stop polling, tell user job is still running "
+                        "(include job_id), wait for their request"
+                    ),
                 },
-            },
-        },
-    )
-    def openstaad_get_job_status(job_id: str) -> dict[str, Any]:
-        """IMPORTANT: Always display the ``message`` field from the response to the user so they can see execution progress. Poll every 5-10 seconds while status is "running". Do not batch or skip messages — the user is waiting."""
-        job = jobs.get(job_id)
-        if job is None:
-            return {"status": "unknown", "progress": "", "elapsed_seconds": 0.0, "message": "Job not found."}
-        elapsed = round(time.monotonic() - job.created, 1)
-        if not job.future.done():
-            progress = job.progress_message
-            msg = f"⏳ Running ({elapsed:.0f}s): {progress}" if progress else f"⏳ Running ({elapsed:.0f}s)..."
-            return {"status": "running", "progress": progress, "elapsed_seconds": elapsed, "message": msg}
-        result = job.future.result()
-        status = "completed" if result.get("success") else "failed"
-        msg = f"✅ Completed in {elapsed:.0f}s" if status == "completed" else f"❌ Failed after {elapsed:.0f}s"
-        return {"status": status, "progress": job.progress_message, "elapsed_seconds": elapsed, "message": msg}
-
-    @mcp.tool(
-        annotations=ToolAnnotations(
-            title="Get job execution result",
-            readOnlyHint=True,
-            destructiveHint=False,
-            idempotentHint=True,
-            openWorldHint=False,
-        ),
-        output_schema={
-            "type": "object",
-            "required": ["success", "stdout", "stderr", "duration_seconds"],
-            "properties": {
+                "next_wait_seconds": {
+                    "type": "integer",
+                    "description": "Pass as wait_seconds on the next call when strategy is 'poll'",
+                },
                 "success": {"type": "boolean"},
                 "result": {"description": "Return value of the executed code"},
                 "stdout": {"type": "string"},
@@ -580,7 +558,6 @@ def _register_tools(
                 "status": "unknown",
                 "message": f"Job not found or expired: {job_id!r}. Results are kept for 2 hours.",
             }
-
         # Long-poll: hold until done or timeout — returns as soon as the job finishes
         if not job.future.done() and wait_seconds > 0:
             with contextlib.suppress(TimeoutError):
