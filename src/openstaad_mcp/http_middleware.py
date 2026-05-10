@@ -65,3 +65,36 @@ class SecFetchMiddleware(BaseHTTPMiddleware):
             )
 
         return await call_next(request)
+
+
+class QueryParamTokenMiddleware:
+    """Promote a ``?token=`` query parameter to an Authorization Bearer header.
+
+    This allows clients that cannot set custom HTTP headers (e.g. the Bentley
+    Copilot SDK which only accepts a URL string) to authenticate by appending
+    the token as a query parameter.  If an Authorization header is already
+    present, the query parameter is ignored.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    def __getattr__(self, name: str):
+        """Proxy attribute access to the wrapped app (e.g. app.state)."""
+        return getattr(self.app, name)
+
+    async def __call__(self, scope, receive, send):  # type: ignore[no-untyped-def]
+        if scope["type"] == "http":
+            raw_headers = scope.get("headers", [])
+            has_auth = any(k == b"authorization" for k, _ in raw_headers)
+            if not has_auth:
+                qs = scope.get("query_string", b"").decode()
+                for part in qs.split("&"):
+                    if part.startswith("token="):
+                        token = part[6:]  # len("token=") == 6
+                        scope["headers"] = [
+                            *raw_headers,
+                            (b"authorization", f"Bearer {token}".encode()),
+                        ]
+                        break
+        await self.app(scope, receive, send)

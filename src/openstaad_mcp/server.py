@@ -114,10 +114,7 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         If a version is below the minimum supported (26.0.1), a ``warning``
         field is included with details about potential data inaccuracies.
         """
-        results = []
-        for inst in registry.get_active_instances():
-            results.append(inst.asdict())
-        return results
+        return [inst.asdict() for inst in registry.get_active_instances()]
 
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -150,17 +147,14 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
                 model_path = staad.GetSTAADFile()
             except Exception:
                 model_path = None
-            result: dict[str, Any] = {
+            return {
                 "connected": True,
                 "staad_version": version,
                 "model_path": model_path,
                 "alias": target.alias,
                 "analyzing": analyzing,
+                "warning": check_version_warning(version),
             }
-            warning = check_version_warning(version)
-            if warning:
-                result["warning"] = warning
-            return result
 
         try:
             return connect_and_run(_read_status, target.file_path, timeout=10.0)
@@ -227,8 +221,6 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
                 "error": str(e),
                 "duration_seconds": 0.0,
             }
-        if target.warning:
-            result["warning"] = target.warning
         return result
 
 
