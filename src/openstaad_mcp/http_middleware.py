@@ -92,8 +92,9 @@ class QueryParamTokenMiddleware:
                 for part in qs.split("&"):
                     if part.startswith("token="):
                         token = part[6:]  # len("token=") == 6
-                        scope["headers"] = list(raw_headers) + [
-                            (b"authorization", f"Bearer {token}".encode())
+                        scope["headers"] = [
+                            *raw_headers,
+                            (b"authorization", f"Bearer {token}".encode()),
                         ]
                         break
         await self.app(scope, receive, send)
