@@ -20,7 +20,7 @@ from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 from starlette.middleware import Middleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from openstaad_mcp.http_middleware import SecFetchMiddleware
+from openstaad_mcp.http_middleware import QueryParamTokenMiddleware, SecFetchMiddleware
 from openstaad_mcp.server import create_mcp_server
 
 # Suppress authlib deprecation warning that pollutes stderr on import
@@ -120,12 +120,22 @@ def main(argv: list[str] | None = None) -> None:
             )
         }
         mcp = create_mcp_server(fastmcp_kwargs=fastmcp_kwargs)
+
+        # Wrap http_app so QueryParamTokenMiddleware runs BEFORE FastMCP's auth layer.
+        _original_http_app = mcp.http_app
+
+        def _patched_http_app(**kwargs):
+            app = _original_http_app(**kwargs)
+            return QueryParamTokenMiddleware(app)
+
+        mcp.http_app = _patched_http_app
+
         try:
             mcp.run(
                 transport="http",
                 host="127.0.0.1",
                 port=args.port,
-                stateless_http=True,
+                stateless_http=False,
                 middleware=[
                     Middleware(SecFetchMiddleware),
                     Middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1"]),
