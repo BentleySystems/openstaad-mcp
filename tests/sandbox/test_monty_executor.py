@@ -261,17 +261,17 @@ result
         assert r.success
         assert r.result is None
 
-    def test_json_module_available(self, executor, staad):
-        code = 'json.dumps({"key": "value"})'
-        r = executor.execute(code, staad)
-        assert r.success
-        assert r.result == '{"key": "value"}'
-
     def test_json_module_with_import(self, executor, staad):
-        code = 'import json\njson.loads(\'[1,2,3]\')'
+        code = "import json\njson.loads('[1,2,3]')"
         r = executor.execute(code, staad)
         assert r.success
         assert r.result == [1, 2, 3]
+
+    def test_json_dumps(self, executor, staad):
+        code = 'import json\njson.dumps({"key": "value"})'
+        r = executor.execute(code, staad)
+        assert r.success
+        assert r.result == '{"key": "value"}'
 
 
 # ===========================================================================
@@ -309,29 +309,25 @@ class TestStdoutCapture:
 
 
 class TestComGet:
-    """com_get resolves sub-objects correctly."""
+    """Sub-object resolution via natural syntax."""
 
     def test_resolve_geometry(self, executor, staad):
-        code = """\
-geo = _get_sub(_staad_root, "Geometry")
-geo["_name"]
-"""
-        r = executor.execute(code, staad)
+        r = executor.execute("staad.Geometry.GetNodeCount()", staad)
         assert r.success
-        assert r.result == "Geometry"
+        assert r.result == 42
 
     def test_resolve_all_sub_objects(self, executor, staad):
+        # Each sub-object must be resolvable; test with a simple attribute access
         for name in ALLOWED_SUB_OBJECTS:
-            code = f'_get_sub(_staad_root, "{name}")["_name"]'
+            code = f'geo = staad.{name}\n"ok"'
             r = executor.execute(code, staad)
             assert r.success, f"Failed to resolve {name}: {r.error}"
-            assert r.result == name
 
     def test_blocked_sub_object(self, executor, staad):
-        code = '_get_sub(_staad_root, "NotASubObject")'
+        code = "staad.NotASubObject.DoSomething()"
         r = executor.execute(code, staad)
         assert not r.success
-        assert "not an allowed sub-object" in (r.error or "").lower() or "denied" in (r.error or "").lower()
+        assert "not allowed" in (r.error or "").lower() or "denied" in (r.error or "").lower()
 
     def test_com_get_only_on_root(self):
         state = _CallState(staad_object=MockStaad())
@@ -347,36 +343,30 @@ geo["_name"]
 
 
 class TestComInvoke:
-    """com_invoke calls methods with proper gating."""
+    """COM method invocation through natural syntax."""
 
     def test_root_method(self, executor, staad):
-        code = 'staad_call("GetApplicationVersion")'
-        r = executor.execute(code, staad)
+        r = executor.execute("staad.GetApplicationVersion()", staad)
         assert r.success
         assert "STAAD" in str(r.result)
 
     def test_sub_object_method(self, executor, staad):
-        code = 'geo_call("GetNodeCount")'
-        r = executor.execute(code, staad)
+        r = executor.execute("staad.Geometry.GetNodeCount()", staad)
         assert r.success
         assert r.result == 42
 
     def test_method_with_args(self, executor, staad):
-        code = 'geo_call("GetNodeCoordinates", 1)'
-        r = executor.execute(code, staad)
+        r = executor.execute("staad.Geometry.GetNodeCoordinates(1)", staad)
         assert r.success
-        # Returned as list (tuple → list through COM bridge)
         assert r.result == [1.0, 2.0, 3.0] or r.result == (1.0, 2.0, 3.0)
 
     def test_output_method(self, executor, staad):
-        code = 'output_call("AreResultsAvailable")'
-        r = executor.execute(code, staad)
+        r = executor.execute("staad.Output.AreResultsAvailable()", staad)
         assert r.success
         assert r.result == 1
 
     def test_property_method(self, executor, staad):
-        code = 'prop_call("GetBeamPropertyName", 1)'
-        r = executor.execute(code, staad)
+        r = executor.execute("staad.Property.GetBeamPropertyName(1)", staad)
         assert r.success
         assert r.result == "W10X33"
 
@@ -390,14 +380,12 @@ class TestAllowlists:
     """Only allowlisted methods can be called."""
 
     def test_unenumerated_root_method_blocked(self, executor, staad):
-        code = 'staad_call("SomeUndefinedMethod")'
-        r = executor.execute(code, staad)
+        r = executor.execute("staad.SomeUndefinedMethod()", staad)
         assert not r.success
         assert "not allowed" in (r.error or "").lower()
 
     def test_unenumerated_sub_method_blocked(self, executor, staad):
-        code = 'geo_call("SomeUndefinedGeometryMethod")'
-        r = executor.execute(code, staad)
+        r = executor.execute("staad.Geometry.SomeUndefinedGeometryMethod()", staad)
         assert not r.success
         assert "not allowed" in (r.error or "").lower()
 
@@ -437,36 +425,30 @@ class TestConsentGate:
     """Destructive methods require allow_destructive=True."""
 
     def test_destructive_root_blocked_by_default(self, executor, staad):
-        code = 'staad_call("NewSTAADFile", "C:/test.std", 1, 0)'
-        r = executor.execute(code, staad, allow_destructive=False)
+        r = executor.execute('staad.NewSTAADFile("C:/test.std", 1, 0)', staad, allow_destructive=False)
         assert not r.success
         assert "blocked" in (r.error or "").lower() or "approval" in (r.error or "").lower()
 
     def test_destructive_root_allowed_with_flag(self, executor, staad):
-        code = 'staad_call("NewSTAADFile", "C:/test.std", 1, 0)'
-        r = executor.execute(code, staad, allow_destructive=True)
+        r = executor.execute('staad.NewSTAADFile("C:/test.std", 1, 0)', staad, allow_destructive=True)
         assert r.success
         assert r.result == 0
 
     def test_save_model_blocked_by_default(self, executor, staad):
-        code = 'staad_call("SaveModel")'
-        r = executor.execute(code, staad, allow_destructive=False)
+        r = executor.execute("staad.SaveModel()", staad, allow_destructive=False)
         assert not r.success
         assert "blocked" in (r.error or "").lower() or "approval" in (r.error or "").lower()
 
     def test_save_model_allowed_with_flag(self, executor, staad):
-        code = 'staad_call("SaveModel")'
-        r = executor.execute(code, staad, allow_destructive=True)
+        r = executor.execute("staad.SaveModel()", staad, allow_destructive=True)
         assert r.success
 
     def test_quit_blocked_by_default(self, executor, staad):
-        code = 'staad_call("Quit")'
-        r = executor.execute(code, staad, allow_destructive=False)
+        r = executor.execute("staad.Quit()", staad, allow_destructive=False)
         assert not r.success
 
     def test_non_destructive_method_always_allowed(self, executor, staad):
-        code = 'staad_call("GetBaseUnit")'
-        r = executor.execute(code, staad, allow_destructive=False)
+        r = executor.execute("staad.GetBaseUnit()", staad, allow_destructive=False)
         assert r.success
 
 
@@ -580,18 +562,7 @@ class TestIsolation:
 
 
 class TestHandleForging:
-    """Forged handles are rejected."""
-
-    def test_invalid_handle(self, executor, staad):
-        code = "_call({'_handle': 999, '_name': 'fake'}, 'GetNodeCount')"
-        r = executor.execute(code, staad)
-        assert not r.success
-        assert "invalid handle" in (r.error or "").lower() or "999" in (r.error or "")
-
-    def test_negative_handle(self, executor, staad):
-        code = "_call({'_handle': -1, '_name': 'fake'}, 'GetNodeCount')"
-        r = executor.execute(code, staad)
-        assert not r.success
+    """Forged handles are rejected at the host layer."""
 
     def test_handle_table_direct_access(self):
         """Host function validates handle table."""
@@ -730,9 +701,10 @@ class TestWorkflows:
 
     def test_geometry_workflow(self, executor, staad):
         code = """\
-count = geo_call("GetNodeCount")
-coords = geo_call("GetNodeCoordinates", 1)
-beams = geo_call("GetBeamList")
+geo = staad.Geometry
+count = geo.GetNodeCount()
+coords = geo.GetNodeCoordinates(1)
+beams = geo.GetBeamList()
 {"nodes": count, "beams": len(beams)}
 """
         r = executor.execute(code, staad)
@@ -741,8 +713,8 @@ beams = geo_call("GetBeamList")
 
     def test_mixed_operations(self, executor, staad):
         code = """\
-version = staad_call("GetApplicationVersion")
-node_count = geo_call("GetNodeCount")
+version = staad.GetApplicationVersion()
+node_count = staad.Geometry.GetNodeCount()
 f"Version: {version}, Nodes: {node_count}"
 """
         r = executor.execute(code, staad)
@@ -753,7 +725,7 @@ f"Version: {version}, Nodes: {node_count}"
     def test_data_processing(self, executor, staad):
         code = """\
 import json
-nodes = geo_call("GetNodeCount")
+nodes = staad.Geometry.GetNodeCount()
 data = {"node_count": nodes, "status": "ok"}
 json.dumps(data)
 """
@@ -773,13 +745,12 @@ class TestPerCallIsolation:
 
     def test_handles_dont_persist(self, executor, staad):
         """Handles from call 1 are not available in call 2."""
-        code1 = '_ensure_sub("Geometry")\n"ok"'
-        r1 = executor.execute(code1, staad)
+        r1 = executor.execute("staad.Geometry.GetNodeCount()", staad)
         assert r1.success
+        assert r1.result == 42
 
-        # Second call should need to re-resolve
-        code2 = 'geo_call("GetNodeCount")'
-        r2 = executor.execute(code2, staad)
+        # Second call should re-resolve from scratch
+        r2 = executor.execute("staad.Geometry.GetNodeCount()", staad)
         assert r2.success
         assert r2.result == 42
 
@@ -789,6 +760,119 @@ class TestPerCallIsolation:
 
         r2 = executor.execute("persistent_var", staad)
         assert not r2.success
+
+
+# ===========================================================================
+# 18. NATURAL SYNTAX (AST rewriter)
+# ===========================================================================
+
+
+class TestNaturalSyntax:
+    """Natural ``staad.Xyz.Method()`` syntax works via AST rewriting."""
+
+    def test_root_method_call(self, executor, staad):
+        r = executor.execute("staad.GetApplicationVersion()", staad)
+        assert r.success
+        assert "STAAD" in str(r.result)
+
+    def test_sub_object_inline_call(self, executor, staad):
+        r = executor.execute("staad.Geometry.GetNodeCount()", staad)
+        assert r.success
+        assert r.result == 42
+
+    def test_sub_object_with_args(self, executor, staad):
+        r = executor.execute("staad.Geometry.GetNodeCoordinates(1)", staad)
+        assert r.success
+        assert r.result == [1.0, 2.0, 3.0] or r.result == (1.0, 2.0, 3.0)
+
+    def test_alias_pattern(self, executor, staad):
+        code = """\
+geo = staad.Geometry
+geo.GetNodeCount()
+"""
+        r = executor.execute(code, staad)
+        assert r.success
+        assert r.result == 42
+
+    def test_alias_with_args(self, executor, staad):
+        code = """\
+geo = staad.Geometry
+geo.GetNodeCoordinates(1)
+"""
+        r = executor.execute(code, staad)
+        assert r.success
+        assert r.result == [1.0, 2.0, 3.0] or r.result == (1.0, 2.0, 3.0)
+
+    def test_multiple_sub_objects(self, executor, staad):
+        code = """\
+nodes = staad.Geometry.GetNodeCount()
+version = staad.GetApplicationVersion()
+f"Nodes: {nodes}, Version: {version}"
+"""
+        r = executor.execute(code, staad)
+        assert r.success
+        assert "42" in r.result
+        assert "STAAD" in r.result
+
+    def test_output_sub_object(self, executor, staad):
+        r = executor.execute("staad.Output.AreResultsAvailable()", staad)
+        assert r.success
+        assert r.result == 1
+
+    def test_property_sub_object(self, executor, staad):
+        r = executor.execute("staad.Property.GetBeamPropertyName(1)", staad)
+        assert r.success
+        assert r.result == "W10X33"
+
+    def test_load_sub_object(self, executor, staad):
+        r = executor.execute("staad.Load.GetPrimaryLoadCaseCount()", staad)
+        assert r.success
+        assert r.result == 3
+
+    def test_support_sub_object(self, executor, staad):
+        r = executor.execute("staad.Support.GetSupportCount()", staad)
+        assert r.success
+        assert r.result == 6
+
+    def test_workflow_with_natural_syntax(self, executor, staad):
+        code = """\
+import json
+geo = staad.Geometry
+out = staad.Output
+nodes = geo.GetNodeCount()
+beams = geo.GetBeamList()
+has_results = out.AreResultsAvailable()
+json.dumps({"nodes": nodes, "beams": len(beams), "results": has_results})
+"""
+        r = executor.execute(code, staad)
+        assert r.success
+        data = json.loads(r.result)
+        assert data["nodes"] == 42
+        assert data["beams"] == 3
+        assert data["results"] == 1
+
+    def test_security_still_enforced_natural_syntax(self, executor, staad):
+        """Denied methods are blocked even through natural syntax."""
+        r = executor.execute(
+            'staad.SetStandardProfileDBFolder("\\\\\\\\evil\\\\share")',
+            staad,
+        )
+        assert not r.success
+        assert "denied" in (r.error or "").lower()
+
+    def test_unenumerated_method_blocked_natural(self, executor, staad):
+        r = executor.execute("staad.Geometry.DeleteEverything()", staad)
+        assert not r.success
+        assert "not allowed" in (r.error or "").lower()
+
+    def test_destructive_blocked_natural(self, executor, staad):
+        r = executor.execute("staad.SaveModel()", staad, allow_destructive=False)
+        assert not r.success
+        assert "blocked" in (r.error or "").lower() or "approval" in (r.error or "").lower()
+
+    def test_destructive_allowed_natural(self, executor, staad):
+        r = executor.execute("staad.SaveModel()", staad, allow_destructive=True)
+        assert r.success
 
 
 # For json.loads in the complex workflow test

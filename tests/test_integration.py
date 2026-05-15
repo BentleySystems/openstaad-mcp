@@ -103,7 +103,7 @@ class TestDirectCom:
 
 
 # ===========================================================================
-# 2. MONTY SANDBOX — Root methods
+# 2. MONTY SANDBOX — Root methods (natural syntax)
 # ===========================================================================
 
 
@@ -111,31 +111,30 @@ class TestMontyRootMethods:
     """Test root-level STAAD methods through the Monty sandbox."""
 
     def test_get_application_version(self, executor, staad_instance):
-        r = _run_code(executor, 'staad_call("GetApplicationVersion")', staad_instance)
+        r = _run_code(executor, "staad.GetApplicationVersion()", staad_instance)
         assert r["success"], r["error"]
         assert isinstance(r["result"], str)
         assert len(r["result"]) > 0
 
     def test_get_staad_file(self, executor, staad_instance):
-        r = _run_code(executor, 'staad_call("GetSTAADFile")', staad_instance)
+        r = _run_code(executor, "staad.GetSTAADFile()", staad_instance)
         assert r["success"], r["error"]
         assert r["result"].lower().endswith(".std")
 
     def test_get_base_unit(self, executor, staad_instance):
-        r = _run_code(executor, 'staad_call("GetBaseUnit")', staad_instance)
+        r = _run_code(executor, "staad.GetBaseUnit()", staad_instance)
         assert r["success"], r["error"]
         # Returns a string like "English" or "Metric"
         assert isinstance(r["result"], str)
 
     def test_get_analysis_status(self, executor, staad_instance):
-        r = _run_code(executor, 'staad_call("GetAnalysisStatus")', staad_instance)
+        r = _run_code(executor, "staad.GetAnalysisStatus()", staad_instance)
         assert r["success"], r["error"]
-        # Returns a dict or repr'd dict with ReturnValue, ReturnString, etc.
         assert r["result"] is not None
 
 
 # ===========================================================================
-# 3. MONTY SANDBOX — Geometry sub-object
+# 3. MONTY SANDBOX — Geometry sub-object (natural syntax)
 # ===========================================================================
 
 
@@ -143,22 +142,22 @@ class TestMontyGeometry:
     """Test Geometry sub-object methods through the Monty sandbox."""
 
     def test_get_node_count(self, executor, staad_instance):
-        r = _run_code(executor, 'geo_call("GetNodeCount")', staad_instance)
+        r = _run_code(executor, "staad.Geometry.GetNodeCount()", staad_instance)
         assert r["success"], r["error"]
         assert isinstance(r["result"], int)
         assert r["result"] > 0
 
     def test_get_member_count(self, executor, staad_instance):
-        r = _run_code(executor, 'geo_call("GetMemberCount")', staad_instance)
+        r = _run_code(executor, "staad.Geometry.GetMemberCount()", staad_instance)
         assert r["success"], r["error"]
         assert isinstance(r["result"], int)
         assert r["result"] >= 0
 
     def test_get_node_coordinates(self, executor, staad_instance):
         code = """\
-count = geo_call("GetNodeCount")
+count = staad.Geometry.GetNodeCount()
 if count > 0:
-    result = geo_call("GetNodeCoordinates", 1)
+    result = staad.Geometry.GetNodeCoordinates(1)
 else:
     result = "no nodes"
 result
@@ -166,25 +165,24 @@ result
         r = _run_code(executor, code, staad_instance)
         assert r["success"], r["error"]
         if r["result"] != "no nodes":
-            # Should be a list of 3 floats (x, y, z)
             assert len(r["result"]) == 3
 
     def test_get_node_list(self, executor, staad_instance):
-        r = _run_code(executor, 'geo_call("GetNodeList")', staad_instance)
+        r = _run_code(executor, "staad.Geometry.GetNodeList()", staad_instance)
         assert r["success"], r["error"]
         assert isinstance(r["result"], list)
         assert len(r["result"]) > 0
 
     def test_get_beam_list(self, executor, staad_instance):
-        r = _run_code(executor, 'geo_call("GetBeamList")', staad_instance)
+        r = _run_code(executor, "staad.Geometry.GetBeamList()", staad_instance)
         assert r["success"], r["error"]
         assert isinstance(r["result"], list)
 
     def test_get_beam_length(self, executor, staad_instance):
         code = """\
-beams = geo_call("GetBeamList")
+beams = staad.Geometry.GetBeamList()
 if len(beams) > 0:
-    result = geo_call("GetBeamLength", beams[0])
+    result = staad.Geometry.GetBeamLength(beams[0])
 else:
     result = -1.0
 result
@@ -197,9 +195,9 @@ result
 
     def test_get_member_incidence(self, executor, staad_instance):
         code = """\
-beams = geo_call("GetBeamList")
+beams = staad.Geometry.GetBeamList()
 if len(beams) > 0:
-    result = geo_call("GetMemberIncidence", beams[0])
+    result = staad.Geometry.GetMemberIncidence(beams[0])
 else:
     result = []
 result
@@ -207,12 +205,22 @@ result
         r = _run_code(executor, code, staad_instance)
         assert r["success"], r["error"]
         if r["result"]:
-            # Incidence = [start_node, end_node]
             assert len(r["result"]) >= 2
+
+    def test_alias_pattern(self, executor, staad_instance):
+        """Alias syntax: geo = staad.Geometry; geo.GetNodeCount()"""
+        code = """\
+geo = staad.Geometry
+geo.GetNodeCount()
+"""
+        r = _run_code(executor, code, staad_instance)
+        assert r["success"], r["error"]
+        assert isinstance(r["result"], int)
+        assert r["result"] > 0
 
 
 # ===========================================================================
-# 4. MONTY SANDBOX — Property sub-object
+# 4. MONTY SANDBOX — Property sub-object (natural syntax)
 # ===========================================================================
 
 
@@ -221,9 +229,9 @@ class TestMontyProperty:
 
     def test_get_beam_section_name(self, executor, staad_instance):
         code = """\
-beams = geo_call("GetBeamList")
+beams = staad.Geometry.GetBeamList()
 if len(beams) > 0:
-    result = prop_call("GetBeamSectionName", beams[0])
+    result = staad.Property.GetBeamSectionName(beams[0])
 else:
     result = "no beams"
 result
@@ -234,7 +242,7 @@ result
 
 
 # ===========================================================================
-# 5. MONTY SANDBOX — Load sub-object
+# 5. MONTY SANDBOX — Load sub-object (natural syntax)
 # ===========================================================================
 
 
@@ -242,16 +250,16 @@ class TestMontyLoad:
     """Test Load sub-object methods."""
 
     def test_get_primary_load_case_count(self, executor, staad_instance):
-        r = _run_code(executor, 'load_call("GetPrimaryLoadCaseCount")', staad_instance)
+        r = _run_code(executor, "staad.Load.GetPrimaryLoadCaseCount()", staad_instance)
         assert r["success"], r["error"]
         assert isinstance(r["result"], int)
         assert r["result"] >= 0
 
     def test_get_load_case_title(self, executor, staad_instance):
         code = """\
-count = load_call("GetPrimaryLoadCaseCount")
+count = staad.Load.GetPrimaryLoadCaseCount()
 if count > 0:
-    result = load_call("GetLoadCaseTitle", 1)
+    result = staad.Load.GetLoadCaseTitle(1)
 else:
     result = "no load cases"
 result
@@ -262,7 +270,7 @@ result
 
 
 # ===========================================================================
-# 6. MONTY SANDBOX — Support sub-object
+# 6. MONTY SANDBOX — Support sub-object (natural syntax)
 # ===========================================================================
 
 
@@ -270,14 +278,14 @@ class TestMontySupport:
     """Test Support sub-object methods."""
 
     def test_get_support_count(self, executor, staad_instance):
-        r = _run_code(executor, 'support_call("GetSupportCount")', staad_instance)
+        r = _run_code(executor, "staad.Support.GetSupportCount()", staad_instance)
         assert r["success"], r["error"]
         assert isinstance(r["result"], int)
         assert r["result"] >= 0
 
 
 # ===========================================================================
-# 7. MONTY SANDBOX — Output sub-object (requires analysis)
+# 7. MONTY SANDBOX — Output sub-object (natural syntax, requires analysis)
 # ===========================================================================
 
 
@@ -285,18 +293,17 @@ class TestMontyOutput:
     """Test Output sub-object methods (require a model with results)."""
 
     def test_are_results_available(self, executor, staad_instance):
-        r = _run_code(executor, 'output_call("AreResultsAvailable")', staad_instance)
+        r = _run_code(executor, "staad.Output.AreResultsAvailable()", staad_instance)
         assert r["success"], r["error"]
-        # 0 = no results, 1 = results available
         assert r["result"] in (0, 1)
 
     def test_get_node_displacements(self, executor, staad_instance):
         code = """\
-has_results = output_call("AreResultsAvailable")
+has_results = staad.Output.AreResultsAvailable()
 if has_results == 1:
-    count = load_call("GetPrimaryLoadCaseCount")
+    count = staad.Load.GetPrimaryLoadCaseCount()
     if count > 0:
-        result = output_call("GetNodeDisplacements", 1, 1)
+        result = staad.Output.GetNodeDisplacements(1, 1)
     else:
         result = "no load cases"
 else:
@@ -306,16 +313,15 @@ result
         r = _run_code(executor, code, staad_instance)
         assert r["success"], r["error"]
         if isinstance(r["result"], list):
-            # 6 DOF: dx, dy, dz, rx, ry, rz
             assert len(r["result"]) == 6
 
     def test_get_support_reactions(self, executor, staad_instance):
         code = """\
-has_results = output_call("AreResultsAvailable")
+has_results = staad.Output.AreResultsAvailable()
 if has_results == 1:
-    supported = support_call("GetSupportedNodes")
+    supported = staad.Support.GetSupportedNodes()
     if len(supported) > 0:
-        result = output_call("GetSupportReactions", supported[0], 1)
+        result = staad.Output.GetSupportReactions(supported[0], 1)
     else:
         result = "no supports"
 else:
@@ -325,16 +331,15 @@ result
         r = _run_code(executor, code, staad_instance)
         assert r["success"], r["error"]
         if isinstance(r["result"], list):
-            # 6 DOF: Fx, Fy, Fz, Mx, My, Mz
             assert len(r["result"]) == 6
 
     def test_get_member_end_forces(self, executor, staad_instance):
         code = """\
-has_results = output_call("AreResultsAvailable")
+has_results = staad.Output.AreResultsAvailable()
 if has_results == 1:
-    beams = geo_call("GetBeamList")
+    beams = staad.Geometry.GetBeamList()
     if len(beams) > 0:
-        result = output_call("GetMemberEndForces", beams[0], 1, 0)
+        result = staad.Output.GetMemberEndForces(beams[0], 1, 0)
     else:
         result = "no beams"
 else:
@@ -344,12 +349,11 @@ result
         r = _run_code(executor, code, staad_instance)
         assert r["success"], r["error"]
         if isinstance(r["result"], list):
-            # 6 forces at each end → 12 values, or 6 per end
             assert len(r["result"]) >= 6
 
 
 # ===========================================================================
-# 8. MONTY SANDBOX — Multi-step workflows
+# 8. MONTY SANDBOX — Multi-step workflows (natural syntax)
 # ===========================================================================
 
 
@@ -359,11 +363,12 @@ class TestMontyWorkflows:
     def test_model_summary(self, executor, staad_instance):
         code = """\
 import json
-nodes = geo_call("GetNodeCount")
-members = geo_call("GetMemberCount")
-supports = support_call("GetSupportCount")
-load_cases = load_call("GetPrimaryLoadCaseCount")
-version = staad_call("GetApplicationVersion")
+geo = staad.Geometry
+nodes = geo.GetNodeCount()
+members = geo.GetMemberCount()
+supports = staad.Support.GetSupportCount()
+load_cases = staad.Load.GetPrimaryLoadCaseCount()
+version = staad.GetApplicationVersion()
 json.dumps({
     "nodes": nodes,
     "members": members,
@@ -380,10 +385,11 @@ json.dumps({
 
     def test_compute_total_beam_length(self, executor, staad_instance):
         code = """\
-beams = geo_call("GetBeamList")
+geo = staad.Geometry
+beams = geo.GetBeamList()
 total = 0.0
 for b in beams:
-    total = total + geo_call("GetBeamLength", b)
+    total = total + geo.GetBeamLength(b)
 total
 """
         r = _run_code(executor, code, staad_instance)
@@ -393,7 +399,7 @@ total
 
     def test_print_output_captured(self, executor, staad_instance):
         code = """\
-nodes = geo_call("GetNodeCount")
+nodes = staad.Geometry.GetNodeCount()
 print(f"Model has {nodes} nodes")
 nodes
 """
@@ -404,10 +410,11 @@ nodes
     def test_data_transformation(self, executor, staad_instance):
         code = """\
 import json
-nodes = geo_call("GetNodeList")
+geo = staad.Geometry
+nodes = geo.GetNodeList()
 coords = {}
 for n in nodes[:5]:
-    c = geo_call("GetNodeCoordinates", n)
+    c = geo.GetNodeCoordinates(n)
     coords[str(n)] = c
 json.dumps(coords)
 """
@@ -420,7 +427,7 @@ json.dumps(coords)
 
 
 # ===========================================================================
-# 9. SECURITY ENFORCEMENT (against live COM)
+# 9. SECURITY ENFORCEMENT (natural syntax, against live COM)
 # ===========================================================================
 
 
@@ -428,13 +435,13 @@ class TestMontySecurity:
     """Verify security controls hold against the real COM bridge."""
 
     def test_denied_method_blocked(self, executor, staad_instance):
-        code = 'staad_call("SetStandardProfileDBFolder", "\\\\\\\\evil\\\\share")'
+        code = 'staad.SetStandardProfileDBFolder("\\\\\\\\evil\\\\share")'
         r = _run_code(executor, code, staad_instance)
         assert not r["success"]
         assert "denied" in (r["error"] or "").lower()
 
     def test_unenumerated_method_blocked(self, executor, staad_instance):
-        code = 'geo_call("DeleteEverything")'
+        code = "staad.Geometry.DeleteEverything()"
         r = _run_code(executor, code, staad_instance)
         assert not r["success"]
         assert "not allowed" in (r["error"] or "").lower()
@@ -442,7 +449,7 @@ class TestMontySecurity:
     def test_destructive_method_blocked_without_consent(self, executor, staad_instance):
         def _run(staad):
             return executor.execute(
-                'staad_call("SaveModel")',
+                "staad.SaveModel()",
                 staad,
                 allow_destructive=False,
             ).to_dict()
@@ -488,7 +495,7 @@ class TestMontyErrors:
 
     def test_invalid_com_method_clean_error(self, executor, staad_instance):
         """Calling a non-existent method gives a clean error, not a COM traceback."""
-        code = 'geo_call("ThisMethodDoesNotExist123")'
+        code = "staad.Geometry.ThisMethodDoesNotExist123()"
         r = _run_code(executor, code, staad_instance)
         assert not r["success"]
         # Error should not contain Windows paths

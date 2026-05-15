@@ -39,7 +39,6 @@ from typing import Any
 
 import pydantic_monty
 
-from openstaad_mcp.sandbox.bridge_code import BRIDGE_CODE
 from openstaad_mcp.sandbox.constants import (
     ALLOWED_ROOT_METHODS,
     ALLOWED_SUB_OBJECT_METHODS,
@@ -56,8 +55,12 @@ from openstaad_mcp.sandbox.constants import (
     MAX_RESULT_LENGTH,
     MAX_STDOUT_CHARS,
 )
+from openstaad_mcp.sandbox.rewriter import rewrite_proxy_calls
 
 logger = logging.getLogger(__name__)
+
+#: Root variable names treated as COM proxies by the AST rewriter.
+_PROXY_NAMES: frozenset[str] = frozenset({"staad"})
 
 # ---------------------------------------------------------------------------
 # Result dataclass (mirrors v1 Executor output shape)
@@ -188,6 +191,17 @@ class MontyExecutor:
                 error=f"Source code exceeds maximum size ({self._max_code_bytes} bytes).",
             )
 
+        # ── 0b. AST rewrite: staad.Xyz.Method() → _call("staad.Xyz.Method") ─
+        try:
+            rewritten_code = rewrite_proxy_calls(code, _PROXY_NAMES)
+        except SyntaxError as exc:
+            duration = time.perf_counter() - start
+            return ExecutionResult(
+                success=False,
+                error=f"Syntax error: {exc}",
+                duration_seconds=round(duration, ndigits=4),
+            )
+
         # ── 1. Build per-call state ──────────────────────────────────
         state = _CallState(
             staad_object=staad_object,
@@ -212,11 +226,9 @@ class MontyExecutor:
         streams = pydantic_monty.CollectStreams()
 
         # ── 5. Create fresh Monty instance & run ─────────────────────
-        #   Prepend bridge code that provides staad helpers to user code.
-        full_code = BRIDGE_CODE + "\n" + code
         try:
             monty = pydantic_monty.Monty(
-                full_code,
+                rewritten_code,
                 script_name="<sandbox>",
             )
             raw_result = monty.run(
@@ -289,17 +301,12 @@ class MontyExecutor:
     ) -> dict[str, Any]:
         """Create the dict of external functions exposed to the Monty sandbox."""
 
-        def com_get(handle: int, prop: str) -> dict:
-            """Resolve a sub-object on the root STAAD handle."""
-            return _host_com_get(state, handle, prop)
-
-        def com_invoke(handle: int, method: str, *args: Any) -> Any:
-            """Call a COM method on a resolved handle."""
-            return _host_com_invoke(state, handle, method, list(args))
+        def _dispatch(method_path: str, *args: Any) -> Any:
+            """Dispatch ``staad.Xyz.Method(...)`` calls from rewritten code."""
+            return _host_call(state, method_path, list(args))
 
         return {
-            "com_get": com_get,
-            "com_invoke": com_invoke,
+            "_dispatch": _dispatch,
         }
 
     # ------------------------------------------------------------------
@@ -406,16 +413,12 @@ def _host_com_invoke(
     else:
         allowed = ALLOWED_SUB_OBJECT_METHODS.get(obj_name, frozenset())
     if method not in allowed:
-        raise RuntimeError(
-            f"Method '{method}' is not allowed on '{obj_name}'"
-        )
+        raise RuntimeError(f"Method '{method}' is not allowed on '{obj_name}'")
 
     # ── Gate 4: Consent gate for destructive methods ──────────────
     destructive_set = DESTRUCTIVE_METHODS.get(obj_name, frozenset())
     if method in destructive_set and not state.allow_destructive:
-        raise RuntimeError(
-            f"Method '{method}' is blocked — requires user approval"
-        )
+        raise RuntimeError(f"Method '{method}' is blocked — requires user approval")
 
     # ── Gate 5: Validate arguments ────────────────────────────────
     # Only allow JSON-safe scalar types through
@@ -427,17 +430,57 @@ def _host_com_invoke(
         result = fn(*args)
     except Exception as exc:
         logger.debug("COM error in '%s.%s': %s", obj_name, method, exc, exc_info=True)
-        raise RuntimeError(
-            f"COM error in '{method}': {_sanitize_com_error(exc)}"
-        ) from None
+        raise RuntimeError(f"COM error in '{method}': {_sanitize_com_error(exc)}") from None
 
     # Convert result to JSON-safe value
     return _com_result_to_safe(result)
 
 
-# ---------------------------------------------------------------------------
-# Argument & result sanitisation helpers
-# ---------------------------------------------------------------------------
+def _host_call(
+    state: _CallState,
+    method_path: str,
+    args: list[Any],
+) -> Any:
+    """Dispatch a dotted method path produced by the AST rewriter.
+
+    The rewriter expands all aliases to their full ``staad.*`` path, so
+    this function only needs to handle three shapes:
+
+    * ``"staad.Geometry"``                → sub-object resolution (no args)
+    * ``"staad.GetBaseUnit"``             → root method call
+    * ``"staad.Geometry.GetNodeCount"``   → sub-object method call
+    """
+    parts = method_path.split(".")
+    if len(parts) < 2 or parts[0] != "staad":
+        raise RuntimeError(f"Invalid method path: '{method_path}'")
+
+    if len(parts) == 2:
+        name = parts[1]
+        if name in ALLOWED_SUB_OBJECTS and not args:
+            # staad.Geometry  →  sub-object resolution (returns opaque token)
+            _resolve_sub_object(state, name)
+            return None  # Monty stores the alias; calls use expanded paths
+        else:
+            # staad.Method(...)  →  root method call
+            return _host_com_invoke(state, 0, name, args)
+    elif len(parts) == 3:
+        # staad.SubObject.Method(...)  →  resolve + call
+        sub_name, method = parts[1], parts[2]
+        handle = _resolve_sub_object(state, sub_name)
+        return _host_com_invoke(state, handle, method, args)
+    else:
+        raise RuntimeError(f"Method path too deep: '{method_path}' (expected staad.Method or staad.SubObject.Method)")
+
+
+def _resolve_sub_object(state: _CallState, sub_name: str) -> int:
+    """Resolve a sub-object by name, returning its handle.
+
+    Re-uses existing handles if the sub-object was already resolved.
+    """
+    result = _host_com_get(state, 0, sub_name)
+    if "error" in result:
+        raise RuntimeError(result["error"])
+    return result["handle"]
 
 
 def _validate_args(args: list[Any]) -> None:
@@ -448,9 +491,7 @@ def _validate_args(args: list[Any]) -> None:
         if isinstance(arg, (list, tuple)):
             _validate_args(list(arg))
             continue
-        raise RuntimeError(
-            f"Argument {i} has unsupported type '{type(arg).__name__}'"
-        )
+        raise RuntimeError(f"Argument {i} has unsupported type '{type(arg).__name__}'")
 
 
 def _com_result_to_safe(value: Any) -> Any:
