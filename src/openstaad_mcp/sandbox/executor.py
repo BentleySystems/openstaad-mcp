@@ -21,6 +21,7 @@ import json
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -78,10 +79,21 @@ class Executor:
         # sys.stdout / sys.stderr reassignment.
         self._exec_lock = threading.Lock()
 
+    @property
+    def is_busy(self) -> bool:
+        """Return True if the executor lock is currently held (execution in progress)."""
+        acquired = self._exec_lock.acquire(blocking=False)
+        if acquired:
+            self._exec_lock.release()
+            return False
+        return True
+
     def execute(
         self,
         code: str,
         staad_object: Any,
+        progress_fn: Callable[[str], None] | None = None,
+        lock_timeout: float = 5.0,
     ) -> ExecutionResult:
         """Validate and execute *code* in the sandbox.
 
@@ -91,6 +103,14 @@ class Executor:
             Python source code to execute.
         staad_object:
             The connected OpenSTAAD root object (or a mock for testing).
+        progress_fn:
+            Optional callable injected as ``progress`` in the sandbox.
+            Called with a human-readable message string for real-time updates.
+        lock_timeout:
+            How long (seconds) to wait for the execution lock before returning
+            an "Executor busy" error.  Callers should pass a value at least as
+            large as the expected execution duration so that a second call waits
+            for the first to finish rather than failing instantly.
 
         Returns
         -------
@@ -111,16 +131,18 @@ class Executor:
         sandbox_globals: dict[str, Any] = {"__builtins__": self.safe_builtins.copy()}
         sandbox_globals.update(self.injected_modules)
         sandbox_globals["staad"] = COMProxy(staad_object)
+        sandbox_globals["progress"] = progress_fn if progress_fn is not None else lambda _: None
 
         # ── 4. Execute with stdout/stderr capture ───────────────────
         captured_out, captured_err = LimitedStringIO(), LimitedStringIO()
         exec_error: BaseException | None = None
         duration = 0.0
 
-        if not self._exec_lock.acquire(timeout=5.0):
+        if not self._exec_lock.acquire(timeout=lock_timeout):
             return ExecutionResult(
                 success=False,
-                error="Executor busy — a previous operation may have timed out. Restart the server.",
+                error="Executor busy — a previous operation is still running. "
+                "Check get_status() and retry when executor_busy is false.",
             )
         try:
             old_stdout, old_stderr = sys.stdout, sys.stderr

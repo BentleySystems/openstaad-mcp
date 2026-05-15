@@ -128,6 +128,16 @@ def _mock_get_active_instances(instances: list[StaadInstance]):
     return patch.object(InstanceRegistry, "get_active_instances", return_value=instances)
 
 
+def _call_tool(mcp, tool_name: str, arguments: dict):
+    """Call an MCP tool within the server lifespan and return the result."""
+
+    async def _run():
+        async with mcp._lifespan_manager():
+            return await mcp.call_tool(tool_name, arguments)
+
+    return asyncio.run(_run())
+
+
 class TestInstanceSelection:
     def test_auto_select_single_instance(self):
         """With one instance and no 'instance' param, it is selected automatically."""
@@ -141,7 +151,7 @@ class TestInstanceSelection:
             patch("openstaad_mcp.server.connect_and_run", return_value=expected) as mock_run,
         ):
             mcp = create_mcp_server()
-            asyncio.run(mcp.call_tool("execute_code", {"code": "result = 42"}))
+            _call_tool(mcp, "execute_code", {"code": "result = 42"})
             assert mock_run.called
             called_path = mock_run.call_args[0][1]
             assert called_path == "C:\\A.std"
@@ -151,7 +161,7 @@ class TestInstanceSelection:
             from openstaad_mcp.server import create_mcp_server
 
             mcp = create_mcp_server()
-            result = asyncio.run(mcp.call_tool("execute_code", {"code": "result = 1"}))
+            result = _call_tool(mcp, "execute_code", {"code": "result = 1"})
             text = result.content[0].text
             assert "No STAAD.Pro instances found" in text
 
@@ -164,7 +174,7 @@ class TestInstanceSelection:
             from openstaad_mcp.server import create_mcp_server
 
             mcp = create_mcp_server()
-            result = asyncio.run(mcp.call_tool("execute_code", {"code": "result = 1"}))
+            result = _call_tool(mcp, "execute_code", {"code": "result = 1"})
             text = result.content[0].text
             assert "staadPro1" in text
             assert "staadPro2" in text
@@ -207,3 +217,173 @@ class TestConnectAndRun:
             pytest.raises(ImportError),
         ):
             connect_and_run(_fn, "C:\\A.std", timeout=5.0)
+
+
+# ---------------------------------------------------------------------------
+# Async execution mode — execute_code with mode="async"
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncExecution:
+    """Test the async execution flow: execute_code(mode=async) → get_job_result."""
+
+    def test_async_returns_job_id(self):
+        """mode='async' returns a job_id immediately without blocking for result."""
+        import json
+        import time
+
+        from openstaad_mcp.server import create_mcp_server
+
+        single = [StaadInstance(alias="staadPro1", pid=1234, file_path="C:\\A.std", version="22.12")]
+        # Simulate a slow execution that takes 0.5s
+        barrier = threading.Event()
+
+        def _slow_connect_and_run(fn, file_path, timeout=120.0):
+            barrier.wait(timeout=60)
+            mock_staad = MagicMock()
+            return fn(mock_staad)
+
+        with (
+            _mock_get_active_instances(single),
+            patch("openstaad_mcp.server.connect_and_run", side_effect=_slow_connect_and_run),
+            patch("openstaad_mcp.server._poll_hint", return_value=0.1),
+        ):
+            mcp = create_mcp_server()
+
+            async def _run():
+                async with mcp._lifespan_manager():
+                    # Call with mode=async — should return immediately with job_id
+                    start = time.monotonic()
+                    result = await mcp.call_tool("execute_code", {"code": "result = 42", "mode": "async"})
+                    elapsed = time.monotonic() - start
+
+                    text = result.content[0].text
+                    data = json.loads(text)
+
+                    # Should get job_id back quickly (not waiting for barrier)
+                    assert "job_id" in data
+                    assert elapsed < 2.0  # Should not block for 5s
+
+                    job_id = data["job_id"]
+
+                    # Check status — should be running (server sleeps briefly)
+                    status_result = await mcp.call_tool("get_job_result", {"job_id": job_id})
+                    status_data = json.loads(status_result.content[0].text)
+                    assert status_data["status"] == "running"
+
+                    # Release the barrier so the job completes
+                    barrier.set()
+                    # Give the background task time to finish
+                    await asyncio.sleep(0.3)
+
+                    # Now get the result
+                    result_response = await mcp.call_tool("get_job_result", {"job_id": job_id})
+                    result_data = json.loads(result_response.content[0].text)
+                    assert result_data["status"] in ("completed", "failed")
+                    # The executor ran with a MagicMock staad object, so result depends on sandbox
+                    assert "success" in result_data
+
+            asyncio.run(_run())
+
+    def test_async_progress_updates(self):
+        """progress() calls in async mode update the job's progress_message."""
+        import json
+
+        from openstaad_mcp.server import create_mcp_server
+
+        single = [StaadInstance(alias="staadPro1", pid=1234, file_path="C:\\A.std", version="22.12")]
+        progress_barrier = threading.Event()
+        done_barrier = threading.Event()
+
+        def _slow_connect_and_run(fn, file_path, timeout=120.0):
+            # Create a mock staad that simulates enough for the executor
+            mock_staad = MagicMock()
+            # Wait for test to check progress before completing
+            progress_barrier.wait(timeout=5)
+            result = fn(mock_staad)
+            done_barrier.set()
+            return result
+
+        with (
+            _mock_get_active_instances(single),
+            patch("openstaad_mcp.server.connect_and_run", side_effect=_slow_connect_and_run),
+        ):
+            mcp = create_mcp_server()
+
+            async def _run():
+                async with mcp._lifespan_manager():
+                    # Use code that calls progress()
+                    code = 'progress("Working on it...")\nresult = 123'
+                    result = await mcp.call_tool("execute_code", {"code": code, "mode": "async"})
+                    data = json.loads(result.content[0].text)
+                    job_id = data["job_id"]
+
+                    # Let the execution proceed (progress will be called)
+                    progress_barrier.set()
+                    done_barrier.wait(timeout=5)
+                    await asyncio.sleep(0.2)
+
+                    # Collect result
+                    result_response = await mcp.call_tool("get_job_result", {"job_id": job_id})
+                    result_data = json.loads(result_response.content[0].text)
+                    assert result_data["success"] is True
+                    assert result_data["result"] == 123
+
+            asyncio.run(_run())
+
+    def test_async_running_response_has_message(self):
+        """Running job response includes status and message fields."""
+        import json
+
+        from openstaad_mcp.server import create_mcp_server
+
+        single = [StaadInstance(alias="staadPro1", pid=1234, file_path="C:\\A.std", version="22.12")]
+        barrier = threading.Event()
+
+        def _slow_connect_and_run(fn, file_path, timeout=120.0):
+            barrier.wait(timeout=60)
+            mock_staad = MagicMock()
+            return fn(mock_staad)
+
+        with (
+            _mock_get_active_instances(single),
+            patch("openstaad_mcp.server.connect_and_run", side_effect=_slow_connect_and_run),
+            patch("openstaad_mcp.server._poll_hint", return_value=0.1),
+        ):
+            mcp = create_mcp_server()
+
+            async def _run():
+                async with mcp._lifespan_manager():
+                    result = await mcp.call_tool("execute_code", {"code": "result = 1", "mode": "async"})
+                    job_id = json.loads(result.content[0].text)["job_id"]
+
+                    # Server sleeps briefly, then returns — job is still running
+                    status_result = await mcp.call_tool("get_job_result", {"job_id": job_id})
+                    data = json.loads(status_result.content[0].text)
+
+                    assert data["status"] == "running"
+                    assert "message" in data
+                    assert len(data["message"]) > 0
+
+                    barrier.set()
+
+            asyncio.run(_run())
+
+    def test_async_unknown_job_id(self):
+        """get_job_result with an unknown job_id returns status=unknown."""
+        import json
+
+        from openstaad_mcp.server import create_mcp_server
+
+        single = [StaadInstance(alias="staadPro1", pid=1234, file_path="C:\\A.std", version="22.12")]
+
+        with _mock_get_active_instances(single):
+            mcp = create_mcp_server()
+
+            async def _run():
+                async with mcp._lifespan_manager():
+                    result = await mcp.call_tool("get_job_result", {"job_id": "nonexistent123"})
+                    data = json.loads(result.content[0].text)
+                    assert data["status"] == "unknown"
+
+            asyncio.run(_run())

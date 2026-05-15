@@ -1,0 +1,170 @@
+"""
+---------------------------------------------------------------------------------------------
+Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+See LICENSE.md in the project root for license terms and full copyright notice.
+---------------------------------------------------------------------------------------------
+
+Unit tests for server-level helpers: _poll_hint, _JobStore, _classify_mode.
+"""
+
+from __future__ import annotations
+
+import time
+from unittest.mock import MagicMock
+
+from openstaad_mcp.server import (
+    _classify_mode,
+    _Job,
+    _JobStore,
+    _poll_hint,
+)
+
+
+def _make_job(
+    created_ago: float,
+    last_progress_ago: float | None = None,
+    timeout: float = 600.0,
+) -> _Job:
+    """Return a _Job whose timestamps are offset into the past by the given seconds."""
+    now = time.monotonic()
+    lpt = now - (last_progress_ago if last_progress_ago is not None else created_ago)
+    return _Job(
+        future=MagicMock(),
+        created=now - created_ago,
+        timeout=timeout,
+        last_progress_time=lpt,
+    )
+
+
+class TestPollHint:
+    def test_early_job_returns_10s(self):
+        job = _make_job(created_ago=0.0)
+        assert _poll_hint(job) == 10
+
+    def test_30s_elapsed_gives_12s(self):
+        # 10 + (30/600)*45 = 10 + 2.25 = 12
+        job = _make_job(created_ago=30.0)
+        assert _poll_hint(job) == 12
+
+    def test_120s_elapsed_gives_19s(self):
+        # 10 + (120/600)*45 = 10 + 9 = 19
+        job = _make_job(created_ago=120.0)
+        assert _poll_hint(job) == 19
+
+    def test_300s_elapsed_gives_32s(self):
+        # 10 + (300/600)*45 = 10 + 22.5 = 32
+        job = _make_job(created_ago=300.0)
+        assert _poll_hint(job) == 32
+
+    def test_600s_elapsed_gives_55s(self):
+        # 10 + (600/600)*45 = 55
+        job = _make_job(created_ago=600.0)
+        assert _poll_hint(job) == 55
+
+    def test_1000s_elapsed_capped_at_55s(self):
+        # Linear would overshoot — clamped to 55
+        job = _make_job(created_ago=1000.0)
+        assert _poll_hint(job) == 55
+
+    def test_long_job_returns_zero(self):
+        # > 20 min → return immediately
+        job = _make_job(created_ago=1300.0)
+        assert _poll_hint(job) == 0
+
+    def test_minimum_is_10s_regardless_of_timeout(self):
+        job = _make_job(created_ago=0.0, timeout=120.0)
+        assert _poll_hint(job) == 10
+
+    def test_timeout_does_not_affect_interval(self):
+        # Same elapsed time, different timeouts → same interval
+        job_short = _make_job(created_ago=300.0, timeout=120.0)
+        job_long = _make_job(created_ago=300.0, timeout=3600.0)
+        assert _poll_hint(job_short) == _poll_hint(job_long) == 32
+
+
+class TestJobStore:
+    def test_create_and_get(self):
+        future = MagicMock()
+        store = _JobStore()
+        job_id = store.create(future)
+        job = store.get(job_id)
+        assert job is not None
+        assert job.future is future
+
+    def test_last_progress_time_initialized_to_created(self):
+        future = MagicMock()
+        store = _JobStore()
+        before = time.monotonic()
+        job_id = store.create(future)
+        after = time.monotonic()
+        job = store.get(job_id)
+        assert job is not None
+        assert before <= job.last_progress_time <= after
+        assert job.last_progress_time == job.created
+
+    def test_pop_removes_job(self):
+        future = MagicMock()
+        store = _JobStore()
+        job_id = store.create(future)
+        assert store.pop(job_id) is not None
+        assert store.get(job_id) is None
+
+    def test_ttl_eviction(self):
+        future = MagicMock()
+        store = _JobStore(ttl_seconds=0.01)
+        job_id = store.create(future)
+        time.sleep(0.05)  # generous margin for Windows timer resolution
+        assert store.get(job_id) is None  # evicted on next access
+
+
+class TestClassifyMode:
+    """Tests for _classify_mode — simple keyword-based timeout/mode heuristic."""
+
+    def test_trivial_code_returns_sync_120(self):
+        timeout, mode = _classify_mode("count = staad.Geometry.GetNodeCount()")
+        assert timeout == 120.0
+        assert mode == "sync"
+
+    def test_analysis_keyword_returns_async_3600(self):
+        timeout, mode = _classify_mode("staad.AnalyzeEx(1, 0, 1)")
+        assert timeout == 3600.0
+        assert mode == "async"
+
+    def test_analyzemodel_returns_async_3600(self):
+        timeout, mode = _classify_mode("staad.AnalyzeModel()")
+        assert timeout == 3600.0
+        assert mode == "async"
+
+    def test_design_keyword_returns_async_3600(self):
+        timeout, mode = _classify_mode("design.PerformSteelDesign()")
+        assert timeout == 3600.0
+        assert mode == "async"
+
+    def test_loop_returns_async_600(self):
+        code = "for nid in node_ids:\n    x, y, z = geo.GetNodeCoordinates(nid)"
+        timeout, mode = _classify_mode(code)
+        assert timeout == 600.0
+        assert mode == "async"
+
+    def test_while_loop_returns_async_600(self):
+        code = "while i < n:\n    out.GetSupportReaction(nid, lc)"
+        timeout, mode = _classify_mode(code)
+        assert timeout == 600.0
+        assert mode == "async"
+
+    def test_analysis_takes_priority_over_loop(self):
+        code = "for lc in cases:\n    staad.AnalyzeEx(1, 0, 1)"
+        timeout, mode = _classify_mode(code)
+        assert timeout == 3600.0
+        assert mode == "async"
+
+    def test_design_takes_priority_over_loop(self):
+        code = "for member in members:\n    design.PerformDesign()"
+        timeout, mode = _classify_mode(code)
+        assert timeout == 3600.0
+        assert mode == "async"
+
+    def test_keywords_are_case_insensitive(self):
+        timeout, mode = _classify_mode("staad.ANALYZEEX(1, 0, 1)")
+        assert timeout == 3600.0
+        assert mode == "async"
