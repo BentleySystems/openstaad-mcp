@@ -1,6 +1,6 @@
 ﻿---
 name: staad-core
-description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad/progress pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), execution modes (sync/async auto-detected from code keywords — override with timeout= and mode= when you know better; async long-polls with strategy field), unit conversion (English=inches/KIP, Metric=meters/kN), GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeModel/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit), progress reporting, timeout guidelines, large model query patterns. Do not auto-save."
+description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad/progress pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), execution modes (sync/async auto-detected from code keywords — override with timeout= and mode= when you know better; async uses server-side pacing — call get_job_result immediately after each response), unit conversion (English=inches/KIP, Metric=meters/kN), GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeModel/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit), progress reporting, timeout guidelines, large model query patterns. Do not auto-save."
 ---
 
 # STAAD.Pro Core — Sandbox & Model Setup
@@ -64,9 +64,9 @@ execute_code(code="...", mode="async")
 → {"job_id": "abc123def456"}
 
 get_job_result(job_id="abc123def456")
-→ {"status": "running", "message": "⏳ Running (8s): Node 50/200", "strategy": "poll", "retry_after_seconds": 10}
+→ {"status": "running", "message": "⏳ Running (8s): Node 50/200", "elapsed_seconds": 8}
 
-[Write message to user, wait ~10 s, then call again]
+[Write message to user, call again immediately — server paces internally]
 
 get_job_result(job_id="abc123def456")
 → {"status": "completed", "success": true, "result": ..., "message": "✅ Completed in 31s"}
@@ -76,10 +76,8 @@ Use for slow operations (>60 s): analysis, bulk result extraction, large model q
 
 Rules:
 - Mode and timeout are auto-detected — omit both unless you need to override.
-- `get_job_result` returns immediately with the current status (no blocking).
-- Check `strategy` in every running response:
-  - `"poll"` → write `message` to user, wait `retry_after_seconds`, then call again
-  - `"await_user_trigger"` → write `message` to user, stop all autonomous polling; tell the user the job is still running (include job_id) and wait for them to ask
+- The server controls pacing internally (sleeps 10-55 s before responding) — call `get_job_result` again **immediately** after each response.
+- For jobs running >20 min the server responds instantly — tell the user the job is still running (include job_id) and wait for them to ask for an update.
 - When `status` is `"completed"` or `"failed"`, the result payload is included directly in the response.
 
 ### Reporting Progress to the User
@@ -87,11 +85,10 @@ Rules:
 **IMPORTANT:** MCP notifications are NOT visible in the chat UI. The only way the user sees progress is if you **write it in your text response**. Follow this pattern for async operations:
 
 1. Start the job with `mode="async"`
-2. Call `get_job_result(job_id)` — returns immediately with current status
+2. Call `get_job_result(job_id)` — the server sleeps internally (10-55 s) before responding
 3. **Write the `message` field to the user** (e.g. "⏳ Running (18s): Processing plate 40000/111684...")
-4. Wait `retry_after_seconds` before calling again
-5. Check `strategy`: `"poll"` → repeat steps 2-4; `"await_user_trigger"` → stop, tell user, wait for their request
-6. When `status` is `"completed"` or `"failed"`, present the final result
+4. Call `get_job_result` again **immediately** — the server controls pacing
+5. When `status` is `"completed"` or `"failed"`, present the final result
 
 Example conversation flow:
 ```
@@ -101,10 +98,10 @@ Example conversation flow:
 [Tell user: "Starting computation..."]
 
 → get_job_result(job_id="abc123")
-← {"status": "running", "message": "⏳ Running (8s): Reading nodes 5000/52000", "strategy": "poll", "retry_after_seconds": 10}
+← {"status": "running", "message": "⏳ Running (8s): Reading nodes 5000/52000", "elapsed_seconds": 8}
 
 [Tell user: "⏳ Running (8s): Reading nodes 5000/52000"]
-[Wait ~10 s]
+[Call again immediately]
 
 → get_job_result(job_id="abc123")
 ← {"status": "completed", "success": true, "result": {...}, "message": "✅ Completed in 31s"}
@@ -112,10 +109,10 @@ Example conversation flow:
 [Present final result to user]
 ```
 
-For **long analyses (>10 min)** the server returns `strategy="await_user_trigger"`:
+For **long analyses (>20 min)** the server responds instantly:
 ```
 → get_job_result(job_id="abc123")
-← {"status": "running", "strategy": "await_user_trigger", "message": "⏳ Still running (12 min). Stop polling — tell the user the analysis is still in progress (job_id='abc123') and wait for them to ask for an update."}
+← {"status": "running", "message": "⏳ Still running (1201s). Tell the user the analysis is still in progress (job_id='abc123') and wait for them to ask for an update."}
 
 [Stop polling. Tell user: "The analysis is still running. I'll check back when you're ready — just ask me (job_id='abc123')."]
 ```

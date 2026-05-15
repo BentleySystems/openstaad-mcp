@@ -43,7 +43,7 @@
         },
         {
             "name": "get_job_result",
-            "description": "IMPORTANT: always write the returned `message` field to the user in your text response so they see progress \u2014 it is the ONLY way they see updates. Returns current job status immediately. Check `strategy`: 'poll' \u2192 write message to user, wait `retry_after_seconds`, then call again; 'await_user_trigger' \u2192 stop polling, tell user job is still running, wait for their request."
+            "description": "IMPORTANT: always write the returned `message` field to the user in your text response so they see progress \u2014 it is the ONLY way they see updates. Waits internally for the job to finish (server controls pacing). When status='running', write message to user and call again immediately. For jobs >20 min the server returns instantly \u2014 tell the user the job is still running and wait for them to ask."
         }
     ],
     "tools_generated": false,
