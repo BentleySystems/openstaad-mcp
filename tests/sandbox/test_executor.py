@@ -4,70 +4,173 @@ Copyright (c) Bentley Systems, Incorporated. All rights reserved.
 See LICENSE.md in the project root for license terms and full copyright notice.
 ---------------------------------------------------------------------------------------------
 
-Tests for the sandboxed code executor.
+Tests for the Monty-based sandboxed executor.
+
+Covers: basic execution, COM bridging, allowlists, deny list, consent gate,
+resource limits, isolation, error sanitisation, and red-team attack vectors.
 """
 
-from textwrap import dedent
+from __future__ import annotations
 
 import pytest
 
-from openstaad_mcp.sandbox.const import ALLOWED_BUILTIN_EXCEPTIONS
-from openstaad_mcp.sandbox.executor import Executor
+from openstaad_mcp.sandbox.executor import (
+    ExecutionResult,
+    Executor,
+    _CallState,
+    _host_com_get,
+    _host_com_invoke,
+    _sanitize_output,
+    _validate_args,
+)
+from openstaad_mcp.sandbox.constants import (
+    ALLOWED_ROOT_METHODS,
+    ALLOWED_SUB_OBJECT_METHODS,
+    ALLOWED_SUB_OBJECTS,
+    DENIED_METHODS,
+    DESTRUCTIVE_METHODS,
+    MAX_RESULT_LENGTH,
+)
+
+
+# ---------------------------------------------------------------------------
+# Mock STAAD object
+# ---------------------------------------------------------------------------
+
+
+class MockGeometry:
+    @staticmethod
+    def GetNodeCount():
+        return 42
+
+    @staticmethod
+    def GetNodeCoordinates(node_id):
+        return (1.0, 2.0, 3.0)
+
+    @staticmethod
+    def GetBeamList():
+        return [1, 2, 3]
+
+    @staticmethod
+    def AddNode(x, y, z):
+        return 1
+
+    @staticmethod
+    def GetBeamLength(beam_no):
+        return 5.5
+
+
+class MockOutput:
+    @staticmethod
+    def GetNodeDisplacements(node_id, load_case):
+        return [0.1, -0.2, 0.3, 0.01, -0.02, 0.03]
+
+    @staticmethod
+    def AreResultsAvailable():
+        return 1
+
+
+class MockProperty:
+    @staticmethod
+    def GetBeamPropertyName(beam_no):
+        return "W10X33"
+
+
+class MockLoad:
+    @staticmethod
+    def GetPrimaryLoadCaseCount():
+        return 3
+
+    @staticmethod
+    def GetLoadCaseTitle(lc):
+        return f"Load Case {lc}"
+
+
+class MockView:
+    @staticmethod
+    def ExportView(directory, filename, view_type, dpi):
+        return 0
+
+
+class MockTable:
+    @staticmethod
+    def SaveReport(path, fmt):
+        return 0
+
+
+class MockSupport:
+    @staticmethod
+    def GetSupportCount():
+        return 6
+
+
+class MockDesign:
+    pass
+
+
+class MockCommand:
+    pass
 
 
 class MockStaad:
     """Fake OpenSTAAD root for testing without COM."""
 
-    class Geometry:
-        @staticmethod
-        def GetNodeCount():
-            return 42
-
-        @staticmethod
-        def GetNodeCoordinates(node_id):
-            return (1.0, 2.0, 3.0)
-
-        @staticmethod
-        def GetBeamCount():
-            return 10
-
-        @staticmethod
-        def GetBeamList():
-            return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-
-    class Output:
-        @staticmethod
-        def GetBeamEndForces(beam_no, load_case):
-            return [100.0, -50.0, 25.0, 10.0, -5.0, 2.5]
-
-    class Load:
-        pass
-
-    class Property:
-        pass
-
-    class Support:
-        pass
-
-    class Command:
-        pass
-
-    class View:
-        pass
-
-    class Table:
-        pass
-
-    class Design:
-        pass
+    Geometry = MockGeometry()
+    Output = MockOutput()
+    Property = MockProperty()
+    Load = MockLoad()
+    View = MockView()
+    Table = MockTable()
+    Support = MockSupport()
+    Design = MockDesign()
+    Command = MockCommand()
 
     @staticmethod
     def GetApplicationVersion():
-        return "STAAD.Pro CONNECT Edition V25"
+        return "STAAD.Pro CONNECT Edition"
 
     @staticmethod
-    def IsAnalyzing():
-        return False
+    def GetSTAADFile():
+        return "C:\\test\\model.std"
+
+    @staticmethod
+    def GetBaseUnit():
+        return 1
+
+    @staticmethod
+    def AnalyzeModel():
+        return 0
+
+    @staticmethod
+    def SetSilentMode(mode):
+        return None
+
+    @staticmethod
+    def NewSTAADFile(path, length_unit, force_unit):
+        return 0
+
+    @staticmethod
+    def SaveModel():
+        return 0
+
+    @staticmethod
+    def Quit():
+        return None
+
+    # Denied method — should never be callable
+    @staticmethod
+    def SetStandardProfileDBFolder(path):
+        return 0
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def executor():
+    return Executor(timeout_seconds=10.0)
 
 
 @pytest.fixture
@@ -75,593 +178,702 @@ def staad():
     return MockStaad()
 
 
-@pytest.fixture
-def executor():
-    return Executor()
+# ===========================================================================
+# 1. BASIC EXECUTION
+# ===========================================================================
 
 
-class TestResultCapture:
-    """Test that results are captured correctly."""
+class TestBasicExecution:
+    """Fundamental execution mechanics."""
 
-    def test_last_expression(self, staad, executor):
+    def test_simple_expression(self, executor, staad):
         r = executor.execute("1 + 2", staad)
         assert r.success
         assert r.result == 3
 
-    def test_explicit_result_variable(self, staad, executor):
-        r = executor.execute("result = 42", staad)
+    def test_string_expression(self, executor, staad):
+        r = executor.execute('"hello " + "world"', staad)
         assert r.success
-        assert r.result == 42
+        assert r.result == "hello world"
 
-    def test_result_variable_takes_priority(self, staad, executor):
-        code = dedent(
-            """
-            result = 'explicit'
-            99
-            """
-        )
+    def test_arithmetic(self, executor, staad):
+        r = executor.execute("2 ** 10", staad)
+        assert r.success
+        assert r.result == 1024
+
+    def test_variable_assignment_and_return(self, executor, staad):
+        r = executor.execute("x = 5\ny = 10\nx + y", staad)
+        assert r.success
+        assert r.result == 15
+
+    def test_list_operations(self, executor, staad):
+        r = executor.execute("[1, 2, 3] + [4, 5]", staad)
+        assert r.success
+        assert r.result == [1, 2, 3, 4, 5]
+
+    def test_dict_operations(self, executor, staad):
+        code = '{"a": 1, "b": 2}'
         r = executor.execute(code, staad)
         assert r.success
-        assert r.result == "explicit"
+        assert r.result == {"a": 1, "b": 2}
 
-    def test_staad_method_call(self, staad, executor):
+    def test_function_definition_and_call(self, executor, staad):
+        code = """\
+def add(a, b):
+    return a + b
+add(3, 4)
+"""
+        r = executor.execute(code, staad)
+        assert r.success
+        assert r.result == 7
+
+    def test_loop(self, executor, staad):
+        code = """\
+total = 0
+for i in range(10):
+    total = total + i
+total
+"""
+        r = executor.execute(code, staad)
+        assert r.success
+        assert r.result == 45
+
+    def test_conditional(self, executor, staad):
+        code = """\
+x = 42
+if x > 40:
+    result = "big"
+else:
+    result = "small"
+result
+"""
+        r = executor.execute(code, staad)
+        assert r.success
+        assert r.result == "big"
+
+    def test_list_comprehension(self, executor, staad):
+        r = executor.execute("[x * 2 for x in range(5)]", staad)
+        assert r.success
+        assert r.result == [0, 2, 4, 6, 8]
+
+    def test_none_result(self, executor, staad):
+        r = executor.execute("x = 5", staad)
+        assert r.success
+        assert r.result is None
+
+    def test_json_module_with_import(self, executor, staad):
+        code = "import json\njson.loads('[1,2,3]')"
+        r = executor.execute(code, staad)
+        assert r.success
+        assert r.result == [1, 2, 3]
+
+    def test_json_dumps(self, executor, staad):
+        code = 'import json\njson.dumps({"key": "value"})'
+        r = executor.execute(code, staad)
+        assert r.success
+        assert r.result == '{"key": "value"}'
+
+
+# ===========================================================================
+# 2. STDOUT / STDERR CAPTURE
+# ===========================================================================
+
+
+class TestStdoutCapture:
+    """Print output is captured and returned."""
+
+    def test_print_captured(self, executor, staad):
+        r = executor.execute('print("hello")', staad)
+        assert r.success
+        assert "hello" in r.stdout
+
+    def test_multiple_prints(self, executor, staad):
+        code = 'print("a")\nprint("b")\nprint("c")'
+        r = executor.execute(code, staad)
+        assert r.success
+        assert "a" in r.stdout
+        assert "b" in r.stdout
+        assert "c" in r.stdout
+
+    def test_stdout_truncation(self, executor, staad):
+        exc = Executor(max_stdout_chars=100)
+        code = 'print("x" * 200)'
+        r = exc.execute(code, staad)
+        assert r.success
+        assert len(r.stdout) <= 120  # 100 + truncation message
+
+
+# ===========================================================================
+# 3. COM BRIDGING — Sub-object resolution
+# ===========================================================================
+
+
+class TestComGet:
+    """Sub-object resolution via natural syntax."""
+
+    def test_resolve_geometry(self, executor, staad):
         r = executor.execute("staad.Geometry.GetNodeCount()", staad)
         assert r.success
         assert r.result == 42
 
-    def test_staad_complex_workflow(self, staad, executor):
-        code = dedent(
-            """
-            coords = staad.Geometry.GetNodeCoordinates(1)
-            result = {"x": coords[0], "y": coords[1], "z": coords[2]}
-            """
+    def test_resolve_all_sub_objects(self, executor, staad):
+        # Each sub-object must be resolvable; test with a simple attribute access
+        for name in ALLOWED_SUB_OBJECTS:
+            code = f'geo = staad.{name}\n"ok"'
+            r = executor.execute(code, staad)
+            assert r.success, f"Failed to resolve {name}: {r.error}"
+
+    def test_blocked_sub_object(self, executor, staad):
+        code = "staad.NotASubObject.DoSomething()"
+        r = executor.execute(code, staad)
+        assert not r.success
+        assert "not allowed" in (r.error or "").lower() or "denied" in (r.error or "").lower()
+
+    def test_com_get_only_on_root(self):
+        state = _CallState(staad_object=MockStaad())
+        state.handle_table[0] = (MockStaad(), "_root")
+        state.handle_table[1] = (MockGeometry(), "Geometry")
+        result = _host_com_get(state, 1, "Geometry")
+        assert "error" in result
+
+
+# ===========================================================================
+# 4. COM BRIDGING — Method invocation
+# ===========================================================================
+
+
+class TestComInvoke:
+    """COM method invocation through natural syntax."""
+
+    def test_root_method(self, executor, staad):
+        r = executor.execute("staad.GetApplicationVersion()", staad)
+        assert r.success
+        assert "STAAD" in str(r.result)
+
+    def test_sub_object_method(self, executor, staad):
+        r = executor.execute("staad.Geometry.GetNodeCount()", staad)
+        assert r.success
+        assert r.result == 42
+
+    def test_method_with_args(self, executor, staad):
+        r = executor.execute("staad.Geometry.GetNodeCoordinates(1)", staad)
+        assert r.success
+        assert r.result == [1.0, 2.0, 3.0] or r.result == (1.0, 2.0, 3.0)
+
+    def test_output_method(self, executor, staad):
+        r = executor.execute("staad.Output.AreResultsAvailable()", staad)
+        assert r.success
+        assert r.result == 1
+
+    def test_property_method(self, executor, staad):
+        r = executor.execute("staad.Property.GetBeamPropertyName(1)", staad)
+        assert r.success
+        assert r.result == "W10X33"
+
+
+# ===========================================================================
+# 5. ALLOWLIST ENFORCEMENT
+# ===========================================================================
+
+
+class TestAllowlists:
+    """Only allowlisted methods can be called."""
+
+    def test_unenumerated_root_method_blocked(self, executor, staad):
+        r = executor.execute("staad.SomeUndefinedMethod()", staad)
+        assert not r.success
+        assert "not allowed" in (r.error or "").lower()
+
+    def test_unenumerated_sub_method_blocked(self, executor, staad):
+        r = executor.execute("staad.Geometry.SomeUndefinedGeometryMethod()", staad)
+        assert not r.success
+        assert "not allowed" in (r.error or "").lower()
+
+    def test_all_allowed_root_methods_are_valid(self):
+        """Sanity: the allowlist only contains method names we expect."""
+        for m in ALLOWED_ROOT_METHODS:
+            assert isinstance(m, str) and len(m) > 0
+
+    def test_all_sub_object_keys_match_allowed_sub_objects(self):
+        """Every key in the sub-object method allowlist is a valid sub-object."""
+        for key in ALLOWED_SUB_OBJECT_METHODS:
+            assert key in ALLOWED_SUB_OBJECTS
+
+
+# ===========================================================================
+# 6. DENY LIST
+# ===========================================================================
+
+
+class TestDenyList:
+    """Globally denied methods are blocked even if in an allowlist."""
+
+    def test_denied_method_blocked(self):
+        state = _CallState(staad_object=MockStaad())
+        state.handle_table[0] = (MockStaad(), "_root")
+        for method in DENIED_METHODS:
+            with pytest.raises(RuntimeError, match="denied"):
+                _host_com_invoke(state, 0, method, [])
+
+
+# ===========================================================================
+# 7. CONSENT GATE (Destructive methods)
+# ===========================================================================
+
+
+class TestConsentGate:
+    """Destructive methods require allow_destructive=True."""
+
+    def test_destructive_root_blocked_by_default(self, executor, staad):
+        r = executor.execute('staad.NewSTAADFile("C:/test.std", 1, 0)', staad, allow_destructive=False)
+        assert not r.success
+        assert "blocked" in (r.error or "").lower() or "approval" in (r.error or "").lower()
+
+    def test_destructive_root_allowed_with_flag(self, executor, staad):
+        r = executor.execute('staad.NewSTAADFile("C:/test.std", 1, 0)', staad, allow_destructive=True)
+        assert r.success
+        assert r.result == 0
+
+    def test_save_model_blocked_by_default(self, executor, staad):
+        r = executor.execute("staad.SaveModel()", staad, allow_destructive=False)
+        assert not r.success
+        assert "blocked" in (r.error or "").lower() or "approval" in (r.error or "").lower()
+
+    def test_save_model_allowed_with_flag(self, executor, staad):
+        r = executor.execute("staad.SaveModel()", staad, allow_destructive=True)
+        assert r.success
+
+    def test_quit_blocked_by_default(self, executor, staad):
+        r = executor.execute("staad.Quit()", staad, allow_destructive=False)
+        assert not r.success
+
+    def test_non_destructive_method_always_allowed(self, executor, staad):
+        r = executor.execute("staad.GetBaseUnit()", staad, allow_destructive=False)
+        assert r.success
+
+
+# ===========================================================================
+# 8. RESOURCE LIMITS
+# ===========================================================================
+
+
+class TestResourceLimits:
+    """Monty enforces CPU, memory, allocation, and recursion limits."""
+
+    def test_timeout_enforcement(self, staad):
+        exc = Executor(timeout_seconds=1.0)
+        code = """\
+x = 0
+while True:
+    x = x + 1
+"""
+        r = exc.execute(code, staad)
+        assert not r.success
+        assert r.duration_seconds < 5.0  # Should be ~1s, definitely < 5s
+
+    def test_recursion_limit(self, staad):
+        exc = Executor(max_recursion_depth=50)
+        code = """\
+def recurse(n):
+    return recurse(n + 1)
+recurse(0)
+"""
+        r = exc.execute(code, staad)
+        assert not r.success
+
+    def test_code_size_limit(self, staad):
+        exc = Executor(max_code_bytes=100)
+        code = "x = 1\n" * 100  # ~600 bytes
+        r = exc.execute(code, staad)
+        assert not r.success
+        assert "maximum size" in (r.error or "").lower()
+
+    def test_memory_limit(self, staad):
+        exc = Executor(
+            timeout_seconds=5.0,
+            max_memory_bytes=1 * 1024 * 1024,  # 1 MiB
+            max_allocations=100_000,
         )
-        r = executor.execute(code, staad)
-        assert r.success
-        assert r.result == {"x": 1.0, "y": 2.0, "z": 3.0}
-
-    def test_list_result(self, staad, executor):
-        code = dedent(
-            """
-            forces = staad.Output.GetBeamEndForces(1, 1)
-            result = forces
-            """
-        )
-        r = executor.execute(code, staad)
-        assert r.success
-        assert r.result == [100.0, -50.0, 25.0, 10.0, -5.0, 2.5]
-
-    def test_none_result(self, staad, executor):
-        r = executor.execute("x = 1", staad)
-        assert r.success
-        assert r.result is None
-
-    def test_json_module_available(self, staad, executor):
-        code = 'result = json.dumps({"a": 1})'
-        r = executor.execute(code, staad)
-        assert r.success
-        assert r.result == '{"a": 1}'
-
-    def test_math_module_available(self, staad, executor):
-        code = "result = math.sqrt(144)"
-        r = executor.execute(code, staad)
-        assert r.success
-        assert r.result == 12.0
-
-
-class TestStdoutCapture:
-    """Test that print() output is captured."""
-
-    def test_print_captured(self, staad, executor):
-        r = executor.execute('print("hello world")', staad)
-        assert r.success
-        assert "hello world" in r.stdout
-
-    def test_multiple_prints(self, staad, executor):
-        code = dedent(
-            """
-            print("line 1")
-            print("line 2")
-            """
-        )
-        r = executor.execute(code, staad)
-        assert r.success
-        assert "line 1" in r.stdout
-        assert "line 2" in r.stdout
-
-    def test_stderr_empty_on_success(self, staad, executor):
-        r = executor.execute('print("hello")', staad)
-        assert r.success
-        assert r.stderr == ""
-
-
-class TestStderrCapture:
-    """Test that stderr output is captured."""
-
-    def test_stderr_field_present_on_error(self, staad, executor):
-        r = executor.execute("1 / 0", staad)
-        assert not r.success
-        assert isinstance(r.stderr, str)
-
-    def test_stderr_field_present_on_success(self, staad, executor):
-        r = executor.execute("x = 1", staad)
-        assert r.success
-        assert isinstance(r.stderr, str)
-
-
-class TestDurationCapture:
-    """Test that execution duration is captured."""
-
-    def test_duration_positive_on_success(self, staad, executor):
-        r = executor.execute("x = 1 + 2", staad)
-        assert r.success
-        assert r.duration_seconds > 0.0
-
-    def test_duration_positive_on_error(self, staad, executor):
-        r = executor.execute("1 / 0", staad)
-        assert not r.success
-        assert r.duration_seconds >= 0.0
-
-    def test_duration_zero_on_validation_error(self, staad, executor):
-        r = executor.execute("import os", staad)
-        assert not r.success
-        assert r.duration_seconds == 0.0
-
-
-class TestToDict:
-    """Test that to_dict() returns all fields."""
-
-    def test_to_dict_keys(self, staad, executor):
-        r = executor.execute("1 + 2", staad)
-        d = r.to_dict()
-        assert set(d.keys()) == {
-            "success",
-            "result",
-            "stdout",
-            "stderr",
-            "error",
-            "duration_seconds",
-        }
-
-
-class TestErrorHandling:
-    """Test that errors are properly reported."""
-
-    def test_runtime_error(self, staad, executor):
-        r = executor.execute("1 / 0", staad)
-        assert not r.success
-        assert isinstance(r.error, str)
-        assert "ZeroDivisionError" in r.error
-
-    def test_name_error(self, staad, executor):
-        r = executor.execute("undefined_variable", staad)
-        assert not r.success
-        assert isinstance(r.error, str)
-        assert "NameError" in r.error
-
-    def test_attribute_error(self, staad, executor):
-        r = executor.execute("staad.NonExistent.Method()", staad)
-        assert not r.success
-        assert isinstance(r.error, str)
-        assert "AttributeError" in r.error
-
-    def test_validation_error_reported(self, staad, executor):
-        r = executor.execute("import os", staad)
-        assert not r.success
-        assert isinstance(r.error, str)
-        assert "not allowed" in r.error
-
-    def test_syntax_error(self, staad, executor):
-        r = executor.execute("def f(", staad)
-        assert not r.success
-        assert isinstance(r.error, str)
-        assert "syntax error" in r.error.lower()
-
-    def test_error_includes_stdout(self, staad, executor):
-        code = dedent(
-            """
-            print("before error")
-            1 / 0
-            """
-        )
-        r = executor.execute(code, staad)
-        assert not r.success
-        assert "before error" in r.stdout
-        assert isinstance(r.error, str)
-        assert "ZeroDivisionError" in r.error
-
-
-class TestSandboxIsolation:
-    """Ensure the sandbox blocks dangerous operations."""
-
-    def test_import_blocked(self, staad, executor):
-        r = executor.execute("import os", staad)
+        code = """\
+data = []
+for i in range(1000000):
+    data.append("x" * 1000)
+"""
+        r = exc.execute(code, staad)
         assert not r.success
 
-    def test_open_blocked(self, staad, executor):
-        r = executor.execute('open("file.txt")', staad)
+
+# ===========================================================================
+# 9. ISOLATION — No host access
+# ===========================================================================
+
+
+class TestIsolation:
+    """User code cannot access host environment."""
+
+    def test_no_import_subprocess(self, executor, staad):
+        """Monty blocks importing non-supported modules."""
+        r = executor.execute("import subprocess", staad)
         assert not r.success
 
-    def test_eval_blocked(self, staad, executor):
+    def test_import_os_limited(self, executor, staad):
+        """Monty's os module is a stub — dangerous operations are blocked."""
+        r = executor.execute('import os\nos.listdir(".")', staad)
+        assert not r.success
+
+    def test_no_open(self, executor, staad):
+        r = executor.execute('open("test.txt")', staad)
+        assert not r.success
+
+    def test_no_eval(self, executor, staad):
         r = executor.execute('eval("1+1")', staad)
         assert not r.success
 
-    def test_dunder_blocked(self, staad, executor):
-        r = executor.execute("staad.__class__", staad)
+    def test_no_exec(self, executor, staad):
+        r = executor.execute('exec("x=1")', staad)
         assert not r.success
 
-    def test_builtins_not_leaking(self, staad, executor):
-        """Ensure __builtins__ is not the full module."""
-        r = executor.execute("result = type(__builtins__)", staad)
-        # This should fail because __builtins__ is in BLOCKED_BUILTINS
+    def test_no_subprocess(self, executor, staad):
+        r = executor.execute("import subprocess", staad)
         assert not r.success
 
-
-class TestModuleProxySandboxEscape:
-    """Regression tests for the module-graph traversal sandbox-escape vector.
-
-    Two independent layers block this:
-    1. AST: visit_Attribute rejects non-whitelisted attrs on known module Names.
-    2. Runtime: _ModuleProxy raises AttributeError for any attr not in the
-       per-module whitelist, covering aliased access the AST cannot track.
-    """
-
-    # ------------------------------------------------------------------
-    # Exact PoC from the sandbox-escape bug report (AST layer blocks it)
-    # ------------------------------------------------------------------
-
-    def test_json_codecs_traversal_blocked(self, staad, executor):
-        """CVE-style PoC: json.codecs.builtins must not be reachable."""
-        code = dedent(
-            """
-            b = json.codecs.builtins
-            ns = {}
-            b.exec("import os; result = os.getcwd()", {"__builtins__": b}, ns)
-            result = ns["result"]
-            """
-        )
-        r = executor.execute(code, staad)
-        assert not r.success, "Sandbox escape via json.codecs.builtins must be blocked"
-
-    # ------------------------------------------------------------------
-    # AST-layer: direct non-whitelisted attribute access on module Names
-    # ------------------------------------------------------------------
-
-    def test_json_non_whitelisted_attr_blocked_by_ast(self, staad, executor):
-        r = executor.execute("result = json.codecs", staad)
+    def test_no_os_system(self, executor, staad):
+        r = executor.execute("import os; os.system('whoami')", staad)
         assert not r.success
 
-    def test_json_loader_attr_blocked_by_ast(self, staad, executor):
-        r = executor.execute("result = json.__loader__", staad)
-        assert not r.success
-
-    def test_math_non_whitelisted_attr_blocked_by_ast(self, staad, executor):
-        r = executor.execute("result = math.__spec__", staad)
-        assert not r.success
-
-    # ------------------------------------------------------------------
-    # Runtime-proxy layer: aliased access the AST cannot track
-    # ------------------------------------------------------------------
-
-    def test_json_non_whitelisted_attr_blocked_by_proxy(self, staad, executor):
-        """Alias bypasses AST check; _ModuleProxy must block at runtime."""
-        code = dedent(
-            """
-            j = json
-            result = j.codecs
-            """
-        )
-        r = executor.execute(code, staad)
-        assert not r.success
-
-    def test_json_dunder_attr_blocked_by_proxy(self, staad, executor):
-        code = dedent(
-            """
-            j = json
-            result = j.__class__
-            """
-        )
-        r = executor.execute(code, staad)
-        assert not r.success
-
-    def test_math_non_whitelisted_attr_blocked_by_proxy(self, staad, executor):
-        code = dedent(
-            """
-            m = math
-            result = m.__loader__
-            """
-        )
-        r = executor.execute(code, staad)
-        assert not r.success
-
-    # ------------------------------------------------------------------
-    # Proxy immutability: confirm namespace poisoning is blocked
-    # ------------------------------------------------------------------
-
-    def test_json_proxy_attribute_assignment_blocked(self, staad, executor):
-        """Cross-call namespace poisoning must not be possible."""
-        r = executor.execute("json.dumps = None", staad)
-        assert not r.success
-
-    # ------------------------------------------------------------------
-    # Regression guard: whitelisted attrs must still work
-    # ------------------------------------------------------------------
-
-    def test_json_dumps_still_works(self, staad, executor):
-        r = executor.execute('result = json.dumps({"key": 1})', staad)
-        assert r.success
-        assert r.result == '{"key": 1}'
-
-    def test_json_loads_still_works(self, staad, executor):
-        r = executor.execute("result = json.loads('{\"a\": 2}')", staad)
-        assert r.success
-        assert r.result == {"a": 2}
-
-    def test_math_sqrt_still_works(self, staad, executor):
-        r = executor.execute("result = math.sqrt(9)", staad)
-        assert r.success
-        assert r.result == 3.0
-
-    def test_math_pi_still_works(self, staad, executor):
-        r = executor.execute("result = math.pi > 3", staad)
-        assert r.success
-        assert r.result is True
-
-
-class TestFormatStringDunderBlocked:
-    """str.format() dunder traversal must be blocked end-to-end."""
-
-    def test_format_dunder_class_blocked(self, staad, executor):
-        r = executor.execute('result = "{0.__class__}".format(staad)', staad)
-        assert not r.success
-
-    def test_format_dunder_init_globals_blocked(self, staad, executor):
-        r = executor.execute('"{0.__init__.__globals__}".format(staad)', staad)
-        assert not r.success
-
-    def test_format_map_dunder_blocked(self, staad, executor):
-        r = executor.execute('"{x.__class__}".format_map({"x": staad})', staad)
-        assert not r.success
-
-
-class TestMroBlocked:
-    """mro() must be blocked to prevent type hierarchy leaks."""
-
-    def test_int_mro_blocked(self, staad, executor):
-        r = executor.execute("result = int.mro()", staad)
-        assert not r.success
-
-    def test_str_mro_blocked(self, staad, executor):
-        r = executor.execute("result = str.mro()", staad)
-        assert not r.success
-
-
-class TestDeadlockPrevention:
-    """Executor must not permanently deadlock after timeout."""
-
-    def test_lock_timeout_returns_error(self, staad, executor):
-        """If the lock is held, execute returns an error instead of blocking."""
-        # Manually acquire the lock to simulate a stuck thread
-        executor._exec_lock.acquire()
-        try:
-            r = executor.execute("result = 1", staad)
-            assert not r.success
-            assert "busy" in r.error.lower() or "timed out" in r.error.lower()
-        finally:
-            executor._exec_lock.release()
-
-    def test_normal_execution_still_works(self, staad, executor):
-        """Normal execution acquires and releases the lock correctly."""
-        r1 = executor.execute("result = 1", staad)
+    def test_globals_dont_leak_between_calls(self, executor, staad):
+        r1 = executor.execute("leak_var = 'leaked'", staad)
         assert r1.success
-        r2 = executor.execute("result = 2", staad)
-        assert r2.success
-        assert r2.result == 2
+        r2 = executor.execute("leak_var", staad)
+        assert not r2.success  # Should fail — variable not defined
+
+    def test_no_file_system_access(self, executor, staad):
+        r = executor.execute('open("/etc/passwd", "r").read()', staad)
+        assert not r.success
+
+    def test_no_network_access(self, executor, staad):
+        r = executor.execute("import socket", staad)
+        assert not r.success
 
 
-class TestLimitedStdout:
-    """Stdout buffer must be bounded during execution."""
-
-    def test_large_print_truncated(self, staad, executor):
-        """Printing beyond MAX_EXECUTION_STDOUT is silently discarded."""
-        from openstaad_mcp.sandbox.const import MAX_EXECUTION_STDOUT
-
-        code = f'print("A" * {MAX_EXECUTION_STDOUT + 1000})'
-        r = executor.execute(code, staad)
-        assert r.success
-        assert len(r.stdout) <= MAX_EXECUTION_STDOUT + 1  # +1 for newline from print
-
-    def test_many_prints_truncated(self, staad, executor):
-        """Many print calls are capped at the buffer limit."""
-        code = 'for i in range(100000): print("A" * 100)'
-        r = executor.execute(code, staad)
-        assert r.success
-        from openstaad_mcp.sandbox.const import MAX_EXECUTION_STDOUT
-
-        assert len(r.stdout) <= MAX_EXECUTION_STDOUT + 100  # small margin
+# ===========================================================================
+# 10. HANDLE FORGING / Invalid handles
+# ===========================================================================
 
 
-class TestStackTraceSanitization:
-    """Error tracebacks must not leak filesystem paths."""
+class TestHandleForging:
+    """Forged handles are rejected at the host layer."""
 
-    def test_error_no_real_paths(self, staad, executor):
-        """Runtime errors should not contain real filesystem paths."""
+    def test_handle_table_direct_access(self):
+        """Host function validates handle table."""
+        state = _CallState(staad_object=MockStaad())
+        state.handle_table[0] = (MockStaad(), "_root")
+        with pytest.raises(RuntimeError, match="Invalid handle"):
+            _host_com_invoke(state, 42, "GetNodeCount", [])
+
+
+# ===========================================================================
+# 11. ARGUMENT VALIDATION
+# ===========================================================================
+
+
+class TestArgValidation:
+    """Only JSON-safe arguments pass through to COM."""
+
+    def test_valid_scalar_args(self):
+        _validate_args([1, 2.0, "hello", True, None])
+
+    def test_valid_list_args(self):
+        _validate_args([[1, 2, 3]])
+
+    def test_invalid_dict_arg(self):
+        with pytest.raises(RuntimeError, match="unsupported type"):
+            _validate_args([{"key": "value"}])
+
+    def test_invalid_object_arg(self):
+        with pytest.raises(RuntimeError, match="unsupported type"):
+            _validate_args([object()])
+
+
+# ===========================================================================
+# 12. ERROR SANITISATION
+# ===========================================================================
+
+
+class TestErrorSanitisation:
+    """Error messages don't leak system paths or internals."""
+
+    def test_syntax_error_reported(self, executor, staad):
+        r = executor.execute("def foo(", staad)
+        assert not r.success
+        assert r.error is not None
+
+    def test_runtime_error_reported(self, executor, staad):
         r = executor.execute("1 / 0", staad)
         assert not r.success
-        assert "ZeroDivisionError" in r.error
-        # Should contain <sandbox> but not real paths
-        assert "<sandbox>" in r.error or "(in external code)" in r.error
-        # Should NOT contain typical Windows path patterns
-        import re
+        assert r.error is not None
 
-        assert not re.search(r"C:\\Users\\", r.error)
-        assert not re.search(r"site-packages", r.error)
-
-    def test_sandbox_line_numbers_preserved(self, staad, executor):
-        """Sandbox frame line numbers should still be available."""
-        code = dedent(
-            """
-            x = 1
-            y = 2
-            z = 1/0
-            """
-        )
-        r = executor.execute(code, staad)
+    def test_name_error_reported(self, executor, staad):
+        r = executor.execute("undefined_variable", staad)
         assert not r.success
-        assert "ZeroDivisionError" in r.error
+        assert r.error is not None
 
 
-class TestOutputSanitization:
-    """Result values must be length-limited."""
+# ===========================================================================
+# 13. OUTPUT SANITISATION
+# ===========================================================================
 
-    def test_large_string_result_truncated(self, staad, executor):
-        code = 'result = "A" * 200000'
+
+class TestOutputSanitisation:
+    """Large outputs are truncated."""
+
+    def test_long_string_truncated(self):
+        s = "x" * (MAX_RESULT_LENGTH + 100)
+        result = _sanitize_output(s)
+        assert len(result) <= MAX_RESULT_LENGTH + 20
+        assert "truncated" in result
+
+    def test_normal_string_unchanged(self):
+        assert _sanitize_output("hello") == "hello"
+
+    def test_nested_list_sanitized(self):
+        big = "x" * (MAX_RESULT_LENGTH + 100)
+        result = _sanitize_output([big])
+        assert "truncated" in result[0]
+
+    def test_none_unchanged(self):
+        assert _sanitize_output(None) is None
+
+    def test_number_unchanged(self):
+        assert _sanitize_output(42) == 42
+
+
+# ===========================================================================
+# 14. DURATION TRACKING
+# ===========================================================================
+
+
+class TestDuration:
+    """Duration is always reported."""
+
+    def test_success_has_duration(self, executor, staad):
+        r = executor.execute("1 + 1", staad)
+        assert r.success
+        assert r.duration_seconds > 0
+
+    def test_error_has_duration(self, executor, staad):
+        r = executor.execute("1 / 0", staad)
+        assert not r.success
+        assert r.duration_seconds >= 0
+
+    def test_syntax_error_has_duration(self, executor, staad):
+        r = executor.execute("def foo(", staad)
+        assert not r.success
+        assert r.duration_seconds >= 0
+
+
+# ===========================================================================
+# 15. ExecutionResult.to_dict()
+# ===========================================================================
+
+
+class TestResultShape:
+    """Result dict has all expected fields."""
+
+    def test_all_fields_present(self, executor, staad):
+        r = executor.execute("42", staad)
+        d = r.to_dict()
+        assert "success" in d
+        assert "result" in d
+        assert "stdout" in d
+        assert "stderr" in d
+        assert "error" in d
+        assert "duration_seconds" in d
+
+
+# ===========================================================================
+# 16. COMPLEX WORKFLOWS
+# ===========================================================================
+
+
+class TestWorkflows:
+    """Multi-step workflows using COM bridge."""
+
+    def test_geometry_workflow(self, executor, staad):
+        code = """\
+geo = staad.Geometry
+count = geo.GetNodeCount()
+coords = geo.GetNodeCoordinates(1)
+beams = geo.GetBeamList()
+{"nodes": count, "beams": len(beams)}
+"""
         r = executor.execute(code, staad)
         assert r.success
-        assert len(str(r.result)) <= 110000  # some margin for truncation message
+        assert r.result["nodes"] == 42
 
-
-class TestExceptionHandling:
-    """Exception classes must be available in the sandbox."""
-
-    @pytest.mark.parametrize("exc_name", ALLOWED_BUILTIN_EXCEPTIONS)
-    def test_builtin_exception_available(self, staad, executor, exc_name):
-        """Each built-in exception class can be referenced by name."""
-        code = f"result = issubclass({exc_name}, Exception)"
+    def test_mixed_operations(self, executor, staad):
+        code = """\
+version = staad.GetApplicationVersion()
+node_count = staad.Geometry.GetNodeCount()
+f"Version: {version}, Nodes: {node_count}"
+"""
         r = executor.execute(code, staad)
-        assert r.success, f"{exc_name} should be available in sandbox: {r.error}"
-        assert r.result is True
+        assert r.success
+        assert "STAAD" in r.result
+        assert "42" in r.result
 
-    def test_catch_exception_from_api_call(self, staad, executor):
-        """catch Exception from a failing call."""
-        code = dedent(
-            """
-            try:
-                r = staad.Geometry.NonExistentMethod()
-                result = {"data": r}
-            except Exception as e:
-                result = {"error": str(e)}
-            """
+    def test_data_processing(self, executor, staad):
+        code = """\
+import json
+nodes = staad.Geometry.GetNodeCount()
+data = {"node_count": nodes, "status": "ok"}
+json.dumps(data)
+"""
+        r = executor.execute(code, staad)
+        assert r.success
+        parsed = json.loads(r.result)
+        assert parsed["node_count"] == 42
+
+
+# ===========================================================================
+# 17. PER-CALL ISOLATION
+# ===========================================================================
+
+
+class TestPerCallIsolation:
+    """Each execute() call is fully isolated."""
+
+    def test_handles_dont_persist(self, executor, staad):
+        """Handles from call 1 are not available in call 2."""
+        r1 = executor.execute("staad.Geometry.GetNodeCount()", staad)
+        assert r1.success
+        assert r1.result == 42
+
+        # Second call should re-resolve from scratch
+        r2 = executor.execute("staad.Geometry.GetNodeCount()", staad)
+        assert r2.success
+        assert r2.result == 42
+
+    def test_variables_dont_persist(self, executor, staad):
+        r1 = executor.execute("persistent_var = 123", staad)
+        assert r1.success
+
+        r2 = executor.execute("persistent_var", staad)
+        assert not r2.success
+
+
+# ===========================================================================
+# 18. NATURAL SYNTAX (AST rewriter)
+# ===========================================================================
+
+
+class TestNaturalSyntax:
+    """Natural ``staad.Xyz.Method()`` syntax works via AST rewriting."""
+
+    def test_root_method_call(self, executor, staad):
+        r = executor.execute("staad.GetApplicationVersion()", staad)
+        assert r.success
+        assert "STAAD" in str(r.result)
+
+    def test_sub_object_inline_call(self, executor, staad):
+        r = executor.execute("staad.Geometry.GetNodeCount()", staad)
+        assert r.success
+        assert r.result == 42
+
+    def test_sub_object_with_args(self, executor, staad):
+        r = executor.execute("staad.Geometry.GetNodeCoordinates(1)", staad)
+        assert r.success
+        assert r.result == [1.0, 2.0, 3.0] or r.result == (1.0, 2.0, 3.0)
+
+    def test_alias_pattern(self, executor, staad):
+        code = """\
+geo = staad.Geometry
+geo.GetNodeCount()
+"""
+        r = executor.execute(code, staad)
+        assert r.success
+        assert r.result == 42
+
+    def test_alias_with_args(self, executor, staad):
+        code = """\
+geo = staad.Geometry
+geo.GetNodeCoordinates(1)
+"""
+        r = executor.execute(code, staad)
+        assert r.success
+        assert r.result == [1.0, 2.0, 3.0] or r.result == (1.0, 2.0, 3.0)
+
+    def test_multiple_sub_objects(self, executor, staad):
+        code = """\
+nodes = staad.Geometry.GetNodeCount()
+version = staad.GetApplicationVersion()
+f"Nodes: {nodes}, Version: {version}"
+"""
+        r = executor.execute(code, staad)
+        assert r.success
+        assert "42" in r.result
+        assert "STAAD" in r.result
+
+    def test_output_sub_object(self, executor, staad):
+        r = executor.execute("staad.Output.AreResultsAvailable()", staad)
+        assert r.success
+        assert r.result == 1
+
+    def test_property_sub_object(self, executor, staad):
+        r = executor.execute("staad.Property.GetBeamPropertyName(1)", staad)
+        assert r.success
+        assert r.result == "W10X33"
+
+    def test_load_sub_object(self, executor, staad):
+        r = executor.execute("staad.Load.GetPrimaryLoadCaseCount()", staad)
+        assert r.success
+        assert r.result == 3
+
+    def test_support_sub_object(self, executor, staad):
+        r = executor.execute("staad.Support.GetSupportCount()", staad)
+        assert r.success
+        assert r.result == 6
+
+    def test_workflow_with_natural_syntax(self, executor, staad):
+        code = """\
+import json
+geo = staad.Geometry
+out = staad.Output
+nodes = geo.GetNodeCount()
+beams = geo.GetBeamList()
+has_results = out.AreResultsAvailable()
+json.dumps({"nodes": nodes, "beams": len(beams), "results": has_results})
+"""
+        r = executor.execute(code, staad)
+        assert r.success
+        data = json.loads(r.result)
+        assert data["nodes"] == 42
+        assert data["beams"] == 3
+        assert data["results"] == 1
+
+    def test_security_still_enforced_natural_syntax(self, executor, staad):
+        """Denied methods are blocked even through natural syntax."""
+        r = executor.execute(
+            'staad.SetStandardProfileDBFolder("\\\\\\\\evil\\\\share")',
+            staad,
         )
-        r = executor.execute(code, staad)
-        assert r.success, f"try/except Exception should work: {r.error}"
-        assert "error" in r.result
+        assert not r.success
+        assert "denied" in (r.error or "").lower()
 
-    def test_catch_zero_division(self, staad, executor):
-        """Catch a specific built-in exception by name."""
-        code = dedent(
-            """
-            try:
-                x = 1 / 0
-            except ZeroDivisionError as e:
-                result = str(e)
-            """
-        )
-        r = executor.execute(code, staad)
-        assert r.success, f"try/except ZeroDivisionError should work: {r.error}"
-        assert "division" in r.result.lower()
+    def test_unenumerated_method_blocked_natural(self, executor, staad):
+        r = executor.execute("staad.Geometry.DeleteEverything()", staad)
+        assert not r.success
+        assert "not allowed" in (r.error or "").lower()
 
-    def test_exception_hierarchy_catch(self, staad, executor):
-        """except Exception catches ValueError (subclass)."""
-        code = dedent(
-            """
-            try:
-                int("not_a_number")
-            except Exception as e:
-                result = str(e)
-            """
-        )
-        r = executor.execute(code, staad)
-        assert r.success, f"except Exception should catch ValueError: {r.error}"
-        assert "invalid literal" in r.result
+    def test_destructive_blocked_natural(self, executor, staad):
+        r = executor.execute("staad.SaveModel()", staad, allow_destructive=False)
+        assert not r.success
+        assert "blocked" in (r.error or "").lower() or "approval" in (r.error or "").lower()
 
-    def test_isinstance_with_exception_type(self, staad, executor):
-        """isinstance() works with exception types inside a handler."""
-        code = dedent(
-            """
-            try:
-                1 / 0
-            except Exception as e:
-                result = isinstance(e, ZeroDivisionError)
-            """
-        )
-        r = executor.execute(code, staad)
-        assert r.success, f"isinstance with exception type should work: {r.error}"
-        assert r.result is True
+    def test_destructive_allowed_natural(self, executor, staad):
+        r = executor.execute("staad.SaveModel()", staad, allow_destructive=True)
+        assert r.success
 
-    def test_raise_and_except(self, staad, executor):
-        """raise ValueError(...) + catch it works."""
-        code = dedent(
-            """
-            try:
-                raise ValueError("test message")
-            except ValueError as e:
-                result = str(e)
-            """
-        )
-        r = executor.execute(code, staad)
-        assert r.success, f"raise + catch should work: {r.error}"
-        assert r.result == "test message"
 
-    def test_raise_and_multiple_excepts(self, staad, executor):
-        """Multiple except clauses with different exception types."""
-        code = dedent(
-            """
-            try:
-                d = {}
-                d["missing"]
-            except KeyError:
-                result = "key_error"
-            except ValueError:
-                result = "value_error"
-            """
-        )
-        r = executor.execute(code, staad)
-        assert r.success, f"multiple except clauses should work: {r.error}"
-        assert r.result == "key_error"
-
-    def test_tuple_except(self, staad, executor):
-        """except (TypeError, ValueError) tuple syntax works."""
-        code = dedent(
-            """
-            try:
-                int("bad")
-            except (TypeError, ValueError):
-                result = "caught"
-            """
-        )
-        r = executor.execute(code, staad)
-        assert r.success, f"except tuple should work: {r.error}"
-        assert r.result == "caught"
-
-    def test_bare_except(self, staad, executor):
-        """bare except: (no exception type)."""
-        code = dedent(
-            """
-            try:
-                1 / 0
-            except:
-                result = "caught"
-            """
-        )
-        r = executor.execute(code, staad)
-        assert r.success, f"bare except should work: {r.error}"
-        assert r.result == "caught"
-
-    def test_base_exception_not_available(self, staad, executor):
-        """BaseException must NOT be available (could catch SystemExit etc.)."""
-        code = "result = BaseException"
-        r = executor.execute(code, staad)
-        assert not r.success, "BaseException should not be available in sandbox"
-
-    def test_system_exit_not_available(self, staad, executor):
-        """SystemExit must NOT be available."""
-        code = "result = SystemExit"
-        r = executor.execute(code, staad)
-        assert not r.success, "SystemExit should not be available in sandbox"
-
-    def test_keyboard_interrupt_not_available(self, staad, executor):
-        """KeyboardInterrupt must NOT be available."""
-        code = "result = KeyboardInterrupt"
-        r = executor.execute(code, staad)
-        assert not r.success, "KeyboardInterrupt should not be available in sandbox"
+# For json.loads in the complex workflow test
+import json

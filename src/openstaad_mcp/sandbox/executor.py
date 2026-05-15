@@ -4,36 +4,73 @@ Copyright (c) Bentley Systems, Incorporated. All rights reserved.
 See LICENSE.md in the project root for license terms and full copyright notice.
 ---------------------------------------------------------------------------------------------
 
-Sandboxed code executor for the ``execute_code`` MCP tool.
+Monty-based sandboxed executor for the ``execute_code`` MCP tool.
 
-Runs validated Python code in a restricted globals dict, captures stdout,
-and returns structured results. Timeout enforcement is handled by the
-connection/dispatch layer rather than by this executor itself. All COM
-calls are dispatched to a dedicated COM thread via a queue (see
-``connection.py``).
+Runs user-authored Python code inside `pydantic_monty.Monty`, a minimal
+secure Python interpreter written in Rust.  COM interaction is bridged
+via external functions that the host (this module) provides — the sandbox
+code never touches pywin32 objects directly.
+
+Security properties
+-------------------
+* **Process isolation** — Monty is a separate interpreter; user code cannot
+  reach CPython internals, the filesystem, the network, or env variables.
+* **Resource limits** — execution time, memory, allocations, recursion
+  depth are all enforced by Monty's Rust runtime.
+* **Positive allowlists** — every COM method must be explicitly enumerated
+  in ``constants.py`` before it can be called.
+* **Deny list** — dangerous methods (e.g. NTLM-relay vectors) are
+  unconditionally blocked.
+* **Consent gate** — destructive/file-writing methods require an explicit
+  ``allow_destructive`` flag set by host-mediated user approval.
+* **Per-call isolation** — each ``execute()`` call creates a fresh Monty
+  instance; globals do not leak between calls.
+* **Error sanitisation** — Python tracebacks and COM internals are stripped
+  before reaching the caller.
 """
 
 from __future__ import annotations
 
-import builtins
-import importlib
 import json
-import sys
-import threading
+import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
-from openstaad_mcp.sandbox.ast import capture_last_expr, validate_code
+import pydantic_monty
+
 from openstaad_mcp.sandbox.com_proxy import COMProxy
-from openstaad_mcp.sandbox.const import ALLOWED_BUILTINS, ALLOWED_MODULE_ATTRS
-from openstaad_mcp.sandbox.module_proxy import ModuleProxy
-from openstaad_mcp.sandbox.stdio_helpers import LimitedStringIO, sanitize_output, sanitize_traceback
+from openstaad_mcp.sandbox.constants import (
+    ALLOWED_ROOT_METHODS,
+    ALLOWED_SUB_OBJECT_METHODS,
+    ALLOWED_SUB_OBJECTS,
+    ALL_DESTRUCTIVE_METHOD_NAMES,
+    DENIED_METHODS,
+    DESTRUCTIVE_METHODS,
+    EXECUTION_TIMEOUT_SECONDS,
+    GC_INTERVAL,
+    MAX_ALLOCATIONS,
+    MAX_CODE_BYTES,
+    MAX_MEMORY_BYTES,
+    MAX_RECURSION_DEPTH,
+    MAX_RESULT_LENGTH,
+    MAX_STDOUT_CHARS,
+)
+from openstaad_mcp.sandbox.rewriter import rewrite_proxy_calls
+
+logger = logging.getLogger(__name__)
+
+#: Root variable names treated as COM proxies by the AST rewriter.
+_PROXY_NAMES: frozenset[str] = frozenset({"staad"})
+
+# ---------------------------------------------------------------------------
+# Result dataclass (mirrors v1 Executor output shape)
+# ---------------------------------------------------------------------------
 
 
 @dataclass
 class ExecutionResult:
-    """Structured result returned from :func:`execute`."""
+    """Structured result returned from :meth:`MontyExecutor.execute`."""
 
     success: bool
     result: Any = None
@@ -53,121 +90,477 @@ class ExecutionResult:
         }
 
 
+# ---------------------------------------------------------------------------
+# Per-call mutable state shared between host functions
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _CallState:
+    """Mutable state scoped to a single ``execute()`` invocation."""
+
+    staad_object: Any
+    #: Integer handle → (COM object, sub-object name or "_root").
+    handle_table: dict[int, tuple[Any, str]] = field(default_factory=dict)
+    next_handle: int = 1
+    allow_destructive: bool = False
+    stdout_buf: list[str] = field(default_factory=list)
+    stderr_buf: list[str] = field(default_factory=list)
+    stdout_len: int = 0
+    stderr_len: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Executor
+# ---------------------------------------------------------------------------
+
+
 class Executor:
+    """Execute user Python code inside a Monty sandbox with COM bridging.
+
+    Parameters
+    ----------
+    timeout_seconds:
+        Wall-clock execution budget.
+    max_memory_bytes:
+        Heap memory cap enforced by Monty's Rust runtime.
+    max_allocations:
+        Maximum number of heap allocations.
+    gc_interval:
+        Garbage-collection interval (allocations).
+    max_recursion_depth:
+        Maximum call-stack depth.
+    max_stdout_chars:
+        Maximum captured stdout/stderr size (characters).
+    max_code_bytes:
+        Maximum source size accepted.
+    """
+
     def __init__(
         self,
-        allowed_builtins: frozenset[str] | None = None,
-        allowed_module_attrs: dict[str, frozenset[str]] | None = None,
+        *,
+        timeout_seconds: float = EXECUTION_TIMEOUT_SECONDS,
+        max_memory_bytes: int = MAX_MEMORY_BYTES,
+        max_allocations: int = MAX_ALLOCATIONS,
+        gc_interval: int = GC_INTERVAL,
+        max_recursion_depth: int = MAX_RECURSION_DEPTH,
+        max_stdout_chars: int = MAX_STDOUT_CHARS,
+        max_code_bytes: int = MAX_CODE_BYTES,
     ) -> None:
-        if allowed_builtins is None:
-            allowed_builtins = ALLOWED_BUILTINS
-        if allowed_module_attrs is None:
-            allowed_module_attrs = ALLOWED_MODULE_ATTRS
+        self._timeout_seconds = timeout_seconds
+        self._max_memory_bytes = max_memory_bytes
+        self._max_allocations = max_allocations
+        self._gc_interval = gc_interval
+        self._max_recursion_depth = max_recursion_depth
+        self._max_stdout_chars = max_stdout_chars
+        self._max_code_bytes = max_code_bytes
 
-        # Pre-approved modules injected into the sandbox globals, each wrapped in a
-        # read-only proxy so only the whitelisted public API is reachable.  This
-        # prevents module-graph traversal attacks (e.g. json.codecs.builtins.exec).
-        self.injected_modules: dict[str, Any] = {
-            name: ModuleProxy(importlib.import_module(name), allowed) for name, allowed in allowed_module_attrs.items()
-        }
-
-        # A restricted __builtins__ dict to prevent access to dangerous functions.
-        self.safe_builtins = {name: getattr(builtins, name) for name in allowed_builtins}
-
-        # Serialise execute() calls so concurrent requests don't race on
-        # sys.stdout / sys.stderr reassignment.
-        self._exec_lock = threading.Lock()
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def execute(
         self,
         code: str,
         staad_object: Any,
+        *,
+        allow_destructive: bool = False,
     ) -> ExecutionResult:
-        """Validate and execute *code* in the sandbox.
+        """Validate and execute *code* in a fresh Monty sandbox.
 
         Parameters
         ----------
         code:
             Python source code to execute.
         staad_object:
-            The connected OpenSTAAD root object (or a mock for testing).
+            The connected OpenSTAAD root COM object (or a mock).
+        allow_destructive:
+            When ``True``, consent-gated methods (file writes, Quit, …)
+            are permitted.  The server layer sets this after MCP
+            elicitation confirms user approval.
 
         Returns
         -------
         ExecutionResult
         """
-        # ── 1. Validate ──────────────────────────────────────────────
-        validation = validate_code(code)
-        if not validation.is_valid:
+        start = time.perf_counter()
+
+        # ── 0. Pre-flight checks ─────────────────────────────────────
+        if len(code.encode("utf-8", errors="replace")) > self._max_code_bytes:
             return ExecutionResult(
                 success=False,
-                error=validation.summary(),
+                error=f"Source code exceeds maximum size ({self._max_code_bytes} bytes).",
             )
 
-        # ── 2. Rewrite last expression for result capture ────────────
-        rewritten, has_result_expr = capture_last_expr(code)
-
-        # ── 3. Build restricted globals ──────────────────────────────
-        sandbox_globals: dict[str, Any] = {"__builtins__": self.safe_builtins.copy()}
-        sandbox_globals.update(self.injected_modules)
-        sandbox_globals["staad"] = COMProxy(staad_object)
-
-        # ── 4. Execute with stdout/stderr capture ───────────────────
-        captured_out, captured_err = LimitedStringIO(), LimitedStringIO()
-        exec_error: BaseException | None = None
-        duration = 0.0
-
-        if not self._exec_lock.acquire(timeout=5.0):
-            return ExecutionResult(
-                success=False,
-                error="Executor busy — a previous operation may have timed out. Restart the server.",
-            )
+        # ── 0b. AST rewrite: staad.Xyz.Method() → _call("staad.Xyz.Method") ─
         try:
-            old_stdout, old_stderr = sys.stdout, sys.stderr
-            start = time.perf_counter()
-            try:
-                sys.stdout, sys.stderr = captured_out, captured_err  # type: ignore[assignment]
-                exec(compile(rewritten, "<sandbox>", "exec"), sandbox_globals)
-            except Exception as exc:
-                exec_error = exc
-            finally:
-                duration = time.perf_counter() - start
-                sys.stdout, sys.stderr = old_stdout, old_stderr
-        finally:
-            self._exec_lock.release()
+            rewritten_code = rewrite_proxy_calls(code, _PROXY_NAMES)
+        except SyntaxError as exc:
+            duration = time.perf_counter() - start
+            return ExecutionResult(
+                success=False,
+                error=f"Syntax error: {exc}",
+                duration_seconds=round(duration, ndigits=4),
+            )
 
-        stdout_text = captured_out.getvalue()
-        stderr_text = captured_err.getvalue()
+        # ── 1. Build per-call state ──────────────────────────────────
+        #   Wrap the raw COM object with COMProxy to enforce path
+        #   validation, UNC blocking, and pywin32-internal hiding on
+        #   every method call that passes through the handle table.
+        proxied = COMProxy(staad_object)
+        state = _CallState(
+            staad_object=proxied,
+            allow_destructive=allow_destructive,
+        )
+        # Handle 0 = root STAAD object (proxied)
+        state.handle_table[0] = (proxied, "_root")
 
-        if exec_error is not None:
+        # ── 2. Build external functions ──────────────────────────────
+        external_fns = self._build_external_functions(state)
+
+        # ── 3. Build resource limits ─────────────────────────────────
+        limits: pydantic_monty.ResourceLimits = {
+            "max_duration_secs": self._timeout_seconds,
+            "max_memory": self._max_memory_bytes,
+            "max_allocations": self._max_allocations,
+            "gc_interval": self._gc_interval,
+            "max_recursion_depth": self._max_recursion_depth,
+        }
+
+        # ── 4. Build stdout collector ────────────────────────────────
+        streams = pydantic_monty.CollectStreams()
+
+        # ── 5. Create fresh Monty instance & run ─────────────────────
+        try:
+            monty = pydantic_monty.Monty(
+                rewritten_code,
+                script_name="<sandbox>",
+            )
+            raw_result = monty.run(
+                limits=limits,
+                external_functions=external_fns,
+                print_callback=streams,
+            )
+        except pydantic_monty.MontySyntaxError as exc:
+            duration = time.perf_counter() - start
+            return ExecutionResult(
+                success=False,
+                error=f"Syntax error: {exc}",
+                duration_seconds=round(duration, ndigits=4),
+            )
+        except pydantic_monty.MontyRuntimeError as exc:
+            duration = time.perf_counter() - start
+            stdout_text = self._collect_stdout(streams, state)
+            stderr_text = self._collect_stderr(streams, state)
+            error_msg = _sanitize_error(str(exc))
             return ExecutionResult(
                 success=False,
                 stdout=stdout_text,
                 stderr=stderr_text,
-                error=sanitize_traceback(exec_error),
+                error=error_msg,
+                duration_seconds=round(duration, ndigits=4),
+            )
+        except pydantic_monty.MontyError as exc:
+            duration = time.perf_counter() - start
+            stdout_text = self._collect_stdout(streams, state)
+            stderr_text = self._collect_stderr(streams, state)
+            error_msg = _sanitize_error(str(exc))
+            return ExecutionResult(
+                success=False,
+                stdout=stdout_text,
+                stderr=stderr_text,
+                error=error_msg,
+                duration_seconds=round(duration, ndigits=4),
+            )
+        except Exception as exc:
+            duration = time.perf_counter() - start
+            logger.debug("Unexpected Monty error: %s", exc, exc_info=True)
+            return ExecutionResult(
+                success=False,
+                error=_sanitize_error(str(exc)),
                 duration_seconds=round(duration, ndigits=4),
             )
 
-        # ── 5. Collect result ────────────────────────────────────────
-        if "result" in sandbox_globals:  # explicit `result = ...`
-            result_value = sandbox_globals["result"]
-        elif has_result_expr:
-            result_value = sandbox_globals.get("__result__")
-        else:
-            result_value = None
+        duration = time.perf_counter() - start
+        stdout_text = self._collect_stdout(streams, state)
+        stderr_text = self._collect_stderr(streams, state)
 
-        result_value = sanitize_output(result_value)
-
-        # Attempt JSON-safe serialisation; fall back to repr.
-        try:
-            json.dumps(result_value)
-        except (TypeError, ValueError):
-            result_value = repr(result_value)
+        # ── 6. Sanitize result ───────────────────────────────────────
+        result_value = _sanitize_output(raw_result)
 
         return ExecutionResult(
             success=True,
             result=result_value,
             stdout=stdout_text,
             stderr=stderr_text,
-            duration_seconds=duration,
+            duration_seconds=round(duration, ndigits=4),
         )
+
+    # ------------------------------------------------------------------
+    # External function builders
+    # ------------------------------------------------------------------
+
+    def _build_external_functions(
+        self,
+        state: _CallState,
+    ) -> dict[str, Any]:
+        """Create the dict of external functions exposed to the Monty sandbox."""
+
+        def _dispatch(method_path: str, *args: Any) -> Any:
+            """Dispatch ``staad.Xyz.Method(...)`` calls from rewritten code."""
+            return _host_call(state, method_path, list(args))
+
+        return {
+            "_dispatch": _dispatch,
+        }
+
+    # ------------------------------------------------------------------
+    # Stdout / stderr collection
+    # ------------------------------------------------------------------
+
+    def _collect_stdout(
+        self,
+        streams: pydantic_monty.CollectStreams,
+        state: _CallState,
+    ) -> str:
+        """Merge Monty print output with any host-buffered stdout."""
+        parts: list[str] = []
+        try:
+            for stream_name, text in streams.output:
+                if stream_name == "stdout":
+                    parts.append(text)
+        except Exception:
+            pass
+        parts.extend(state.stdout_buf)
+        text = "".join(parts)
+        if len(text) > self._max_stdout_chars:
+            text = text[: self._max_stdout_chars] + "\n... (truncated)"
+        return text
+
+    def _collect_stderr(
+        self,
+        streams: pydantic_monty.CollectStreams,
+        state: _CallState,
+    ) -> str:
+        parts: list[str] = []
+        try:
+            for stream_name, text in streams.output:
+                if stream_name == "stderr":
+                    parts.append(text)
+        except Exception:
+            pass
+        parts.extend(state.stderr_buf)
+        text = "".join(parts)
+        if len(text) > self._max_stdout_chars:
+            text = text[: self._max_stdout_chars] + "\n... (truncated)"
+        return text
+
+
+# ---------------------------------------------------------------------------
+# Host functions (called from inside the Monty sandbox)
+# ---------------------------------------------------------------------------
+
+
+def _host_com_get(state: _CallState, handle: int, prop: str) -> dict:
+    """Resolve a sub-object property on a COM handle.
+
+    Only valid on handle 0 (root).  Returns ``{"handle": N}`` on success
+    or ``{"error": "..."}`` on failure.
+    """
+    if handle != 0:
+        return {"error": "com_get is only valid on the root handle (0)"}
+
+    if prop not in ALLOWED_SUB_OBJECTS:
+        return {"error": f"Access denied: '{prop}' is not an allowed sub-object"}
+
+    # Check if we already resolved this sub-object
+    for h, (_, name) in state.handle_table.items():
+        if name == prop and h != 0:
+            return {"handle": h}
+
+    try:
+        sub_obj = getattr(state.staad_object, prop)
+    except Exception as exc:
+        logger.debug("COM error resolving '%s': %s", prop, exc)
+        return {"error": f"COM error resolving '{prop}': {_sanitize_com_error(exc)}"}
+
+    h = state.next_handle
+    state.next_handle += 1
+    state.handle_table[h] = (sub_obj, prop)
+    return {"handle": h}
+
+
+def _host_com_invoke(
+    state: _CallState,
+    handle: int,
+    method: str,
+    args: list[Any],
+) -> Any:
+    """Call a COM method on a handle, enforcing all security gates.
+
+    Returns the COM result directly (Monty will convert to its internal
+    representation).  Raises ``RuntimeError`` for blocked calls so Monty
+    surfaces a proper exception to user code.
+    """
+    # ── Gate 1: Handle valid ─────────────────────────────────────
+    if handle not in state.handle_table:
+        raise RuntimeError(f"Invalid handle: {handle}")
+
+    target, obj_name = state.handle_table[handle]
+
+    # ── Gate 2: Global deny list ─────────────────────────────────
+    if method in DENIED_METHODS:
+        raise RuntimeError(f"Method '{method}' is denied")
+
+    # ── Gate 3: Per-object positive allowlist ─────────────────────
+    if handle == 0:
+        allowed = ALLOWED_ROOT_METHODS
+    else:
+        allowed = ALLOWED_SUB_OBJECT_METHODS.get(obj_name, frozenset())
+    if method not in allowed:
+        raise RuntimeError(f"Method '{method}' is not allowed on '{obj_name}'")
+
+    # ── Gate 4: Consent gate for destructive methods ──────────────
+    destructive_set = DESTRUCTIVE_METHODS.get(obj_name, frozenset())
+    if method in destructive_set and not state.allow_destructive:
+        raise RuntimeError(f"Method '{method}' is blocked — requires user approval")
+
+    # ── Gate 5: Validate arguments ────────────────────────────────
+    # Only allow JSON-safe scalar types through
+    _validate_args(args)
+
+    # ── Execute ──────────────────────────────────────────────────
+    try:
+        fn = getattr(target, method)
+        result = fn(*args)
+    except Exception as exc:
+        logger.debug("COM error in '%s.%s': %s", obj_name, method, exc, exc_info=True)
+        raise RuntimeError(f"COM error in '{method}': {_sanitize_com_error(exc)}") from None
+
+    # Convert result to JSON-safe value
+    return _com_result_to_safe(result)
+
+
+def _host_call(
+    state: _CallState,
+    method_path: str,
+    args: list[Any],
+) -> Any:
+    """Dispatch a dotted method path produced by the AST rewriter.
+
+    The rewriter expands all aliases to their full ``staad.*`` path, so
+    this function only needs to handle three shapes:
+
+    * ``"staad.Geometry"``                → sub-object resolution (no args)
+    * ``"staad.GetBaseUnit"``             → root method call
+    * ``"staad.Geometry.GetNodeCount"``   → sub-object method call
+    """
+    parts = method_path.split(".")
+    if len(parts) < 2 or parts[0] != "staad":
+        raise RuntimeError(f"Invalid method path: '{method_path}'")
+
+    if len(parts) == 2:
+        name = parts[1]
+        if name in ALLOWED_SUB_OBJECTS and not args:
+            # staad.Geometry  →  sub-object resolution (returns opaque token)
+            _resolve_sub_object(state, name)
+            return None  # Monty stores the alias; calls use expanded paths
+        else:
+            # staad.Method(...)  →  root method call
+            return _host_com_invoke(state, 0, name, args)
+    elif len(parts) == 3:
+        # staad.SubObject.Method(...)  →  resolve + call
+        sub_name, method = parts[1], parts[2]
+        handle = _resolve_sub_object(state, sub_name)
+        return _host_com_invoke(state, handle, method, args)
+    else:
+        raise RuntimeError(f"Method path too deep: '{method_path}' (expected staad.Method or staad.SubObject.Method)")
+
+
+def _resolve_sub_object(state: _CallState, sub_name: str) -> int:
+    """Resolve a sub-object by name, returning its handle.
+
+    Re-uses existing handles if the sub-object was already resolved.
+    """
+    result = _host_com_get(state, 0, sub_name)
+    if "error" in result:
+        raise RuntimeError(result["error"])
+    return result["handle"]
+
+
+def _validate_args(args: list[Any]) -> None:
+    """Ensure all arguments are JSON-safe scalars or flat lists thereof."""
+    for i, arg in enumerate(args):
+        if arg is None or isinstance(arg, (bool, int, float, str)):
+            continue
+        if isinstance(arg, (list, tuple)):
+            _validate_args(list(arg))
+            continue
+        raise RuntimeError(f"Argument {i} has unsupported type '{type(arg).__name__}'")
+
+
+def _com_result_to_safe(value: Any) -> Any:
+    """Convert a COM return value to a JSON-safe Python value."""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_com_result_to_safe(v) for v in value]
+    # COM VARIANTs and other objects → repr string
+    try:
+        return repr(value)
+    except Exception:
+        return "<unconvertible COM result>"
+
+
+def _sanitize_com_error(exc: Exception) -> str:
+    """Extract a safe error message from a COM exception.
+
+    Strips file paths, DLL names, and source info that could leak
+    system details.
+    """
+    msg = str(exc)
+    # pywintypes.com_error includes (hresult, msg, ..., helpFile)
+    # Extract just the human-readable description
+    if hasattr(exc, "args") and isinstance(exc.args, tuple) and len(exc.args) >= 2:
+        hresult = exc.args[0]
+        desc = exc.args[1] if isinstance(exc.args[1], str) else str(exc.args[1])
+        if isinstance(hresult, int):
+            return f"[0x{hresult & 0xFFFFFFFF:08X}] {desc}"
+        return desc
+    return msg
+
+
+def _sanitize_error(msg: str) -> str:
+    """Remove filesystem paths and internal details from error messages."""
+    import re
+
+    # Strip file paths in traceback-style messages
+    msg = re.sub(r'File "(?!<sandbox>)[^"]*"', 'File "<internal>"', msg)
+    # Strip Windows paths
+    msg = re.sub(r"[A-Za-z]:\\[^\s\"']+", "<path>", msg)
+    return msg
+
+
+def _sanitize_output(value: Any) -> Any:
+    """Truncate oversized strings and ensure JSON-safety."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        if len(value) > MAX_RESULT_LENGTH:
+            return value[:MAX_RESULT_LENGTH] + "... (truncated)"
+        return value
+    if isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_output(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _sanitize_output(v) for k, v in value.items()}
+    # Fallback: try JSON, then repr
+    try:
+        json.dumps(value)
+        return value
+    except (TypeError, ValueError):
+        s = repr(value)
+        if len(s) > MAX_RESULT_LENGTH:
+            return s[:MAX_RESULT_LENGTH] + "... (truncated)"
+        return s
