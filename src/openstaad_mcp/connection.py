@@ -60,16 +60,14 @@ class StaadInstance:
     warning: str | None = field(default=None)
 
     def asdict(self) -> dict[str, object]:
-        """Return a JSON-serializable dict, omitting ``warning`` when ``None``."""
-        d: dict[str, object] = {
+        """Return a JSON-serializable dict."""
+        return {
             "alias": self.alias,
             "pid": self.pid,
             "file_path": self.file_path,
             "version": self.version,
+            "warning": self.warning,
         }
-        if self.warning is not None:
-            d["warning"] = self.warning
-        return d
 
 
 # ---------------------------------------------------------------------------

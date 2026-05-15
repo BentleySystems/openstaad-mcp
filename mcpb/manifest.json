@@ -34,12 +34,16 @@
             "description": "List currently active STAAD instances. Returns instance IDs, model paths, and STAAD versions. Use instance IDs to target specific models in other tools."
         },
         {
-            "name": "execute_code",
-            "description": "Execute Python code against the OpenSTAAD API. The sandbox provides a pre-connected 'staad' variable (the OpenSTAAD root object) plus ``json`` and ``math`` modules. Imports and filesystem access are blocked for security. The last expression value or an explicit ``result = ...`` assignment is returned as the result."
-        },
-        {
             "name": "get_status",
             "description": "Check the connection to STAAD.Pro. Returns connection state, STAAD version, model path, and analysis status."
+        },
+        {
+            "name": "execute_code",
+            "description": "Execute Python code against the OpenSTAAD API. Imports are blocked; sandbox provides staad, json, math, progress. IMPORTANT: always call progress(f'Processing {i}/{total}') in loops with >20 elements and before long operations — without it the user sees NO feedback. Timeout and mode are auto-detected from code keywords (120s sync, 600s async for loops, 3600s async for analysis/design). Override with timeout= for precise control (e.g. elements\u00d70.005 for large loops at ~3ms/call). Override with mode='async' to force background execution \u2014 returns {job_id}, poll with get_job_result."
+        },
+        {
+            "name": "get_job_result",
+            "description": "IMPORTANT: always write the returned `message` field to the user in your text response so they see progress \u2014 it is the ONLY way they see updates. Waits internally for the job to finish (server controls pacing). When status='running', write message to user and call again immediately. For jobs >20 min the server returns instantly \u2014 tell the user the job is still running and wait for them to ask."
         }
     ],
     "tools_generated": false,
