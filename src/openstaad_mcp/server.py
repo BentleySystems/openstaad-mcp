@@ -24,7 +24,7 @@ from fastmcp.server.lifespan import lifespan
 from mcp.types import ToolAnnotations
 
 from openstaad_mcp.connection import InstanceRegistry, StaadInstance, connect_and_run
-from openstaad_mcp.sandbox.executor import Executor
+from openstaad_mcp.sandbox.monty_executor import MontyExecutor
 from openstaad_mcp.skills import SkillsManager
 from openstaad_mcp.version import check_version_warning
 
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # ── Tool registrations ────────────────────────────────────────────
 
 
-def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, skills_mgr: SkillsManager) -> None:
+def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: MontyExecutor, skills_mgr: SkillsManager) -> None:
     """Register MCP tools on *mcp*, closing over the *InstanceRegistry*."""
 
     def _resolve_target(instance: str | None) -> StaadInstance:
@@ -256,5 +256,5 @@ def create_mcp_server(fastmcp_kwargs: dict | None = None) -> FastMCP:
         lifespan=mcp_lifespan,
         **fastmcp_kwargs,
     )
-    _register_tools(mcp, registry, Executor(), SkillsManager())
+    _register_tools(mcp, registry, MontyExecutor(), SkillsManager())
     return mcp
