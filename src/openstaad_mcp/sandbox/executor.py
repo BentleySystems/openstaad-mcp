@@ -26,7 +26,7 @@ from typing import Any
 
 from openstaad_mcp.sandbox.ast import capture_last_expr, validate_code
 from openstaad_mcp.sandbox.com_proxy import COMProxy
-from openstaad_mcp.sandbox.const import ALLOWED_BUILTINS, ALLOWED_MODULE_ATTRS
+from openstaad_mcp.sandbox.const import ALLOWED_BUILTINS, ALLOWED_MODULE_ATTRS, INPUT_DATA_VARIABLE_NAME
 from openstaad_mcp.sandbox.module_proxy import ModuleProxy
 from openstaad_mcp.sandbox.stdio_helpers import LimitedStringIO, sanitize_output, sanitize_traceback
 
@@ -82,6 +82,8 @@ class Executor:
         self,
         code: str,
         staad_object: Any,
+        *,
+        input_data: Any = None,
     ) -> ExecutionResult:
         """Validate and execute *code* in the sandbox.
 
@@ -91,6 +93,9 @@ class Executor:
             Python source code to execute.
         staad_object:
             The connected OpenSTAAD root object (or a mock for testing).
+        input_data:
+            Optional pre-parsed, deep-frozen data injected as ``__input__``
+            in the sandbox globals.  ``None`` when no input file is provided.
 
         Returns
         -------
@@ -111,6 +116,7 @@ class Executor:
         sandbox_globals: dict[str, Any] = {"__builtins__": self.safe_builtins.copy()}
         sandbox_globals.update(self.injected_modules)
         sandbox_globals["staad"] = COMProxy(staad_object)
+        sandbox_globals[INPUT_DATA_VARIABLE_NAME] = input_data
 
         # ── 4. Execute with stdout/stderr capture ───────────────────
         captured_out, captured_err = LimitedStringIO(), LimitedStringIO()

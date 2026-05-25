@@ -1,3 +1,10 @@
+"""
+---------------------------------------------------------------------------------------------
+Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+See LICENSE.md in the project root for license terms and full copyright notice.
+---------------------------------------------------------------------------------------------
+"""
+
 # Allowed builtins exceptions.
 # Excludes BaseException and its direct subclasses (SystemExit,
 # KeyboardInterrupt, GeneratorExit) to prevent interference with executor
@@ -199,6 +206,11 @@ BLOCKED_ATTRS: frozenset[str] = frozenset(
         "_lazydata_",
     }
 )
+
+INPUT_DATA_VARIABLE_NAME = "__input__"
+
+# Sandbox-injected variables that are exempt from the dunder-name ban.
+ALLOWED_DUNDER_NAMES: frozenset[str] = frozenset({INPUT_DATA_VARIABLE_NAME})
 
 # Per-module attribute whitelists for modules injected into the sandbox.
 # Used both here (AST-level static check) and in executor.py (_ModuleProxy

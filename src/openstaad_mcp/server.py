@@ -17,14 +17,18 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
+from fastmcp.server.context import Context
 from fastmcp.server.lifespan import lifespan
 from mcp.types import ToolAnnotations
 
 from openstaad_mcp.connection import InstanceRegistry, StaadInstance, connect_and_run
+from openstaad_mcp.file_io import get_allowed_dirs, get_input_data, write_output_file
 from openstaad_mcp.sandbox.executor import Executor
+from openstaad_mcp.file_io.path_validator import FileIOError
 from openstaad_mcp.skills import SkillsManager
 from openstaad_mcp.version import check_version_warning
 
@@ -34,7 +38,13 @@ logger = logging.getLogger(__name__)
 # ── Tool registrations ────────────────────────────────────────────
 
 
-def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, skills_mgr: SkillsManager) -> None:
+def _register_tools(
+    mcp: FastMCP,
+    registry: InstanceRegistry,
+    exc: Executor,
+    skills_mgr: SkillsManager,
+    args_allowed_dirs: list[Path],
+) -> None:
     """Register MCP tools on *mcp*, closing over the *InstanceRegistry*."""
 
     def _resolve_target(instance: str | None) -> StaadInstance:
@@ -178,19 +188,50 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
             openWorldHint=False,  # Only internal data
         )
     )
-    def execute_code(code: str, instance: str | None = None) -> dict[str, Any]:
-        """Execute Python code against the OpenSTAAD API.
+    async def execute_code(
+        code: str,
+        ctx: Context,
+        instance: str | None = None,
+        input_path: str | None = None,
+        output_path: str | None = None,
+        overwrite: bool = False,
+    ) -> dict[str, Any]:
+        """Execute Python code in a sandbox against the OpenSTAAD API.
 
-        The sandbox provides a pre-connected ``staad`` variable (the
-        OpenSTAAD root object) plus ``json`` and ``math`` modules.
-        Imports and filesystem access are blocked for security.
+        The sandbox provides a pre-connected ``staad`` variable (the OpenSTAAD root object)  plus ``json``
+        and ``math`` modules. Imports and regular filesystem access are blocked for security; all data exchange
+        happens through `result`, `__input__`, and the file I/O params below.
 
-        The last expression value or an explicit ``result = ...``
-        assignment is returned as the result.
+        The last expression value or an explicit ``result = ...`` assignment is returned as the result.
 
-        Pass ``instance`` (alias from ``list_instances``, e.g. ``staadPro1``)
-        to target a specific STAAD instance.  Omit it when only one instance
-        is running — it will be selected automatically.
+        Pass ``instance`` (alias from ``list_instances``, e.g. ``staadPro1``) to target a specific
+        STAAD instance.  Omit it when only one instance is running — it will be selected automatically.
+
+        **File I/O** (optional):
+
+        - ``input_path``: path to a ``.csv`` or ``.xlsx`` file. The server reads the file and injects its contents
+          as the immutable `__input__` variable inside the sandbox. Use this to feed large datasets
+          (e.g. node loads, section properties) into your code without hardcoding them.
+
+        - `output_path`: path where the sandbox return value will be written as a file. Use this whenever
+          the result is tabular data destined for a file (node lists, member forces, design results, etc.) —
+          it avoids flooding the context window with large arrays. The `result` variable must be formatted as one of:
+            - List-of-lists → written as CSV or single-sheet xlsx:
+                result = [["Node ID", "X", "Y", "Z"], [1, 0.0, 0.0, 0.0], ...]
+            - Dict of sheet dicts → written as multi-sheet xlsx:
+                result = {
+                    "Nodes": {"columns": ["Node ID", "X", "Y", "Z"],
+                            "rows": [[1, 0.0, 0.0, 0.0], ...]},
+                    "Members": {"columns": ["Member ID", "Start", "End"],
+                                "rows": [[1, 1, 2], ...]}
+                }
+
+        - ``overwrite``: allow overwriting an existing output file.
+
+        Paths must be inside MCP roots or `allowed_dirs`configured by the client.
+        On Claude Desktop, users can configure allowed directories in the extension settings.
+        If no roots are configured, omit both file I/O params and handle the returned
+        `result` value in the agent instead (e.g. write the file via a separate tool).
         """
         try:
             target = _resolve_target(instance)
@@ -204,8 +245,25 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
                 "duration_seconds": 0.0,
             }
 
+        # ── Resolve allowed dirs for path validation ──
+        allowed_dirs = await get_allowed_dirs(ctx, args_allowed_dirs, input_path, output_path)
+
+        # ── Input file handling (server-side, outside sandbox) ───────
+        try:
+            input_data, input_summary = await get_input_data(input_path, allowed_dirs)
+        except FileIOError as e:
+            return {
+                "success": False,
+                "result": None,
+                "stdout": "",
+                "stderr": "",
+                "error": f"{e.code}: {e.message}",
+                "duration_seconds": 0.0,
+            }
+
+        # ── Execute code in sandbox ──────────────────────────────────
         def _run(staad: Any) -> dict[str, Any]:
-            return exc.execute(code, staad).to_dict()
+            return exc.execute(code, staad, input_data=input_data).to_dict()
 
         try:
             result = connect_and_run(_run, target.file_path)
@@ -227,12 +285,30 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
                 "error": str(e),
                 "duration_seconds": 0.0,
             }
+
+        # ── Output file handling (server-side, outside sandbox) ──────
+        if output_path is not None and result.get("success"):
+            try:
+                result["result"] = write_output_file(output_path, result["result"], allowed_dirs, overwrite=overwrite)
+            except FileIOError as e:
+                return {
+                    "success": False,
+                    "result": None,
+                    "stdout": result.get("stdout", ""),
+                    "stderr": result.get("stderr", ""),
+                    "error": f"{e.code}: {e.message}",
+                    "duration_seconds": result.get("duration_seconds", 0.0),
+                }
+
+        # ── Attach summaries ─────────────────────────────────────────
+        if input_summary is not None:
+            result["input_summary"] = input_summary
         if target.warning:
             result["warning"] = target.warning
         return result
 
 
-def create_mcp_server(fastmcp_kwargs: dict | None = None) -> FastMCP:
+def create_mcp_server(allowed_dirs: list[Path], fastmcp_kwargs: dict | None = None) -> FastMCP:
     """Create an MCP server instance with tools registered"""
     fastmcp_kwargs = fastmcp_kwargs or {}
 
@@ -256,5 +332,5 @@ def create_mcp_server(fastmcp_kwargs: dict | None = None) -> FastMCP:
         lifespan=mcp_lifespan,
         **fastmcp_kwargs,
     )
-    _register_tools(mcp, registry, Executor(), SkillsManager())
+    _register_tools(mcp, registry, Executor(), SkillsManager(), args_allowed_dirs=allowed_dirs)
     return mcp

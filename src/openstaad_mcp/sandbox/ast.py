@@ -15,7 +15,7 @@ import ast
 import re
 from dataclasses import dataclass, field
 
-from openstaad_mcp.sandbox.const import ALLOWED_MODULE_ATTRS, BLOCKED_ATTRS, BLOCKED_BUILTINS
+from openstaad_mcp.sandbox.const import ALLOWED_DUNDER_NAMES, ALLOWED_MODULE_ATTRS, BLOCKED_ATTRS, BLOCKED_BUILTINS
 
 _FORMAT_DUNDER_RE = re.compile(r"\{[^}]*\.__[a-zA-Z_][a-zA-Z0-9_]*__")
 
@@ -109,7 +109,7 @@ class _Visitor(ast.NodeVisitor):
     def visit_Name(self, node: ast.Name) -> None:
         if node.id in BLOCKED_BUILTINS:
             self._err(node, f"reference to '{node.id}' is not allowed")
-        if node.id.startswith("__") and node.id.endswith("__"):
+        if node.id.startswith("__") and node.id.endswith("__") and node.id not in ALLOWED_DUNDER_NAMES:
             self._err(node, f"reference to dunder name '{node.id}' is not allowed")
         self.generic_visit(node)
 

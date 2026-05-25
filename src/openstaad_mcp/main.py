@@ -20,6 +20,7 @@ from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 from starlette.middleware import Middleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from openstaad_mcp.file_io import validate_args_allowed_dirs
 from openstaad_mcp.http_middleware import SecFetchMiddleware
 from openstaad_mcp.server import create_mcp_server
 
@@ -50,6 +51,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging verbosity (default: INFO)",
+    )
+    parser.add_argument(
+        "--allowed-dirs",
+        type=str,
+        nargs="+",
+        default=None,
+        help="Directories the openSTAAD server can access (for MCP clients that don't support roots; space separated list)",
     )
 
     # ── HTTP-only options ─────────────────────────────────────────
@@ -96,10 +104,11 @@ def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
 
     setup_logging(args.log_level)
+    allowed_dirs = validate_args_allowed_dirs(args.allowed_dirs)
 
     if args.transport == "stdio":
         # Run FastMCP server in the main thread, the COM thread will be started by the lifespan.
-        mcp = create_mcp_server()
+        mcp = create_mcp_server(allowed_dirs)
         try:
             mcp.run(transport="stdio", show_banner=False)
         except KeyboardInterrupt:
@@ -119,7 +128,7 @@ def main(argv: list[str] | None = None) -> None:
                 required_scopes=["read:data"],
             )
         }
-        mcp = create_mcp_server(fastmcp_kwargs=fastmcp_kwargs)
+        mcp = create_mcp_server(allowed_dirs, fastmcp_kwargs=fastmcp_kwargs)
         try:
             mcp.run(
                 transport="http",

@@ -10,6 +10,7 @@ Tests for InstanceRegistry, get_active_instances, and connect_and_run.
 from __future__ import annotations
 
 import asyncio
+import sys
 import threading
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -17,6 +18,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from openstaad_mcp.connection import InstanceRegistry, StaadInstance, connect_and_run
+from openstaad_mcp.server import create_mcp_server
 
 # ---------------------------------------------------------------------------
 # get_active_instances — ROT enumeration (mocked COM layer)
@@ -131,7 +133,6 @@ def _mock_get_active_instances(instances: list[StaadInstance]):
 class TestInstanceSelection:
     def test_auto_select_single_instance(self):
         """With one instance and no 'instance' param, it is selected automatically."""
-        from openstaad_mcp.server import create_mcp_server
 
         single = [StaadInstance(alias="staadPro1", pid=1234, file_path="C:\\A.std", version="22.12")]
         expected = {"success": True, "result": 42, "stdout": "", "stderr": "", "error": None, "duration_seconds": 0.1}
@@ -140,7 +141,7 @@ class TestInstanceSelection:
             _mock_get_active_instances(single),
             patch("openstaad_mcp.server.connect_and_run", return_value=expected) as mock_run,
         ):
-            mcp = create_mcp_server()
+            mcp = create_mcp_server(allowed_dirs=[])
             asyncio.run(mcp.call_tool("execute_code", {"code": "result = 42"}))
             assert mock_run.called
             called_path = mock_run.call_args[0][1]
@@ -148,9 +149,7 @@ class TestInstanceSelection:
 
     def test_auto_select_errors_on_zero_instances(self):
         with _mock_get_active_instances([]):
-            from openstaad_mcp.server import create_mcp_server
-
-            mcp = create_mcp_server()
+            mcp = create_mcp_server(allowed_dirs=[])
             result = asyncio.run(mcp.call_tool("execute_code", {"code": "result = 1"}))
             text = result.content[0].text
             assert "No STAAD.Pro instances found" in text
@@ -161,9 +160,7 @@ class TestInstanceSelection:
             StaadInstance(alias="staadPro2", pid=5678, file_path="C:\\B.std", version="22.12"),
         ]
         with _mock_get_active_instances(two):
-            from openstaad_mcp.server import create_mcp_server
-
-            mcp = create_mcp_server()
+            mcp = create_mcp_server(allowed_dirs=[])
             result = asyncio.run(mcp.call_tool("execute_code", {"code": "result = 1"}))
             text = result.content[0].text
             assert "staadPro1" in text
@@ -186,8 +183,6 @@ class TestConnectAndRun:
         mock_os = MagicMock()
         mock_os.connect.return_value = MagicMock()
 
-        import sys
-
         with (
             patch.dict(sys.modules, {"openstaadpy": MagicMock(), "openstaadpy.os_analytical": mock_os}),
             pytest.raises(TimeoutError),
@@ -197,7 +192,6 @@ class TestConnectAndRun:
 
     def test_non_windows_raises_import_error(self):
         """On non-Windows, openstaadpy is unavailable — ImportError propagates as exception."""
-        import sys
 
         def _fn(staad: Any) -> str:
             return "ok"

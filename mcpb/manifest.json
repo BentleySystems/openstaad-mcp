@@ -12,12 +12,28 @@
     "documentation": "https://github.com/BentleySystems/openstaad-mcp",
     "support": "https://www.bentley.com/support/",
     "icon": "assets/icon.png",
+    "user_config": {
+        "allowed_directories": {
+            "type": "directory",
+            "title": "Allowed Directories",
+            "description": "Select directories the openSTAAD server can access",
+            "multiple": true,
+            "required": true,
+            "default": [
+                "${HOME}/Desktop",
+                "${HOME}/Documents"
+            ]
+        }
+    },
     "server": {
         "type": "binary",
         "entry_point": "openstaad-mcp.exe",
         "mcp_config": {
             "command": "${__dirname}/openstaad-mcp.exe",
-            "args": []
+            "args": [
+                "--allowed-dirs",
+                "${user_config.allowed_directories}"
+            ]
         }
     },
     "tools": [

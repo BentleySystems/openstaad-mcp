@@ -33,7 +33,7 @@ import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeVar
 
 from openstaad_mcp.version import check_version_warning
 
@@ -185,12 +185,14 @@ class InstanceRegistry:
 # connect_and_run — per-execution STA thread
 # ---------------------------------------------------------------------------
 
+T = TypeVar("T")
+
 
 def connect_and_run(
-    fn: Callable[[Any], Any],
+    fn: Callable[[Any], T],
     file_path: str,
     timeout: float = 120.0,
-) -> Any:
+) -> T:
     """Connect to the STAAD.Pro instance that has *file_path* open and run *fn*.
 
     Spins a short-lived daemon thread that calls
