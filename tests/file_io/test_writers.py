@@ -58,6 +58,14 @@ class TestCSVWrite:
         write_output_file(str(p), [["x"], [1]], allowed_dirs=[tmp_path])
         assert not stale.exists()
 
+    def test_multi_sheet_to_csv_rejected(self, tmp_path: Path):
+        """Multi-sheet dict cannot be written to a CSV file."""
+        p = tmp_path / "out.csv"
+        data = {"Sheet1": {"columns": ["a"], "rows": [[1]]}}
+        with pytest.raises(FileIOError) as exc_info:
+            write_output_file(str(p), data, allowed_dirs=[tmp_path])
+        assert exc_info.value.code == "SHAPE_EXTENSION_MISMATCH"
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # XLSX Write

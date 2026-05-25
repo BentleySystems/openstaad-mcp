@@ -70,7 +70,7 @@ def read_input_file(
 def write_output_file(path: str, data: Any, allowed_dirs: list[Path], *, overwrite: bool = False) -> dict[str, Any]:
     """Validate path, validate return value, write atomically, return summary."""
     resolved = validate_io_path(path, allowed_dirs, mode="write")
-    validate_return_value(data)
+    validate_return_value(resolved, data)
     writer = _get_writer(resolved)
     return writer.write(data, overwrite=overwrite)
 

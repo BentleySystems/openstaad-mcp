@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
@@ -15,73 +16,75 @@ from openstaad_mcp.file_io.path_validator import FileIOError
 
 class TestValidateReturnValue:
     def test_valid_flat(self):
-        validate_return_value([["a", "b"], [1, 2]])
+        validate_return_value(Path("test.csv"), [["a", "b"], [1, 2]])
 
     def test_valid_multi_sheet(self):
         validate_return_value(
+            Path("test.xlsx"),
             {
                 "S1": {"columns": ["a"], "rows": [[1]]},
-            }
+            },
         )
 
     def test_rejects_non_primitive_leaf(self):
         with pytest.raises(FileIOError) as exc_info:
-            validate_return_value([["a"], [object()]])
+            validate_return_value(Path("test.csv"), [["a"], [object()]])
         assert exc_info.value.code == "INVALID_RETURN_SHAPE"
 
     def test_rejects_too_many_sheets(self):
         data = {f"S{i}": {"columns": ["a"], "rows": [[1]]} for i in range(21)}
         with pytest.raises(FileIOError) as exc_info:
-            validate_return_value(data)
+            validate_return_value(Path("test.xlsx"), data)
         assert exc_info.value.code == "INVALID_RETURN_SHAPE"
 
     def test_rejects_too_many_rows(self):
         data = [["a"]] + [[i] for i in range(100_001)]
         with pytest.raises(FileIOError) as exc_info:
-            validate_return_value(data)
+            validate_return_value(Path("test.csv"), data)
         assert exc_info.value.code == "INVALID_RETURN_SHAPE"
 
     def test_rejects_too_many_columns(self):
         data = [[i for i in range(501)]]
         with pytest.raises(FileIOError) as exc_info:
-            validate_return_value(data)
+            validate_return_value(Path("test.csv"), data)
         assert exc_info.value.code == "INVALID_RETURN_SHAPE"
 
     def test_rejects_long_sheet_name(self):
         data = {"A" * 32: {"columns": ["a"], "rows": [[1]]}}
         with pytest.raises(FileIOError) as exc_info:
-            validate_return_value(data)
+            validate_return_value(Path("test.xlsx"), data)
         assert exc_info.value.code == "INVALID_RETURN_SHAPE"
 
     def test_rejects_non_list_non_dict(self):
         with pytest.raises(FileIOError) as exc_info:
-            validate_return_value("not valid")
+            validate_return_value(Path("test.csv"), "not valid")
         assert exc_info.value.code == "INVALID_RETURN_SHAPE"
 
     def test_rejects_oversized_cell_in_flat(self):
         """String cell exceeding MAX_CELL_SIZE is rejected."""
         data = [["a"], ["x" * 32_769]]
         with pytest.raises(FileIOError) as exc_info:
-            validate_return_value(data)
+            validate_return_value(Path("test.csv"), data)
         assert exc_info.value.code == "INVALID_RETURN_SHAPE"
 
     def test_rejects_oversized_cell_in_multi_sheet(self):
         """Oversized cell in multi-sheet output is rejected."""
         data = {"S1": {"columns": ["a"], "rows": [["x" * 32_769]]}}
         with pytest.raises(FileIOError) as exc_info:
-            validate_return_value(data)
+            validate_return_value(Path("test.xlsx"), data)
         assert exc_info.value.code == "INVALID_RETURN_SHAPE"
 
     def test_accepts_tuples_as_rows(self):
         """Tuples (from deep_freeze) should be accepted as rows."""
-        validate_return_value((("a", "b"), (1, 2)))
+        validate_return_value(Path("test.csv"), (("a", "b"), (1, 2)))
 
     def test_accepts_tuples_in_multi_sheet(self):
         """Frozen multi-sheet data should be accepted."""
         validate_return_value(
+            Path("test.xlsx"),
             {
                 "S1": {"columns": ("a",), "rows": ((1,),)},
-            }
+            },
         )
 
 
@@ -100,7 +103,16 @@ class TestDeepFreeze:
     def test_dict_values_frozen(self):
         data = {"S": {"columns": ["a"], "rows": [[1]]}}
         frozen = deep_freeze(data)
+        assert isinstance(frozen, MappingProxyType)
+        assert isinstance(frozen["S"], MappingProxyType)
         assert isinstance(frozen["S"]["rows"], tuple)
+
+    def test_dict_is_immutable(self):
+        frozen = deep_freeze({"a": 1})
+        with pytest.raises(TypeError):
+            frozen["a"] = 2
+        with pytest.raises(TypeError):
+            frozen["b"] = 3
 
     def test_none_passthrough(self):
         assert deep_freeze(None) is None

@@ -27,8 +27,8 @@ from mcp.types import ToolAnnotations
 
 from openstaad_mcp.connection import InstanceRegistry, StaadInstance, connect_and_run
 from openstaad_mcp.file_io import get_allowed_dirs, get_input_data, write_output_file
-from openstaad_mcp.sandbox.executor import Executor
 from openstaad_mcp.file_io.path_validator import FileIOError
+from openstaad_mcp.sandbox.executor import Executor
 from openstaad_mcp.skills import SkillsManager
 from openstaad_mcp.version import check_version_warning
 
@@ -228,7 +228,7 @@ def _register_tools(
 
         - ``overwrite``: allow overwriting an existing output file.
 
-        Paths must be inside MCP roots or `allowed_dirs`configured by the client.
+        Paths must be inside MCP roots or `allowed_dirs` configured by the client.
         On Claude Desktop, users can configure allowed directories in the extension settings.
         If no roots are configured, omit both file I/O params and handle the returned
         `result` value in the agent instead (e.g. write the file via a separate tool).

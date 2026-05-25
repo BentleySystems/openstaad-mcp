@@ -80,7 +80,7 @@ def _detect_header(rows: list[list], has_header: bool | None) -> bool:
         if not type_counts:
             continue
 
-        majority_type = max(type_counts, key=type_counts.get)
+        majority_type = max(type_counts, key=type_counts.get)  # type: ignore
         if first_type != majority_type:
             return True  # Type mismatch -> first row is a header
 
@@ -294,7 +294,7 @@ class XLSXReader(BaseReader):
     def _validate_sheet_count(wb: Any) -> None:
         if len(wb.sheetnames) > MAX_INPUT_SHEETS:
             raise FileIOError(
-                "TOO_MANY_ROWS",
+                "TOO_MANY_SHEETS",
                 f"Workbook has {len(wb.sheetnames)} sheets; limit is {MAX_INPUT_SHEETS}",
             )
 

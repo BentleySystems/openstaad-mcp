@@ -198,8 +198,9 @@ CSV and XLSX files directly and injects the data into the sandbox as the `__inpu
 | `output_path` | Path where the sandbox return value will be written. The return value must be a list-of-lists (CSV) or a `{sheet_name: {columns, rows}}` dict (multi-sheet XLSX). |
 | `overwrite` | Allow overwriting an existing output file (default `false`). |
 
-**Path containment:** All file paths must resolve inside an MCP root configured by the client.
-The server validates paths against the client-provided roots before any file access.
+**Path containment:** File paths must resolve inside a configured allowed boundary before any read/write occurs.
+The server supports both **client-configured MCP roots** and **server-configured allowed directories** (via `--allowed-dirs` or `user_config.allowed_directories` in the manifest).
+The server validates paths against these boundaries before any file access.
 
 **Limits:** Max file size 50 MB, max 100K rows, max 500 columns, max 50 input sheets.
 

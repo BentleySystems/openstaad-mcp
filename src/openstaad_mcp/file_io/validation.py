@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from pydantic import ValidationError
@@ -19,7 +20,7 @@ from openstaad_mcp.file_io.models import FlatOutput, MultiSheetOutput
 from openstaad_mcp.file_io.path_validator import FileIOError
 
 
-def validate_return_value(value: Any) -> None:
+def validate_return_value(path: Path, value: Any) -> None:
     """Raise :class:`FileIOError` if *value* is not a valid output structure.
 
     Accepts:
@@ -28,12 +29,18 @@ def validate_return_value(value: Any) -> None:
 
     Tuples are accepted interchangeably with lists (sandbox returns frozen data).
     """
+    ext = path.suffix.lower()
     if isinstance(value, (list, tuple)):
         try:
             FlatOutput.model_validate(value)
         except ValidationError as exc:
             raise FileIOError("INVALID_RETURN_SHAPE", _format_errors(exc)) from None
     elif isinstance(value, dict):
+        if ext == ".csv":
+            raise FileIOError(
+                "SHAPE_EXTENSION_MISMATCH",
+                "Multi-sheet data cannot be written to a CSV file; use .xlsx or provide a flat list of rows",
+            )
         try:
             MultiSheetOutput.model_validate(value)
         except ValidationError as exc:
@@ -86,8 +93,7 @@ def deep_freeze(data: Any) -> Any:
     """Recursively convert mutable containers to immutable equivalents.
 
     - ``list`` -> ``tuple``
-    - ``dict`` values are recursively frozen (dict keys stay as-is since
-      strings are already immutable)
+    - ``dict`` -> ``MappingProxyType`` (with recursively frozen values)
     - Primitives (str, int, float, bool, None) pass through unchanged.
     """
     if data is None or isinstance(data, (str, int, float, bool)):
@@ -95,5 +101,5 @@ def deep_freeze(data: Any) -> Any:
     if isinstance(data, (list, tuple)):
         return tuple(deep_freeze(item) for item in data)
     if isinstance(data, dict):
-        return {k: deep_freeze(v) for k, v in data.items()}
+        return MappingProxyType({k: deep_freeze(v) for k, v in data.items()})
     return data

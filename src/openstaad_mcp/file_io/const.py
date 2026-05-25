@@ -34,5 +34,5 @@ STALE_TEMP_AGE_SECONDS = 3600
 # Number of sample rows included in summaries returned to the agent.
 SAMPLE_ROW_COUNT = 5
 
-# Maximum character length for a single cell value (matches Excel's limit).
-MAX_CELL_SIZE = 32_768
+# Maximum character length for a single cell value (Excel limit: 32,767 characters).
+MAX_CELL_SIZE = 32_767
