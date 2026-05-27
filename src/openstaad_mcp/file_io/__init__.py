@@ -7,7 +7,7 @@ See LICENSE.md in the project root for license terms and full copyright notice.
 Server-side file I/O for the ``execute_code`` tool.
 
 All operations run **outside** the sandbox.  The sandbox never touches the
-filesystem -- it receives pre-parsed data via ``__input__`` and returns a
+filesystem -- it receives pre-parsed data via ``input_data`` and returns a
 structured value that this module writes to disk.
 
 Sub-modules

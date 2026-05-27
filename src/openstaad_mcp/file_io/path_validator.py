@@ -7,8 +7,8 @@ See LICENSE.md in the project root for license terms and full copyright notice.
 Shared path validator for file I/O operations.
 
 Validates that a file path is safe to read from or write to, using
-MCP roots as the containment boundary.  Both ``input_path`` and
-``output_path`` go through :func:`validate_io_path` — one function,
+MCP roots as the containment boundary.  Both ``input_data_path`` and
+``output_data_path`` go through :func:`validate_io_path` — one function,
 not duplicated logic.
 
 Validation order (do **not** reorder — see Research-file-io.md §5.2):

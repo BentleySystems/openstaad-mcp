@@ -671,25 +671,25 @@ class TestInputInjection:
     """Tests for ``__input`` data injection into the sandbox."""
 
     def test_input_none_when_no_data(self, staad, executor):
-        """``__input`` is None when no input_data is provided (backward compat)."""
-        r = executor.execute("result = __input__", staad)
+        """``input_data`` is None when no input_data is provided (backward compat)."""
+        r = executor.execute("result = input_data", staad)
         assert r.success
         assert r.result is None
 
     def test_input_contains_provided_data(self, staad, executor):
         data = (("a", "b"), (1, 2), (3, 4))
-        r = executor.execute("result = [list(row) for row in __input__]", staad, input_data=data)
+        r = executor.execute("result = [list(row) for row in input_data]", staad, input_data=data)
         assert r.success
         assert r.result == [["a", "b"], [1, 2], [3, 4]]
 
     def test_input_deeply_immutable(self, staad, executor):
-        """Sandbox code cannot mutate ``__input__`` (tuples are immutable)."""
+        """Sandbox code cannot mutate ``input_data`` (tuples are immutable)."""
         data = (("a", "b"), (1, 2))
         r = executor.execute(
             dedent(
                 """
                 try:
-                    __input__[0] = "mutated"
+                    input_data[0] = "mutated"
                     result = "mutation succeeded"
                 except TypeError:
                     result = "immutable"
@@ -702,10 +702,10 @@ class TestInputInjection:
         assert r.result == "immutable"
 
     def test_input_iterable(self, staad, executor):
-        """Sandbox code can iterate over ``__input__``."""
+        """Sandbox code can iterate over ``input_data``."""
         data = ((10,), (20,), (30,))
         r = executor.execute(
-            "result = sum(row[0] for row in __input__)",
+            "result = sum(row[0] for row in input_data)",
             staad,
             input_data=data,
         )
@@ -713,24 +713,24 @@ class TestInputInjection:
         assert r.result == 60
 
     def test_input_indexable(self, staad, executor):
-        """Sandbox code can index into ``__input__``."""
+        """Sandbox code can index into ``input_data``."""
         data = (("x",), (42,))
-        r = executor.execute("result = __input__[1][0]", staad, input_data=data)
+        r = executor.execute("result = input_data[1][0]", staad, input_data=data)
         assert r.success
         assert r.result == 42
 
     def test_input_no_carryover(self, staad, executor):
-        """``__input__`` does not persist across executions."""
-        executor.execute("x = __input__", staad, input_data=((1,),))
-        r = executor.execute("result = __input__", staad)
+        """``input_data`` does not persist across executions."""
+        executor.execute("x = input_data", staad, input_data=((1,),))
+        r = executor.execute("result = input_data", staad)
         assert r.success
         assert r.result is None
 
     def test_input_dict_shape(self, staad, executor):
-        """Dict-shaped __input__ (XLSX multi-sheet) works."""
+        """Dict-shaped input_data (XLSX multi-sheet) works."""
         data = {"Sheet1": {"columns": ("a",), "rows": ((1,), (2,))}}
         r = executor.execute(
-            "result = len(__input__['Sheet1']['rows'])",
+            "result = len(input_data['Sheet1']['rows'])",
             staad,
             input_data=data,
         )

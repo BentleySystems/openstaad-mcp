@@ -47,11 +47,11 @@
         },
         {
             "name": "list_instances",
-            "description": "List currently active STAAD instances. Returns instance IDs, model paths, and STAAD versions. Use instance IDs to target specific models in other tools."
+            "description": "List currently active STAAD instances."
         },
         {
             "name": "execute_code",
-            "description": "Execute Python code against the OpenSTAAD API. The sandbox provides a pre-connected 'staad' variable (the OpenSTAAD root object) plus ``json`` and ``math`` modules. Imports and filesystem access are blocked for security. The last expression value or an explicit ``result = ...`` assignment is returned as the result."
+            "description": "Execute Python code against the OpenSTAAD API in a sandboxed environment."
         },
         {
             "name": "get_status",

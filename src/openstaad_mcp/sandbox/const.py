@@ -207,11 +207,6 @@ BLOCKED_ATTRS: frozenset[str] = frozenset(
     }
 )
 
-INPUT_DATA_VARIABLE_NAME = "__input__"
-
-# Sandbox-injected variables that are exempt from the dunder-name ban.
-ALLOWED_DUNDER_NAMES: frozenset[str] = frozenset({INPUT_DATA_VARIABLE_NAME})
-
 # Per-module attribute whitelists for modules injected into the sandbox.
 # Used both here (AST-level static check) and in executor.py (_ModuleProxy
 # runtime enforcement).  Only attributes listed here may be accessed on the

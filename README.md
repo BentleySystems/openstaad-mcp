@@ -190,11 +190,11 @@ The server supports two transport modes:
 
 The `execute_code` tool supports optional **server-side file I/O** for bulk data workflows.
 Instead of passing large datasets through the agent's context window, the server reads/writes
-CSV and XLSX files directly and injects the data into the sandbox as the `__input__` variable.
+CSV and XLSX files directly and injects the data into the sandbox as the `input_data` variable.
 
 | Parameter | Description |
 |-----------|-------------|
-| `input_path` | Path to a `.csv` or `.xlsx` file. The server reads and parses it, then injects the data as the immutable `__input__` variable in the sandbox. |
+| `input_path` | Path to a `.csv` or `.xlsx` file. The server reads and parses it, then injects the data as the immutable `input_data` variable in the sandbox. |
 | `output_path` | Path where the sandbox return value will be written. The return value must be a list-of-lists (CSV) or a `{sheet_name: {columns, rows}}` dict (multi-sheet XLSX). |
 | `overwrite` | Allow overwriting an existing output file (default `false`). |
 
