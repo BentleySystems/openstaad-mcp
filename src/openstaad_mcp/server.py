@@ -111,7 +111,7 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         right one.  The ``alias`` (e.g. ``staadPro1``) is stable for the
         server session even if the model file changes.
 
-        If a version is below the minimum supported (26.0.1), a ``warning``
+        If a version is below the minimum supported (25.0.1), a ``warning``
         field is included with details about potential data inaccuracies.
         """
         results = []
