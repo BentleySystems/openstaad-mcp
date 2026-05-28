@@ -277,7 +277,12 @@ ruff format --check .
   npm install -g @anthropic-ai/mcpb
   New-Item -ItemType Directory -Path mcpb-staging -Force
   Copy-Item dist/openstaad-mcp.exe mcpb-staging/
-  Copy-Item mcpb/manifest.json mcpb-staging/
+
+  $version = (Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"(.+)"$').Matches[0].Groups[1].Value
+  $manifest = Get-Content mcpb/manifest.json -Raw | ConvertFrom-Json
+  $manifest.version = $version
+  $manifest | ConvertTo-Json -Depth 10 | Set-Content mcpb-staging/manifest.json -Encoding utf8
+
   mcpb pack mcpb-staging/ openstaad-mcp.mcpb
   ```
 
