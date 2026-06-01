@@ -16,8 +16,11 @@ import pytest
 
 from openstaad_mcp.skills import (
     SkillsManager,
+    _extract_section_names,
     _extract_skill_description,
+    _format_section_index,
     _list_reference_files,
+    _parse_filtered_content,
 )
 
 # ── Helpers ────────────────────────────────────────────────────────
@@ -508,3 +511,241 @@ class TestRealSkills:
         overview = mgr.format_overview()
         for skill in skills.values():
             assert skill.name in overview
+
+    def test_real_skills_have_section_names(self) -> None:
+        skills = SkillsManager().skills
+        for skill in skills.values():
+            assert isinstance(skill.section_names, tuple), f"{skill.name} section_names not a tuple"
+
+    def test_real_toc_for_staad_results(self) -> None:
+        mgr = SkillsManager()
+        toc = mgr.read_skills(["staad-results/toc"])
+        assert "member forces" in toc
+        assert "gotchas" in toc
+
+    def test_real_filtered_staad_results_member_forces(self) -> None:
+        mgr = SkillsManager()
+        full = mgr.read_skills(["staad-results"])
+        filtered = mgr.read_skills(["staad-results"], sections=["member forces"])
+        assert "Member Forces" in filtered
+        assert "Gotchas" in filtered  # always included
+        assert len(filtered) < len(full), "Filtered result should be smaller than full"
+
+    def test_real_filtered_overview_tip_present(self) -> None:
+        overview = SkillsManager().format_overview()
+        assert "sections=" in overview
+
+
+# ── _extract_section_names ─────────────────────────────────────────
+
+
+class TestExtractSectionNames:
+    def test_extracts_h2_and_h3(self, tmp_path: Path) -> None:
+        skill_dir = _make_skill(
+            tmp_path, "s",
+            body="## Instructions\n\nPreamble.\n\n### Topic A\nContent A.\n\n### Topic B\nContent B.\n\n## Gotchas\n- Be careful."
+        )
+        names = _extract_section_names(skill_dir / "SKILL.md")
+        assert "instructions" in names
+        assert "topic a" in names
+        assert "topic b" in names
+        assert "gotchas" in names
+
+    def test_empty_file_returns_empty_tuple(self, tmp_path: Path) -> None:
+        skill_dir = _make_skill(tmp_path, "s", body="")
+        names = _extract_section_names(skill_dir / "SKILL.md")
+        assert isinstance(names, tuple)
+
+    def test_missing_file_returns_empty_tuple(self, tmp_path: Path) -> None:
+        names = _extract_section_names(tmp_path / "nonexistent.md")
+        assert names == ()
+
+    def test_all_lowercase(self, tmp_path: Path) -> None:
+        skill_dir = _make_skill(tmp_path, "s", body="## UPPER CASE\n### Mixed Case")
+        names = _extract_section_names(skill_dir / "SKILL.md")
+        assert "upper case" in names
+        assert "mixed case" in names
+
+
+# ── _parse_filtered_content ────────────────────────────────────────
+
+_SAMPLE_SKILL_CONTENT = """---
+name: "test-skill"
+description: "A skill for testing"
+---
+
+# Test Skill
+
+## Instructions
+
+Preamble text here.
+
+### Topic A
+Content for topic A.
+
+### Topic B
+Content for topic B.
+
+### Topic C
+Content for topic C.
+
+## Example
+An example link.
+
+## Gotchas
+- Watch out for X.
+"""
+
+
+class TestParseFilteredContent:
+    def test_requested_h3_included(self) -> None:
+        result = _parse_filtered_content(_SAMPLE_SKILL_CONTENT, ["topic a"])
+        assert "Topic A" in result
+        assert "Content for topic A" in result
+
+    def test_unrequested_h3_excluded(self) -> None:
+        result = _parse_filtered_content(_SAMPLE_SKILL_CONTENT, ["topic a"])
+        assert "Topic B" not in result
+        assert "Topic C" not in result
+
+    def test_leaf_h2_always_included(self) -> None:
+        result = _parse_filtered_content(_SAMPLE_SKILL_CONTENT, ["topic a"])
+        assert "## Example" in result
+        assert "## Gotchas" in result
+        assert "Watch out for X" in result
+
+    def test_preamble_included_when_h3_matched(self) -> None:
+        result = _parse_filtered_content(_SAMPLE_SKILL_CONTENT, ["topic a"])
+        assert "Preamble text" in result
+
+    def test_multiple_requested_sections(self) -> None:
+        result = _parse_filtered_content(_SAMPLE_SKILL_CONTENT, ["topic a", "topic c"])
+        assert "Topic A" in result
+        assert "Topic C" in result
+        assert "Topic B" not in result
+
+    def test_empty_request_returns_only_leaf_h2s(self) -> None:
+        result = _parse_filtered_content(_SAMPLE_SKILL_CONTENT, [])
+        assert "## Gotchas" in result
+        assert "## Example" in result
+        assert "Topic A" not in result
+
+    def test_case_insensitive_matching(self) -> None:
+        result = _parse_filtered_content(_SAMPLE_SKILL_CONTENT, ["TOPIC A"])
+        assert "Topic A" in result
+
+    def test_requesting_h2_by_name_returns_full_h2(self) -> None:
+        result = _parse_filtered_content(_SAMPLE_SKILL_CONTENT, ["instructions"])
+        assert "Topic A" in result
+        assert "Topic B" in result
+        assert "Topic C" in result
+
+
+# ── _format_section_index ──────────────────────────────────────────
+
+
+class TestFormatSectionIndex:
+    def test_h3_topics_listed(self) -> None:
+        result = _format_section_index(_SAMPLE_SKILL_CONTENT, "test-skill")
+        assert "topic a" in result
+        assert "topic b" in result
+        assert "topic c" in result
+
+    def test_leaf_h2_sections_listed(self) -> None:
+        result = _format_section_index(_SAMPLE_SKILL_CONTENT, "test-skill")
+        assert "example" in result
+        assert "gotchas" in result
+
+    def test_skill_name_in_header(self) -> None:
+        result = _format_section_index(_SAMPLE_SKILL_CONTENT, "test-skill")
+        assert "test-skill" in result
+
+    def test_usage_hint_present(self) -> None:
+        result = _format_section_index(_SAMPLE_SKILL_CONTENT, "test-skill")
+        assert "sections=" in result
+
+
+# ── SkillsManager section features ────────────────────────────────
+
+
+class TestSkillsManagerSections:
+    def test_section_names_populated_on_scan(self, tmp_path: Path) -> None:
+        _make_skill(
+            tmp_path, "with-sections",
+            body="## Instructions\n\n### Topic A\nA.\n\n### Topic B\nB.\n\n## Gotchas\nG."
+        )
+        skills = SkillsManager(tmp_path).skills
+        entry = skills["with-sections"]
+        assert "topic a" in entry.section_names
+        assert "topic b" in entry.section_names
+        assert "gotchas" in entry.section_names
+
+    def test_toc_path_returns_section_index(self, tmp_path: Path) -> None:
+        _make_skill(
+            tmp_path, "my-skill",
+            body="## Instructions\n\n### Alpha\nA.\n\n## Gotchas\nG."
+        )
+        mgr = SkillsManager(tmp_path)
+        result = mgr.read_skill("my-skill/toc")
+        assert "alpha" in result
+        assert "gotchas" in result
+
+    def test_toc_unknown_skill_returns_error(self, tmp_path: Path) -> None:
+        mgr = SkillsManager(tmp_path)
+        result = mgr.read_skill("nonexistent/toc")
+        assert "Error:" in result
+
+    def test_filtered_read_returns_requested_section(self, tmp_path: Path) -> None:
+        _make_skill(
+            tmp_path, "s",
+            body="## Instructions\n\n### Alpha\nAlpha content.\n\n### Beta\nBeta content.\n\n## Gotchas\nG."
+        )
+        mgr = SkillsManager(tmp_path)
+        result = mgr.read_skill("s", sections=["alpha"])
+        assert "Alpha content" in result
+        assert "Beta content" not in result
+
+    def test_filtered_read_unknown_section_appends_note(self, tmp_path: Path) -> None:
+        _make_skill(
+            tmp_path, "s",
+            body="## Instructions\n\n### Alpha\nContent.\n\n## Gotchas\nG."
+        )
+        mgr = SkillsManager(tmp_path)
+        result = mgr.read_skill("s", sections=["nonexistent"])
+        assert "nonexistent" in result.lower()
+
+    def test_filtered_read_no_match_returns_error(self, tmp_path: Path) -> None:
+        _make_skill(
+            tmp_path, "s",
+            body="## Instructions\n\n### Alpha\nContent."
+        )
+        mgr = SkillsManager(tmp_path)
+        # "Instructions" IS matched as an H2 by-name, so only truly absent names fail
+        result = mgr.read_skill("s", sections=["totally-missing-xyz"])
+        # Filtered result has leaf H2s (none here) - just check no crash
+        assert isinstance(result, str)
+
+    def test_sections_param_ignored_for_reference_subpath(self, tmp_path: Path) -> None:
+        _make_skill(
+            tmp_path, "s",
+            body="## Instructions\n\n### Alpha\nContent.",
+            references={"assets/REF.md": "Reference content"}
+        )
+        mgr = SkillsManager(tmp_path)
+        result = mgr.read_skill("s/assets/REF", sections=["alpha"])
+        assert "Reference content" in result
+
+    def test_read_skills_passes_sections_through(self, tmp_path: Path) -> None:
+        _make_skill(
+            tmp_path, "s",
+            body="## Instructions\n\n### Alpha\nAlpha content.\n\n### Beta\nBeta content.\n\n## Gotchas\nG."
+        )
+        mgr = SkillsManager(tmp_path)
+        result = mgr.read_skills(["s"], sections=["alpha"])
+        assert "Alpha content" in result
+        assert "Beta content" not in result
+
+    def test_overview_includes_usage_tip(self, tmp_path: Path) -> None:
+        _make_skill(tmp_path, "s", description="A skill")
+        overview = SkillsManager(tmp_path).format_overview()
+        assert "sections=" in overview

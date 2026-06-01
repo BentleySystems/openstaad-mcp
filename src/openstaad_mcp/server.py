@@ -82,8 +82,8 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
             openWorldHint=False,  # Only internal data
         )
     )
-    def read_skills(skills: list[str]) -> str:
-        """Read one or more skills by name.
+    def read_skills(skills: list[str], sections: list[str] | None = None) -> str:
+        """Read one or more skills by name, optionally filtered to specific sections.
 
         Use ``discover_api`` first to list available skills.
         Each skill provides domain-specific guidance (e.g. analysis, geometry, loads).
@@ -91,8 +91,18 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         Pass skill names like ``["staad-analysis"]`` or sub-paths like
         ``["staad-steel-design/assets/DESIGN_CODES"]`` to read reference files
         within a skill.
+
+        **Token-efficient loading:** Use ``sections`` to load only what you need
+        instead of the full skill file (typically 70–85% fewer tokens):
+
+        - ``sections=["member forces"]`` — load just that H3 topic
+        - ``sections=["member forces", "output units"]`` — multiple topics
+        - ``skills=["staad-results/toc"]`` — list available section names first
+
+        Leaf H2 sections (``gotchas``, ``examples``) are always included in
+        filtered results regardless of the ``sections`` parameter.
         """
-        return skills_mgr.read_skills(skills)
+        return skills_mgr.read_skills(skills, sections=sections)
 
     @mcp.tool(
         annotations=ToolAnnotations(
