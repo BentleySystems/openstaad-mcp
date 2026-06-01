@@ -4,7 +4,7 @@ import io
 import re as _re
 from typing import Any
 
-from openstaad_mcp.sandbox.const import MAX_EXECUTION_STDOUT, MAX_RESULT_LENGTH
+from openstaad_mcp.sandbox.const import MAX_EXECUTION_STDOUT, MAX_RESULT_ITEMS, MAX_RESULT_LENGTH
 
 
 class LimitedStringIO(io.StringIO):
@@ -64,15 +64,21 @@ def sanitize_traceback(exc: BaseException) -> str:
 def sanitize_output(value: Any) -> Any:
     """Sanitize output values to mitigate indirect prompt injection.
 
-    Truncates large strings and adds a data provenance marker so AI agents
-    know the data comes from an external model file.
+    Truncates large strings and long lists at structural boundaries so the
+    LLM never receives a malformed partial payload it will try to "complete."
+    The true pre-truncation count is reported separately via result_count in
+    the executor result dict; the LLM must use that field, not len(result).
     """
     if isinstance(value, str):
         if len(value) > MAX_RESULT_LENGTH:
             value = value[:MAX_RESULT_LENGTH] + "... (truncated)"
         return value
-    if isinstance(value, list):
-        return [sanitize_output(item) for item in value]
+    if isinstance(value, (list, tuple)):
+        truncated = len(value) > MAX_RESULT_ITEMS
+        items = [sanitize_output(item) for item in value[:MAX_RESULT_ITEMS]]
+        if truncated:
+            items.append(f"... ({len(value) - MAX_RESULT_ITEMS} more items not shown — see result_count for total)")
+        return items
     if isinstance(value, dict):
         return {k: sanitize_output(v) for k, v in value.items()}
     return value
