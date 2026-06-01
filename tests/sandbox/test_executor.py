@@ -217,11 +217,84 @@ class TestToDict:
         assert set(d.keys()) == {
             "success",
             "result",
+            "result_type",
+            "result_count",
             "stdout",
             "stderr",
             "error",
             "duration_seconds",
         }
+
+
+class TestResultAnchoring:
+    """result_type and result_count provide pre-truncation metadata."""
+
+    def test_int_result_type(self, staad, executor):
+        r = executor.execute("result = 42", staad)
+        assert r.result_type == "scalar"
+        assert r.result_count is None
+
+    def test_float_result_type(self, staad, executor):
+        r = executor.execute("result = 3.14", staad)
+        assert r.result_type == "scalar"
+        assert r.result_count is None
+
+    def test_bool_result_type(self, staad, executor):
+        r = executor.execute("result = True", staad)
+        assert r.result_type == "bool"
+        assert r.result_count is None
+
+    def test_string_result_type(self, staad, executor):
+        r = executor.execute('result = "hello"', staad)
+        assert r.result_type == "string"
+        assert r.result_count is None
+
+    def test_none_result_type(self, staad, executor):
+        r = executor.execute("x = 1", staad)
+        assert r.result_type == "null"
+        assert r.result_count is None
+
+    def test_list_result_type_and_count(self, staad, executor):
+        r = executor.execute("result = [1, 2, 3, 4, 5]", staad)
+        assert r.result_type == "list"
+        assert r.result_count == 5
+
+    def test_dict_result_type_and_count(self, staad, executor):
+        r = executor.execute('result = {"a": 1, "b": 2}', staad)
+        assert r.result_type == "dict"
+        assert r.result_count == 2
+
+    def test_com_tuple_classified_as_list(self, staad, executor):
+        # COM APIs (e.g. GetPrimaryLoadCaseNumbers) return tuples — must be
+        # classified as "list" so the model treats them uniformly.
+        r = executor.execute("result = staad.Output.GetBeamEndForces(1, 1)", staad)
+        assert r.result_type == "list"
+        assert r.result_count == 6
+
+    def test_error_result_type_is_null(self, staad, executor):
+        r = executor.execute("1 / 0", staad)
+        assert not r.success
+        assert r.result_type == "null"
+        assert r.result_count is None
+
+    def test_large_list_count_reflects_pretuncation_total(self, staad, executor):
+        from openstaad_mcp.sandbox.const import MAX_RESULT_ITEMS
+
+        n = MAX_RESULT_ITEMS + 50
+        r = executor.execute(f"result = list(range({n}))", staad)
+        assert r.success
+        # result_count is the true pre-truncation total
+        assert r.result_count == n
+        # the result payload is capped at MAX_RESULT_ITEMS (+1 for the truncation notice)
+        assert len(r.result) == MAX_RESULT_ITEMS + 1
+
+    def test_small_list_not_truncated(self, staad, executor):
+        from openstaad_mcp.sandbox.const import MAX_RESULT_ITEMS
+
+        r = executor.execute(f"result = list(range({MAX_RESULT_ITEMS}))", staad)
+        assert r.success
+        assert r.result_count == MAX_RESULT_ITEMS
+        assert len(r.result) == MAX_RESULT_ITEMS
 
 
 class TestErrorHandling:

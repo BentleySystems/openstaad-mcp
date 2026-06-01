@@ -275,3 +275,8 @@ MAX_EXECUTION_STDOUT = 256_000
 
 # Maximum length for a single result value to prevent large injection payloads
 MAX_RESULT_LENGTH = 100_000
+
+# Maximum number of items in a list/tuple result before structural truncation.
+# Items beyond this limit are dropped; result_count in the response still reports
+# the true pre-truncation total so the model can anchor its narrative to it.
+MAX_RESULT_ITEMS = 200

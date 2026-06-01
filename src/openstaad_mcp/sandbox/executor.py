@@ -31,6 +31,29 @@ from openstaad_mcp.sandbox.module_proxy import ModuleProxy
 from openstaad_mcp.sandbox.stdio_helpers import LimitedStringIO, sanitize_output, sanitize_traceback
 
 
+def _classify_result(value: Any) -> tuple[str, int | None]:
+    """Return (result_type, result_count) for *value* before sanitization.
+
+    result_type is one of: "null", "scalar", "bool", "string", "list", "dict".
+    result_count is the true item count for list/tuple/dict, None otherwise.
+    Computing this before sanitize_output runs ensures result_count reflects the
+    full pre-truncation total, not the capped payload the model receives.
+    """
+    if value is None:
+        return "null", None
+    if isinstance(value, bool):
+        return "bool", None
+    if isinstance(value, (int, float)):
+        return "scalar", None
+    if isinstance(value, str):
+        return "string", None
+    if isinstance(value, (list, tuple)):
+        return "list", len(value)
+    if isinstance(value, dict):
+        return "dict", len(value)
+    return "scalar", None
+
+
 @dataclass
 class ExecutionResult:
     """Structured result returned from :func:`execute`."""
@@ -41,11 +64,15 @@ class ExecutionResult:
     stderr: str = ""
     error: str | None = None
     duration_seconds: float = 0.0
+    result_type: str = "null"
+    result_count: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "success": self.success,
             "result": self.result,
+            "result_type": self.result_type,
+            "result_count": self.result_count,
             "stdout": self.stdout,
             "stderr": self.stderr,
             "error": self.error,
@@ -156,6 +183,10 @@ class Executor:
         else:
             result_value = None
 
+        # Classify before sanitization so result_count reflects the true total,
+        # not the truncated payload the model will receive.
+        res_type, res_count = _classify_result(result_value)
+
         result_value = sanitize_output(result_value)
 
         # Attempt JSON-safe serialisation; fall back to repr.
@@ -170,4 +201,6 @@ class Executor:
             stdout=stdout_text,
             stderr=stderr_text,
             duration_seconds=duration,
+            result_type=res_type,
+            result_count=res_count,
         )
