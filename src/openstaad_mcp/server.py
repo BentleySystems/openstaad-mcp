@@ -191,6 +191,13 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         Pass ``instance`` (alias from ``list_instances``, e.g. ``staadPro1``)
         to target a specific STAAD instance.  Omit it when only one instance
         is running — it will be selected automatically.
+
+        The response always includes ``result_type`` (one of ``"null"``,
+        ``"bool"``, ``"scalar"``, ``"string"``, ``"list"``, ``"dict"``) and
+        ``result_count`` (the true pre-truncation item count for list/dict
+        results, ``null`` otherwise).  Large list results are truncated to
+        the first 200 items in ``result``; ``result_count`` is the only
+        authoritative total — do not recount from ``result`` itself.
         """
         try:
             target = _resolve_target(instance)
@@ -251,7 +258,11 @@ def create_mcp_server(fastmcp_kwargs: dict | None = None) -> FastMCP:
             "instructions. Use `list_instances` to see running STAAD instances, "
             "`execute_code` to run code against a live STAAD.Pro model, and "
             "`get_status` to check connection. "
-            "When a `warning` field appears in any tool response, report it to the user."
+            "When a `warning` field appears in any tool response, report it to the user. "
+            "When `execute_code` returns a list result, `result_count` is the "
+            "authoritative item count — it reflects the true pre-truncation total. "
+            "Do not recount from `result`; report exactly `result_count` items and "
+            "note when results were truncated (i.e. when len(result) < result_count)."
         ),
         lifespan=mcp_lifespan,
         **fastmcp_kwargs,
