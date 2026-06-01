@@ -82,8 +82,8 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
             openWorldHint=False,  # Only internal data
         )
     )
-    def read_skills(skills: list[str]) -> str:
-        """Read one or more skills by name.
+    def read_skills(skills: list[str], sections: list[str] | None = None) -> str:
+        """Read one or more skills by name, optionally filtered to specific sections.
 
         Use ``discover_api`` first to list available skills.
         Each skill provides domain-specific guidance (e.g. analysis, geometry, loads).
@@ -91,8 +91,18 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         Pass skill names like ``["staad-analysis"]`` or sub-paths like
         ``["staad-steel-design/assets/DESIGN_CODES"]`` to read reference files
         within a skill.
+
+        **Token-efficient loading:** Use ``sections`` to load only what you need
+        instead of the full skill file (typically 70–85% fewer tokens):
+
+        - ``sections=["member forces"]`` — load just that H3 topic
+        - ``sections=["member forces", "output units"]`` — multiple topics
+        - ``skills=["staad-results/toc"]`` — list available section names first
+
+        Leaf H2 sections (``gotchas``, ``examples``) are always included in
+        filtered results regardless of the ``sections`` parameter.
         """
-        return skills_mgr.read_skills(skills)
+        return skills_mgr.read_skills(skills, sections=sections)
 
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -191,6 +201,13 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         Pass ``instance`` (alias from ``list_instances``, e.g. ``staadPro1``)
         to target a specific STAAD instance.  Omit it when only one instance
         is running — it will be selected automatically.
+
+        The response always includes ``result_type`` (one of ``"null"``,
+        ``"bool"``, ``"scalar"``, ``"string"``, ``"list"``, ``"dict"``) and
+        ``result_count`` (the true pre-truncation item count for list/dict
+        results, ``null`` otherwise).  Large list results are truncated to
+        the first 200 items in ``result``; ``result_count`` is the only
+        authoritative total — do not recount from ``result`` itself.
         """
         try:
             target = _resolve_target(instance)
@@ -251,7 +268,11 @@ def create_mcp_server(fastmcp_kwargs: dict | None = None) -> FastMCP:
             "instructions. Use `list_instances` to see running STAAD instances, "
             "`execute_code` to run code against a live STAAD.Pro model, and "
             "`get_status` to check connection. "
-            "When a `warning` field appears in any tool response, report it to the user."
+            "When a `warning` field appears in any tool response, report it to the user. "
+            "When `execute_code` returns a list result, `result_count` is the "
+            "authoritative item count — it reflects the true pre-truncation total. "
+            "Do not recount from `result`; report exactly `result_count` items and "
+            "note when results were truncated (i.e. when len(result) < result_count)."
         ),
         lifespan=mcp_lifespan,
         **fastmcp_kwargs,
