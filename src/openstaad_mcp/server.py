@@ -24,6 +24,12 @@ from fastmcp.server.lifespan import lifespan
 from mcp.types import ToolAnnotations
 
 from openstaad_mcp.connection import InstanceRegistry, StaadInstance, connect_and_run
+from openstaad_mcp.domain_tools import (
+    fetch_design_summary,
+    fetch_member_forces,
+    fetch_model_summary,
+    fetch_support_reactions,
+)
 from openstaad_mcp.sandbox.executor import Executor
 from openstaad_mcp.skills import SkillsManager
 from openstaad_mcp.version import check_version_warning
@@ -179,6 +185,150 @@ def _register_tools(mcp: FastMCP, registry: InstanceRegistry, exc: Executor, ski
         except Exception as e:
             return {"connected": False, "error": str(e)}
 
+    # ── Domain reporting tools ────────────────────────────────────────
+    # These replace the 3-turn discover→read_skills→execute_code sequence
+    # for common structural queries with a single named tool call.
+    # All four are read-only and follow the same response envelope as
+    # execute_code: a human-readable header + capped detail array +
+    # pre-cap result_count.
+
+    def _run_domain(fn: Any, target: StaadInstance) -> dict[str, Any]:
+        """Shared error wrapper for domain tool COM calls."""
+        try:
+            result = connect_and_run(fn, target.file_path)
+        except TimeoutError:
+            return {"error": "Connection timed out"}
+        except Exception as e:
+            return {"error": str(e)}
+        if target.warning:
+            result["warning"] = target.warning
+        return result
+
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Get model summary",
+            readOnlyHint=True,
+            idempotentHint=False,
+            openWorldHint=False,
+        )
+    )
+    def get_model_summary(instance: str | None = None) -> dict[str, Any]:
+        """Return geometry counts, units, and file info for the open model.
+
+        Equivalent to calling execute_code with a discovery script, but
+        without requiring skill files to be loaded first.  Returns node,
+        beam, plate, and solid counts, the active unit system, and the
+        up-axis convention.
+        """
+        try:
+            target = _resolve_target(instance)
+        except ValueError as e:
+            return {"error": str(e)}
+        return _run_domain(fetch_model_summary, target)
+
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Get member end forces",
+            readOnlyHint=True,
+            idempotentHint=False,
+            openWorldHint=False,
+        )
+    )
+    def get_member_forces(
+        member_ids: list[int] | None = None,
+        load_cases: list[int] | None = None,
+        instance: str | None = None,
+    ) -> dict[str, Any]:
+        """Return end-forces for members across load cases.
+
+        Replaces the staad-results read_skills + execute_code pattern for
+        force extraction.  Results are returned in local coordinates with the
+        STAAD output unit system.
+
+        Response includes ``result_count`` (total member × load-case
+        combinations), ``showing`` (items in the ``forces`` array), and
+        ``truncated`` (true when the result was capped at 200 items).
+        ``result_count`` is the authoritative total — do not recount from
+        the ``forces`` array.
+
+        Parameters
+        ----------
+        member_ids:
+            Beam IDs to query.  Omit to query all beams in the model.
+        load_cases:
+            Primary load case numbers.  Omit to query all load cases.
+        """
+        try:
+            target = _resolve_target(instance)
+        except ValueError as e:
+            return {"error": str(e)}
+        return _run_domain(
+            lambda staad: fetch_member_forces(staad, member_ids, load_cases),
+            target,
+        )
+
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Get support reactions",
+            readOnlyHint=True,
+            idempotentHint=False,
+            openWorldHint=False,
+        )
+    )
+    def get_support_reactions(
+        node_ids: list[int] | None = None,
+        load_cases: list[int] | None = None,
+        instance: str | None = None,
+    ) -> dict[str, Any]:
+        """Return support reactions for supported nodes across load cases.
+
+        Replaces the staad-results read_skills + execute_code pattern for
+        reaction queries.  Automatically discovers all supported nodes when
+        ``node_ids`` is omitted.
+
+        Response includes ``result_count``, ``showing``, and ``truncated``
+        with the same semantics as get_member_forces.
+
+        Parameters
+        ----------
+        node_ids:
+            Node IDs to query.  Omit to query all support nodes.
+        load_cases:
+            Primary load case numbers.  Omit to query all load cases.
+        """
+        try:
+            target = _resolve_target(instance)
+        except ValueError as e:
+            return {"error": str(e)}
+        return _run_domain(
+            lambda staad: fetch_support_reactions(staad, node_ids, load_cases),
+            target,
+        )
+
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Get steel design summary",
+            readOnlyHint=True,
+            idempotentHint=False,
+            openWorldHint=False,
+        )
+    )
+    def get_design_summary(instance: str | None = None) -> dict[str, Any]:
+        """Return steel design pass/fail results for all designed members.
+
+        The compliance assertion fields ``all_pass``, ``fail_count``, and
+        ``failed_members`` are authoritative — do not recompute from the
+        sample arrays.  Failing members are **never** truncated; passing
+        members may be truncated when there are more than 200 total.
+
+        ``pass_count`` and ``fail_count`` always reflect the true totals.
+        """
+        try:
+            target = _resolve_target(instance)
+        except ValueError as e:
+            return {"error": str(e)}
+        return _run_domain(fetch_design_summary, target)
+
     @mcp.tool(
         annotations=ToolAnnotations(
             title="Execute Python code",
@@ -268,11 +418,19 @@ def create_mcp_server(fastmcp_kwargs: dict | None = None) -> FastMCP:
             "instructions. Use `list_instances` to see running STAAD instances, "
             "`execute_code` to run code against a live STAAD.Pro model, and "
             "`get_status` to check connection. "
+            "For common structural queries, prefer the named domain tools over "
+            "execute_code — they require no skill loading and return structured results: "
+            "`get_model_summary` (geometry counts, units), "
+            "`get_member_forces` (end-forces across load cases), "
+            "`get_support_reactions` (reactions at support nodes), "
+            "`get_design_summary` (steel design pass/fail compliance summary). "
             "When a `warning` field appears in any tool response, report it to the user. "
-            "When `execute_code` returns a list result, `result_count` is the "
-            "authoritative item count — it reflects the true pre-truncation total. "
-            "Do not recount from `result`; report exactly `result_count` items and "
-            "note when results were truncated (i.e. when len(result) < result_count)."
+            "In any tool response, `result_count` is the authoritative item count — it "
+            "reflects the true pre-truncation total. Do not recount from the detail array; "
+            "note when results were truncated (i.e. when `truncated` is true or "
+            "len(detail) < result_count). "
+            "For get_design_summary: `all_pass`, `fail_count`, and `failed_members` are "
+            "the compliance assertion — report them as-is without recomputing."
         ),
         lifespan=mcp_lifespan,
         **fastmcp_kwargs,
