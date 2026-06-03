@@ -9,6 +9,7 @@ Pydantic models for file I/O return-value validation.
 
 from __future__ import annotations
 
+import unicodedata
 from typing import Annotated, Any
 
 from pydantic import BaseModel, RootModel, field_validator, model_validator
@@ -27,8 +28,47 @@ from openstaad_mcp.file_io.const import (
 
 CellValue = str | int | float | bool | None
 
+# Characters that, when leading a spreadsheet cell, cause the value to be
+# interpreted as a formula (CSV/XLSX injection).
+_FORMULA_PREFIXES = ("=", "+", "-", "@")
 
-def check_cell(v: Any) -> CellValue:
+# Line separators that would split a single cell into multiple logical CSV
+# rows. A later segment could itself begin with a formula prefix, so any cell
+# containing one of these is rejected outright.
+_LINE_SEPARATORS = frozenset("\n\r\x0b\x0c\u2028\u2029\u0085")
+
+
+def _check_formula_injection(v: str) -> None:
+    """Reject strings that could be interpreted as a spreadsheet formula.
+
+    Defends against three bypasses of a naive ``v.strip()[0] in (...)`` check:
+
+    1. Fullwidth / lookalike Unicode (e.g. U+FF1D fullwidth equals) that
+       NFKC-normalises to a formula character. We normalise first, then inspect.
+    2. Zero-width / format characters (Unicode category ``Cf``) that survive
+       ``str.strip()`` and hide the real leading formula character.
+    3. Embedded newlines that split the cell into extra CSV rows.
+    """
+
+    normalized = unicodedata.normalize("NFKC", v)
+
+    if any(ch in _LINE_SEPARATORS for ch in normalized):
+        raise ValueError("Cell values cannot contain line separators to prevent CSV row splitting")
+
+    # Drop leading whitespace and zero-width/format characters so the first
+    # *visible* character is the one that gets checked.
+    idx = 0
+    for ch in normalized:
+        if ch.isspace() or unicodedata.category(ch) == "Cf":
+            idx += 1
+        else:
+            break
+
+    if normalized[idx : idx + 1] in _FORMULA_PREFIXES:
+        raise ValueError("Cell values cannot start with '=', '+', '-', or '@' to prevent formula injection")
+
+
+def check_cell(v: Any, reject_formula: bool = True) -> CellValue:
     """Validate a single cell value: must be a JSON primitive with bounded string length."""
 
     if isinstance(v, (bool, int, float)):
@@ -36,6 +76,8 @@ def check_cell(v: Any) -> CellValue:
     if isinstance(v, str):
         if len(v) > MAX_CELL_SIZE:
             raise ValueError(f"String too long: {len(v)}; limit {MAX_CELL_SIZE}")
+        if reject_formula:
+            _check_formula_injection(v)
         return v
     if v is None:
         return v

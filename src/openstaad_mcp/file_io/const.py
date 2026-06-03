@@ -17,7 +17,7 @@ MAX_INPUT_SHEETS = 50
 # Row / column / sheet caps for output (return value → file).
 MAX_OUTPUT_ROWS = 100_000
 MAX_OUTPUT_COLUMNS = 500
-MAX_OUTPUT_SHEETS = 20
+MAX_OUTPUT_SHEETS = 50
 
 # Excel's own limit on sheet-tab names.
 MAX_SHEET_NAME_LENGTH = 31

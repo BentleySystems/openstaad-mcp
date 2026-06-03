@@ -156,7 +156,7 @@ class CSVReader(BaseReader):
                         )
                     for cell in coerced:
                         try:
-                            check_cell(cell)
+                            check_cell(cell, reject_formula=False)  # CSV reader doesn't need formula-injection checks
                         except ValueError as exc:
                             raise FileIOError("INVALID_CELL", f"Invalid cell value: {exc}") from exc
                     all_rows.append(coerced)
@@ -329,7 +329,7 @@ class XLSXReader(BaseReader):
             converted = [_to_json_primitive(c) for c in row]
             for cell in converted:
                 try:
-                    check_cell(cell)
+                    check_cell(cell, reject_formula=False)  # XLSX reader doesn't need formula-injection checks
                 except ValueError as exc:
                     raise FileIOError("INVALID_CELL", f"Invalid cell value: {exc}") from exc
             all_rows.append(converted)
