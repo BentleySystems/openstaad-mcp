@@ -105,3 +105,17 @@ async def get_input_data(input_path: str | None, allowed_dirs: list[Path]) -> tu
     resolved_input = validate_io_path(input_path, allowed_dirs, mode="read")
     data, input_summary = read_input_file(resolved_input)
     return deep_freeze(data), input_summary
+
+
+async def detect_input_output_collision(
+    input_path: str | None, output_path: str | None, allowed_dirs: list[Path]
+) -> None:
+    """Detect if input and output paths resolve to the same file, which would cause a collision."""
+    if input_path is None or output_path is None:
+        return
+    resolved_input = validate_io_path(input_path, allowed_dirs, mode="read")
+    resolved_output = validate_io_path(output_path, allowed_dirs, mode="write")
+    if resolved_input == resolved_output:
+        raise FileIOError(
+            "INPUT_OUTPUT_COLLISION", "Input and output paths resolve to the same file, which is not allowed"
+        )

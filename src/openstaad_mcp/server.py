@@ -26,7 +26,12 @@ from fastmcp.server.lifespan import lifespan
 from mcp.types import ToolAnnotations
 
 from openstaad_mcp.connection import InstanceRegistry, StaadInstance, connect_and_run
-from openstaad_mcp.file_io import get_allowed_dirs, get_input_data, write_output_file
+from openstaad_mcp.file_io.helpers import (
+    detect_input_output_collision,
+    get_allowed_dirs,
+    get_input_data,
+    write_output_file,
+)
 from openstaad_mcp.file_io.path_validator import FileIOError
 from openstaad_mcp.sandbox.executor import Executor
 from openstaad_mcp.skills import SkillsManager
@@ -254,6 +259,7 @@ def _register_tools(
 
         # ── Input file handling (server-side, outside sandbox) ───────
         try:
+            await detect_input_output_collision(input_data_path, output_data_path, allowed_dirs)
             input_data, _ = await get_input_data(input_data_path, allowed_dirs)
         except FileIOError as e:
             return {
