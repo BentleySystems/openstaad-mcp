@@ -9,10 +9,13 @@ description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python san
 
 ### Sandbox
 
-- Pre-injected names (do NOT import): `staad`, `json`, `math`
-- `import` statements are **BLOCKED** — only use pre-injected names
+- Pre-injected names (do NOT import): `staad`, `input_data`, `json`, `math`
+- `import` statements, `dir()`, `getattr()`, ... are **BLOCKED** — use skills for discovery, only use pre-injected names in code
 - `staad` is already connected and ready — do NOT call any initialization function
+- `input_data` is injected if `input_data_path` is provided in `execute_code` params — use it to feed large datasets into the sandbox without hardcoding
 - Sub-modules: `geo = staad.Geometry`, `prop = staad.Property`, `sup = staad.Support`, `load = staad.Load`, `cmd = staad.Command`, `out = staad.Output`, `design = staad.Design`
+- If `output_data_path` is provided, write the `result` variable to that file path instead of returning it in the context (use for large/tabular data). The `execute_code` return value will contain a summary of the `result` content instead (e.g. number of rows, columns and a sample of rows).
+- Both `input_data_path` and `output_data_path` must be on the user LOCAL filesystem and inside MCP roots or configured `allowed_dirs`. On Claude Desktop, users can configure allowed directories in the extension settings and Claude can use the filesystem `copy_file_to_claude` tool to move files to Claude's filesystem.
 
 ### Discovery
 
@@ -120,7 +123,10 @@ staad.CloseSTAADFile()
 
 ## Gotchas
 
-- `import` is blocked — only `staad`, `json`, `math` are available
+- `import`, `dir()`, `getattr()`, ... are blocked — only `staad`, `input_data`, `json`, `math` are available
+- If `input_data_path` is provided, `input_data` is injected as an immutable variable — use it to feed large datasets into the sandbox without hardcoding
+- If `output_data_path` is provided, write the `result` variable to that file path instead of returning it in the context (use for large/tabular data). The `execute_code` return value will contain a summary of the `result` content instead (e.g. number of rows, columns and a sample of rows).
+- Both `input_data_path` and `output_data_path` must be on the user LOCAL filesystem and inside MCP roots or configured `allowed_dirs`. On Claude Desktop, users can configure allowed directories in the extension settings and Claude can use the filesystem `copy_file_to_claude` tool to move files to Claude's filesystem.
 - Use `staad.GetSTAADFile()` to get the current model path after a file switch
 - Always wrap `UpdateStructure`/`AnalyzeModel`/`AnalyzeEx`/`SaveModel` inside `SetSilentMode(True/False)`
 - **Never** call `SaveModel` without explicit user instruction

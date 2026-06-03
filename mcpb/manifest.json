@@ -12,12 +12,28 @@
     "documentation": "https://github.com/BentleySystems/openstaad-mcp",
     "support": "https://www.bentley.com/support/",
     "icon": "assets/icon.png",
+    "user_config": {
+        "allowed_directories": {
+            "type": "directory",
+            "title": "Allowed Directories",
+            "description": "Select directories the openSTAAD server can access",
+            "multiple": true,
+            "required": true,
+            "default": [
+                "${HOME}/Desktop",
+                "${HOME}/Documents"
+            ]
+        }
+    },
     "server": {
         "type": "binary",
         "entry_point": "openstaad-mcp.exe",
         "mcp_config": {
             "command": "${__dirname}/openstaad-mcp.exe",
-            "args": []
+            "args": [
+                "--allowed-dirs",
+                "${user_config.allowed_directories}"
+            ]
         }
     },
     "tools": [
@@ -31,11 +47,11 @@
         },
         {
             "name": "list_instances",
-            "description": "List currently active STAAD instances. Returns instance IDs, model paths, and STAAD versions. Use instance IDs to target specific models in other tools."
+            "description": "List currently active STAAD instances."
         },
         {
             "name": "execute_code",
-            "description": "Execute Python code against the OpenSTAAD API. The sandbox provides a pre-connected 'staad' variable (the OpenSTAAD root object) plus ``json`` and ``math`` modules. Imports and filesystem access are blocked for security. The last expression value or an explicit ``result = ...`` assignment is returned as the result."
+            "description": "Execute Python code against the OpenSTAAD API in a sandboxed environment."
         },
         {
             "name": "get_status",

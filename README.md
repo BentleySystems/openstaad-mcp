@@ -186,6 +186,23 @@ The server supports two transport modes:
 | `execute_code` | Runs validated Python code against the connected STAAD.Pro model |
 | `get_status` | Returns connection state, STAAD version, model path, analysis status |
 
+### File I/O
+
+The `execute_code` tool supports optional **server-side file I/O** for bulk data workflows.
+Instead of passing large datasets through the agent's context window, the server reads/writes
+CSV and XLSX files directly and injects the data into the sandbox as the `input_data` variable.
+
+| Parameter | Description |
+|-----------|-------------|
+| `input_path` | Path to a `.csv` or `.xlsx` file. The server reads and parses it, then injects the data as the immutable `input_data` variable in the sandbox. |
+| `output_path` | Path where the sandbox return value will be written. The return value must be a list-of-lists (CSV) or a `{sheet_name: {columns, rows}}` dict (multi-sheet XLSX). |
+| `overwrite` | Allow overwriting an existing output file (default `false`). |
+
+**Path containment:** File paths must resolve inside a configured allowed boundary before any read/write occurs.
+The server supports both **client-configured MCP roots** and **server-configured allowed directories** (via `--allowed-dirs` or `user_config.allowed_directories` in the manifest).
+The server validates paths against these boundaries before any file access.
+
+**Limits:** Max file size 50 MB, max 100K rows, max 500 columns, max 50 input sheets.
 
 ## Security Notes
 

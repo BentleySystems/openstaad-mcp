@@ -1,4 +1,9 @@
 """
+---------------------------------------------------------------------------------------------
+Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+See LICENSE.md in the project root for license terms and full copyright notice.
+---------------------------------------------------------------------------------------------
+
 COM object proxy for the sandbox.
 
 Wraps pywin32 CDispatch objects to block access to internal attributes
