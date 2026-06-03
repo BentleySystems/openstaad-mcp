@@ -118,10 +118,10 @@ class TestValidateReturnValue:
     @pytest.mark.parametrize(
         "cell",
         [
-            "＝SUM(A1)",  # U+FF1D FULLWIDTH EQUALS SIGN — NFKC-normalises to '='
-            "＋1+2",  # U+FF0B FULLWIDTH PLUS SIGN
-            "－1+2",  # U+FF0D FULLWIDTH HYPHEN-MINUS
-            "＠SUM(1)",  # U+FF20 FULLWIDTH COMMERCIAL AT
+            "＝SUM(A1)",  # U+FF1D FULLWIDTH EQUALS SIGN — NFKC-normalises to '='  # noqa: RUF001
+            "＋1+2",  # U+FF0B FULLWIDTH PLUS SIGN  # noqa: RUF001
+            "－1+2",  # U+FF0D FULLWIDTH HYPHEN-MINUS  # noqa: RUF001
+            "＠SUM(1)",  # U+FF20 FULLWIDTH COMMERCIAL AT  # noqa: RUF001
         ],
     )
     def test_bypass_fullwidth_unicode_lookalikes(self, cell: str):

@@ -237,7 +237,7 @@ class TestXLSXRead:
         """XLSX cell exceeding MAX_CELL_SIZE is rejected on read."""
 
         # openpyxl truncates strings to 32767 chars, so lower the limit
-        def check_cell_override(cell):
+        def check_cell_override(cell, reject_formula: bool = True) -> None:
             if isinstance(cell, str) and len(cell) > 100:
                 raise ValueError("Cell too large")
 
