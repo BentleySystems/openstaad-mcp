@@ -129,3 +129,4 @@ See [run-analysis.py](./scripts/run-analysis.py) for a complete working example.
 - Wrap `AnalyzeModel`/`AnalyzeEx` in `SetSilentMode(True/False)` to prevent blocking dialogs
 - For design workflows always use `AnalyzeEx(1, 0, 1)` — never `AnalyzeModel`
 - `AnalyzeEx` runs both analysis AND design; `AnalyzeModel` runs analysis only
+- **Compression-only springs/supports (elastic mat, plate mat with `springType=1`) are incompatible with P-Delta, Nonlinear, Buckling, and Cable analysis** — the engine uses member/spring deactivation iterations that cannot coexist with geometric nonlinearity or those other solver loops. The engine will throw an error. Use plain `PerformAnalysis` + `AnalyzeEx` for models with compression-only supports.
