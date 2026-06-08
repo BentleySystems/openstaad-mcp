@@ -51,13 +51,18 @@ Spring support distributed over tributary area.
 See **[SUPPORT_CODES.md — Direction Codes](./assets/SUPPORT_CODES.md)** for `direction` values and **[SUPPORT_CODES.md — Spring Types](./assets/SUPPORT_CODES.md)** for `springType`.
 
 ```python
+# Typical case: springs in Y direction (STAAD adds X/Z fixity for stability)
 mat_id = sup.CreateElasticMat(
-    direction=5,     # Y Only — compression only in Y
+    direction=1,     # 1=Y Direction (use for most foundations)
     subgrade=20.0,   # kN/m^3 or equivalent
     printFlag=0,
-    springType=1     # 1=Compression only
+    springType=0     # 0=Normal (bi-directional); 1=Compression only
 )
 sup.AssignSupportToEntityList(mat_id, [41, 42, 43])
+
+# Y Only (direction=4): springs act ONLY in Y — use only when the model already
+# has other supports (e.g. pinned/fixed nodes) providing X and Z restraint.
+# Without those, the structure will be unstable in X/Z.
 ```
 
 ### Plate Mat Support
@@ -89,7 +94,7 @@ foot_id = sup.CreateElasticFooting(length, width, direction, subgrade)
 | --------------------------------- | ------------------------------------------------- |
 | `GetSupportCount()`               | total supports                                    |
 | `GetSupportNodes()`               | list of supported node IDs                        |
-| `GetSupportType(nodeNo)`          | support type code                                 |
+| `GetSupportType(nodeNo)`          | support type code (see SUPPORT_CODES.md)          |
 | `GetSupportInformation(nodeNo)`   | `(type, releases, springs)`                       |
 | `GetSupportInformationEx(nodeNo)` | `(supportNo, type, releases, springs)`            |
 | `GetSupportName(supportNo)`       | support name                                      |
@@ -114,3 +119,4 @@ See [assign-fixed-supports.py](./scripts/assign-fixed-supports.py) for a complet
 - `AssignSupportToNode` takes a SINGLE node ID — it does NOT accept a list; iterate with a loop
 - When nodes were added in-memory in the same script, call `SaveModel(True)` before assigning supports — do NOT use `UpdateStructure()` (it discards unsaved geometry)
 - For `CreateSupportFixedBut`: use `-1` for spring DOFs (not `1`); `1` = released, `0` = fixed, `-1` = spring
+- **Compression-only supports (`springType=1`) are only compatible with plain linear static analysis** — using them with P-Delta, Nonlinear, Buckling, or Cable analysis causes an engine error. The engine uses spring deactivation iterations that cannot coexist with those solver modes.

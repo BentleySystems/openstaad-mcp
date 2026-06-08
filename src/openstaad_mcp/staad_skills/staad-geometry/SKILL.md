@@ -13,17 +13,20 @@ description: 'Use when creating, querying, modifying, or selecting structure geo
 - `geo.AddNode(x, y, z)` → node ID (coordinates in base unit)
 - `geo.AddBeam(startNode, endNode)` → beam ID
 - `geo.AddPlate(n1, n2, n3, n4)` → plate ID — pass **4 separate int args**, NOT a list
+  - **Triangle:** the API always takes 4 args; pass `0` as a sentinel for the missing 4th node → `geo.AddPlate(n1, n2, n3, 0)`
 - `geo.AddSolid(n1, n2, n3, n4, n5, n6, n7, n8)` → solid ID
 
 ### Bulk Creation (more efficient than loops)
 - `geo.AddMultipleNodes([[x,y,z], ...])` → list of node IDs
 - `geo.AddMultipleBeams([[start,end], ...])` → list of beam IDs
 - `geo.AddMultiplePlates([[n1,n2,n3,n4], ...])` → list of plate IDs
+  - **Triangle rows:** each row must have exactly 4 ints; use `0` as the sentinel 4th element → `[n1, n2, n3, 0]`
 
 ### Explicit ID Creation
 - `geo.CreateNode(nodeNo, x, y, z)` — creates node with a specific ID
 - `geo.CreateBeam(beamNo, startNode, endNode)` — beam with specific ID
-- `geo.CreatePlate(plateNo, nA, nB, nC, nD)` — plate with specific ID (nD=0 for triangle)
+- `geo.CreatePlate(plateNo, nA, nB, nC, nD)` — plate with specific ID
+  - **Triangle:** pass `0` for `nD` (the sentinel for a missing 4th node) → `geo.CreatePlate(id, nA, nB, nC, 0)`
 - `geo.CreateSolid(solidNo, nA, nB, nC, nD, nE, nF, nG, nH)` — solid with specific ID
 
 ### Shared Element ID Sequence
@@ -128,9 +131,11 @@ pm_count = geo.GetPhysicalMemberCount()
 ## Examples
 - [portal-frame.py](./scripts/portal-frame.py) — create a simple portal frame with supports
 - [add-beam.py](./scripts/add-beam.py) — add a single beam between two new nodes
+- [add-plate.py](./scripts/add-plate.py) — create quad and triangular plates (shows the `0` triangle convention)
 - [select-members.py](./scripts/select-members.py) — select single and multiple beams
 
 ## Gotchas
+- **Triangle plates use `0` as a sentinel:** all plate functions always take exactly 4 node arguments; `0` tells STAAD the slot is empty (i.e., this is a 3-node element). See [add-plate.py](./scripts/add-plate.py) for a full example.
 - `AddPlate` takes 4 separate int arguments, NOT a list — `geo.AddPlate(n1, n2, n3, n4)` not `geo.AddPlate([n1,n2,n3,n4])`
 - After adding geometry in the same script, call `staad.SetSilentMode(True)` → `staad.SaveModel(True)` → `staad.SetSilentMode(False)` before assigning properties, supports, or loads — do NOT use `UpdateStructure()` (it discards unsaved in-memory geometry)
 - Always use `geo` (OSGeometry) for selections — do NOT use `OSView.SelectByItemList`

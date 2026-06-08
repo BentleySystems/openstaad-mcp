@@ -22,15 +22,37 @@
 
 Used in `CreateElasticMat()`, `CreatePlateMat()`, `GetElasticMatDetail()`.
 
-| Value | Direction                                |
-| ----- | ---------------------------------------- |
-| 0     | X Direction                              |
-| 1     | Y Direction                              |
-| 2     | Z Direction                              |
-| 3     | X Only Direction (compression only in X) |
-| 4     | Y Only Direction (compression only in Y) |
-| 5     | Z Only Direction (compression only in Z) |
-| 6     | All Directions (plate mat only)          |
+| Value | Direction                                                                              |
+| ----- | -------------------------------------------------------------------------------------- |
+| 0     | X Direction                                                                            |
+| 1     | Y Direction *(typical for soil springs — use for most foundations)*                   |
+| 2     | Z Direction                                                                            |
+| 3     | X Only — springs act in X only; model needs other supports for Y/Z stability           |
+| 4     | Y Only — springs act in Y only; model needs other supports for X/Z stability           |
+| 5     | Z Only — springs act in Z only; model needs other supports for X/Y stability           |
+| 6     | All Directions (plate mat only)                                                        |
+
+## GetSupportType Return Codes
+
+Returned by `GetSupportType(nodeNo)` and embedded in `GetSupportInformation` / `GetSupportInformationEx`.
+
+| Value | Type                              |
+| ----- | --------------------------------- |
+| 0     | No support                        |
+| 1     | Pinned                            |
+| 2     | Fixed                             |
+| 3     | Fixed with releases (FixedBut)    |
+| 4     | Enforced displacement             |
+| 5     | Enforced with releases            |
+| 6     | Inclined support                  |
+| 7     | Elastic footing                   |
+| 8     | Elastic mat                       |
+| 9     | Plate mat                         |
+| 10    | Multi-linear spring               |
+| 11    | Generated pinned                  |
+| 12    | Generated fixed                   |
+| 13    | Generated fixed with releases     |
+| -1    | Error                             |
 
 ## Spring Types
 
