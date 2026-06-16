@@ -1,6 +1,6 @@
 ﻿---
 name: staad-results
-description: 'Use when fetching analysis output: member end forces, bending moments, shear forces, axial forces, node displacements, support reactions, plate center/corner stresses, solid stresses, modal frequencies, buckling factors, time-history responses, steel design ratios. Covers: AreResultsAvailable (always check first), GetPrimaryLoadCaseNumbers (returns tuple — wrap in list()), GetMemberEndForces, GetMinMaxBendingMoment (dir is string not int), GetMinMaxShearForce, GetMinMaxAxialForce, GetNodeDisplacements, GetSupportReactions, GetAllPlateCenterStressesAndMoments, GetAllSolidNormalStresses, GetNoOfModesExtracted, GetModeFrequency, GetBucklingFactor, GetTimeHistoryResponse, GetMemberSteelDesignResults, GetAnalysisErrorMessages / GetAnalysisWarningMessages (STAAD.Pro v26+), output units. Requires staad-core and staad-analysis.'
+description: 'Use when fetching analysis output: member end forces, bending moments, shear forces, axial forces, node displacements, support reactions, plate center/corner stresses, solid stresses, modal frequencies, buckling factors, time-history responses, steel design ratios. Covers: AreResultsAvailable (always check first), GetPrimaryLoadCaseNumbers (returns tuple — wrap in list()), GetMemberEndForces, GetMinMaxBendingMoment (dir is string not int), GetMinMaxShearForce, GetMinMaxAxialForce, GetNodeDisplacements, GetSupportReactions, GetAllPlateCenterStressesAndMoments, GetAllSolidNormalStresses, GetNoOfModesExtracted, GetModeFrequency, GetBucklingFactor, GetTimeHistoryResponse, GetMemberSteelDesignResults, output units. Requires staad-core and staad-analysis.'
 ---
 
 # STAAD.Pro Analysis Results
@@ -29,16 +29,10 @@ out.GetOutputUnitForRotation()
 The `GetOutputUnitFor*` methods raise on error (e.g. if the model has no output
 units established yet) — `execute_code` reports any such error.
 
-### Analysis Messages *(Requires STAAD.Pro v26+)*
+### Analysis Messages
 
-Retrieve the solver's error/warning text after a run. These COM functions exist
-only on **STAAD.Pro v26+** — confirm the connected instance's version from
-`list_instances` / `get_status` before calling (see staad-core → Version
-Compatibility). On older STAAD they raise an "update STAAD.Pro" error.
-```python
-errors = out.GetAnalysisErrorMessages()      # solver error messages
-warnings = out.GetAnalysisWarningMessages()  # solver warning messages
-```
+For the solver's error/warning text after a run (`GetAnalysisErrorMessages` /
+`GetAnalysisWarningMessages`), see the staad-analysis skill.
 
 ### Node Results
 

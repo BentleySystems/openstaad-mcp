@@ -33,10 +33,11 @@ only on **STAAD.Pro v26+** — confirm the connected instance's version from
 `list_instances` / `get_status` before calling (see staad-core → Version
 Compatibility). On older STAAD they raise an "update STAAD.Pro" error.
 
+These methods live on the root `staad` object.
+
 ```python
-out = staad.Output
-errors = out.GetAnalysisErrorMessages()     # solver error messages
-warnings = out.GetAnalysisWarningMessages()  # solver warning messages
+errors = staad.GetAnalysisErrorMessages()     # solver error messages
+warnings = staad.GetAnalysisWarningMessages()  # solver warning messages
 ```
 
 `GetAnalysisStatus()` raises an exception when the run returned an error
