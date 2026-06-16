@@ -1,6 +1,6 @@
 ﻿---
 name: staad-analysis
-description: 'Use when running structural analysis, solving the model, or executing the STAAD.Pro solver. Covers: PerformAnalysis (adds PERFORM ANALYSIS command — call once only), AnalyzeModel (linear static solver — requires SaveModel first), AnalyzeEx (analysis + design in one call — use for design workflows), P-Delta analysis (PerformPDeltaAnalysisEx), buckling analysis (PerformBucklingAnalysis/Ex), cable analysis, direct analysis (AISC), nonlinear analysis (PerformNonlinearAnalysisEx), print options, DeleteAllAnalysisCommands, CreateSteelDesignCommand. Two steps required for static analysis. Requires staad-core.'
+description: 'Use when running structural analysis, solving the model, or executing the STAAD.Pro solver. Covers: PerformAnalysis (adds PERFORM ANALYSIS command — call once only), AnalyzeModel (linear static solver — requires SaveModel first), AnalyzeEx (analysis + design in one call — use for design workflows), GetAnalysisErrorMessages / GetAnalysisWarningMessages (STAAD.Pro v26+), GetAnalysisStatus, P-Delta analysis (PerformPDeltaAnalysisEx), buckling analysis (PerformBucklingAnalysis/Ex), cable analysis, direct analysis (AISC), nonlinear analysis (PerformNonlinearAnalysisEx), print options, DeleteAllAnalysisCommands, CreateSteelDesignCommand. Two steps required for static analysis. Requires staad-core.'
 ---
 
 # STAAD.Pro Analysis
@@ -25,6 +25,22 @@ status = staad.AnalyzeEx(1, 0, 1)  # silent, visible, waitTillComplete
 staad.SetSilentMode(False)
 # status: 2=OK, 3=warnings, 4=errors, -1=terminated
 ```
+
+### Analysis Messages *(Requires STAAD.Pro v26+)*
+
+After a run, retrieve the solver's error/warning text. These COM functions exist
+only on **STAAD.Pro v26+** — confirm the connected instance's version from
+`list_instances` / `get_status` before calling (see staad-core → Version
+Compatibility). On older STAAD they raise an "update STAAD.Pro" error.
+
+```python
+out = staad.Output
+errors = out.GetAnalysisErrorMessages()     # solver error messages
+warnings = out.GetAnalysisWarningMessages()  # solver warning messages
+```
+
+`GetAnalysisStatus()` raises an exception when the run returned an error
+(negative) status code — wrap it in `try/except`.
 
 ### Print Options
 

@@ -32,6 +32,34 @@ Never guess or invent function names — only use names from the skill documenta
 - Call `get_status(instance)` to verify a specific instance is reachable
 - Pass `instance` (alias like `staadPro1`) to `execute_code` when multiple instances are running
 
+### Version Compatibility
+
+The MCP is built against a single bundled **openstaadpy** wrapper, identical for
+every connected instance — so the wrapper is **never** something to gate on. What
+*does* vary is the **STAAD.Pro version** of each running instance. Two consequences:
+
+- **Wrapper behavior is uniform.** Several `Assign*` methods return `bool` and
+  **raise on failure** instead of returning a negative `int` code (see
+  staad-steel-design, staad-properties, staad-supports). Use `try/except`; do not
+  check `if result < 0` for those methods.
+- **Some COM functions require STAAD.Pro v26+** (e.g. `GetAnalysisErrorMessages`,
+  `GetAnalysisWarningMessages`). On an older connected STAAD they do not exist and
+  raise a clear "update STAAD.Pro" error.
+
+**Gate STAAD-v26-only functions using the version you already have** — do NOT add a
+check inside the script:
+
+1. Call `list_instances` → each row includes a `version` field; or
+   `get_status(instance)` → returns `staad_version`. This is the **STAAD.Pro**
+   version, not the wrapper version.
+2. If the instance is **STAAD.Pro v26+**, compose the `execute_code` call using the
+   v26-only function.
+3. If it is **older**, use the legacy path or tell the user the feature needs
+   STAAD.Pro v26.
+
+Functions marked *(Requires STAAD.Pro v26+)* in the skills need a connected STAAD of
+that version or newer.
+
 ### Units & Axis
 
 - Before any modeling operation, query units via `execute_code`:

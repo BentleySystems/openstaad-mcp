@@ -27,8 +27,11 @@ brief_ref = design.CreateDesignBrief(1067)  # AISC 360-16
 
 **Step 2 — Assign design commands to members**
 ```python
-result = design.AssignDesignCommand(brief_ref, 'CHECK CODE', '', beam_list)
-# Returns 0 on success — always print and check
+try:
+    design.AssignDesignCommand(brief_ref, 'CHECK CODE', '', beam_list)
+except Exception as e:
+    print(f"AssignDesignCommand failed: {e}")
+# Returns True on success and raises on failure — wrap in try/except
 ```
 
 | Command | Description |
@@ -72,7 +75,11 @@ min_r = out.GetMemberSteelDesignMinFailureRatio()
 ### Design Parameters
 Assign parameters before running analysis:
 ```python
-design.AssignDesignParameter(brief_ref, paramName, paramValue, member_ids)
+try:
+    design.AssignDesignParameter(brief_ref, paramName, paramValue, member_ids)
+except Exception as e:
+    print(f"AssignDesignParameter failed: {e}")
+# Returns True on success and raises on failure
 ```
 
 | Parameter | Description | Example |
@@ -93,7 +100,11 @@ design.AssignDesignParameter(brief_ref, paramName, paramValue, member_ids)
 ### Design Groups
 Group members to use the same section during optimization:
 ```python
-design.AssignDesignGroup(brief_ref, 'scSteelGroup', 'ColumnGroup', sameAsMember=1, member_ids=[1,2,3])
+try:
+    design.AssignDesignGroup(brief_ref, 'scSteelGroup', 'ColumnGroup', sameAsMember=1, member_ids=[1,2,3])
+except Exception as e:
+    print(f"AssignDesignGroup failed: {e}")
+# Returns True on success and raises on failure
 ```
 
 ### Querying Design Parameters
@@ -117,7 +128,9 @@ See [aisc360-design.py](./scripts/aisc360-design.py) for a complete working exam
 ## Gotchas
 - Use `AnalyzeEx(1, 0, 1)` not AnalyzeModel — only `AnalyzeEx` triggers design
 - `GetSteelDesignParameterBlockCount()` returns `0` until `AnalyzeEx` completes
-- `AssignDesignCommand` returns non-zero on failure — always check the return value
+- `AssignDesignCommand`, `AssignDesignParameter`, and `AssignDesignGroup` return `True` on success and **raise on failure** — wrap them in `try/except` (do NOT check for a non-zero return code)
+- `CreateDesignBrief` validates the design code and raises on an invalid code
+- `GetMemberDesignParameters` validates its arguments and raises on error
 - `GetMemberSteelDesignResults` raises an error for members not assigned `CHECK CODE`
 - Design section in results may differ from table section if the optimizer re-selected
 - Parameter values are passed as **strings** to `AssignDesignParameter`
