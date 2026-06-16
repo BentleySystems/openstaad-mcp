@@ -40,7 +40,8 @@ warnings = out.GetAnalysisWarningMessages()  # solver warning messages
 ```
 
 `GetAnalysisStatus()` raises an exception when the run returned an error
-(negative) status code — wrap it in `try/except`.
+(negative) status code — `execute_code` reports it; no `try/except` needed unless
+you want to continue after a failure.
 
 ### Print Options
 

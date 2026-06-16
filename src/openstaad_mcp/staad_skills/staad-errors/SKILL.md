@@ -1,9 +1,19 @@
 ﻿---
 name: staad-errors
-description: 'Use when handling errors from OpenSTAAD operations, interpreting negative return codes, or writing robust error-handling patterns. Covers: common error code groups (general, file, node, beam, plate, solid, property, group, load, results), try/except patterns for COM exceptions, checking return values. NOTE: In the MCP sandbox import is blocked — catch generic Exception, not typed oserrors classes.'
+description: 'Use when handling errors from OpenSTAAD operations, interpreting negative return codes, or writing robust error-handling patterns. Covers: execute_code reports uncaught exceptions automatically (no try/except needed just to report), common error code groups (general, file, node, beam, plate, solid, property, group, load, results), when to use try/except for control flow (loop-skip, fallback), checking getter return values. NOTE: In the MCP sandbox import is blocked — catch generic Exception, not typed oserrors classes.'
 ---
 
 # STAAD.Pro Error Handling
+
+## Errors Are Reported Automatically
+`execute_code` wraps your whole script in a top-level handler: any uncaught
+exception is captured and returned as `success: false` with the (sanitized) error
+message plus whatever you printed before it. **You do NOT need `try/except` just to
+report a failure** — let it propagate and read the error from the tool result.
+
+Use `try/except` inside a script only when it changes **control flow**, e.g.:
+- skipping a bad item inside a bulk loop so the rest keep processing
+- providing a fallback value (e.g. version-gated features) and continuing
 
 ## Sandbox Limitation
 In the MCP sandbox, `import` is blocked. You cannot import typed exception classes from `openstaadpy.os_analytical.oserrors`. Instead, catch generic `Exception` and inspect the message or code.
@@ -15,17 +25,14 @@ typically tells you to **update STAAD.Pro to the latest version** — this usual
 means the *connected* STAAD instance is older than the function requires (see
 staad-core → Version Compatibility), not a coding mistake.
 
-## Checking Return Values
+## Return Contracts
 
-**Many methods raise on failure** — wrap calls in `try/except` rather than checking
-the return code. This applies to the `Assign*` methods and the support
-create/assign/query/delete methods, which now return `True` on success and raise on
+**Many methods raise on failure** — call them directly and let `execute_code`
+surface any error. This applies to the `Assign*` methods and the support
+create/assign/query/delete methods, which return `True` on success and raise on
 failure:
 ```python
-try:
-    prop.AssignBeamProperty(beam_ids, prop_id)   # returns True on success, raises on failure
-except Exception as e:
-    print(f"Assignment failed: {e}")
+prop.AssignBeamProperty(beam_ids, prop_id)   # True on success; raises on failure
 ```
 
 Some **query/getter** methods still return negative integers on error instead of
@@ -37,6 +44,7 @@ if isinstance(shape, int) and shape < 0:
 ```
 
 ## Robust Model Building Pattern
+Catch per-item inside a loop so one bad entity doesn't abort the whole batch:
 ```python
 geo = staad.Geometry
 
@@ -89,14 +97,14 @@ sandbox, catch generic `Exception` and read the message:
 
 ## Tips
 - Always check `out.AreResultsAvailable()` before querying results
-- Wrap `AssignDesignCommand` in `try/except` — it raises on failure
-- Wrap `AnalyzeEx` / `AnalyzeModel` calls in try/except — analysis can fail
+- Let failures propagate — `execute_code` returns the error; only add `try/except` for loop-skip or fallback control flow
 - Print intermediate values (node IDs, beam IDs, property IDs) to diagnose failures
 - If a function returns -999, the operation was not performed (e.g., member not designed)
 
 ## Gotchas
 - In standalone Python, you can `from openstaadpy.os_analytical.oserrors import OsBeamNotFound` — but NOT in the MCP sandbox
+- `execute_code` already catches uncaught exceptions — do NOT wrap a single call in `try/except` just to `print` the error
 - Some methods silently return 0 even when something went wrong (e.g., `UpdateStructure` on read-only paths)
-- The `Assign*` methods (`AssignBeamProperty`, `AssignDesignCommand`, `AssignDesignParameter`, `AssignDesignGroup`) and support create/assign/query/delete methods **raise on failure** and return `True` on success — do NOT check `if result < 0` for these; use `try/except`
+- The `Assign*` methods (`AssignBeamProperty`, `AssignDesignCommand`, `AssignDesignParameter`, `AssignDesignGroup`) and support create/assign/query/delete methods **raise on failure** and return `True` on success — do NOT check `if result < 0` for these
 - Negative return codes still apply to many **getter** methods — always check `if result < 0` for those
 - A "update STAAD.Pro" error usually means the connected instance is older than the called function requires (see staad-core → Version Compatibility)

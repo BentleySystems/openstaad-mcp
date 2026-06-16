@@ -26,8 +26,8 @@ out.GetOutputUnitForStress()        # e.g. "KSI"
 out.GetOutputUnitForDimension()
 out.GetOutputUnitForRotation()
 ```
-The `GetOutputUnitFor*` methods raise on error — wrap them in `try/except` if the
-model may not yet have output units established.
+The `GetOutputUnitFor*` methods raise on error (e.g. if the model has no output
+units established yet) — `execute_code` reports any such error.
 
 ### Analysis Messages *(Requires STAAD.Pro v26+)*
 

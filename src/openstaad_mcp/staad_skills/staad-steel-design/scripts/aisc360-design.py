@@ -24,11 +24,8 @@ brief_ref = design.CreateDesignBrief(1067)
 print(f'Design brief ref: {brief_ref}')
 
 # Step 2: Assign CHECK CODE to all members — returns True on success, raises on failure
-try:
-    design.AssignDesignCommand(brief_ref, 'CHECK CODE', '', beam_list)
-    print('AssignDesignCommand: OK')
-except Exception as e:
-    print(f'AssignDesignCommand failed: {e}')
+design.AssignDesignCommand(brief_ref, 'CHECK CODE', '', beam_list)
+print('AssignDesignCommand: OK')
 
 # Step 3: Save to persist design commands
 staad.SaveModel(True)
