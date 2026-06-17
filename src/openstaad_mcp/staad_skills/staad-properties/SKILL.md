@@ -13,7 +13,7 @@ description: "Use when assigning section profiles to beams, plate thickness, mat
 
 ```python
 prop_id = prop.CreateBeamPropertyFromTable(countryCode, sectionName, typeSpec, v1, v2)
-prop.AssignBeamProperty(beam_ids, prop_id)
+prop.AssignBeamProperty(beam_ids, prop_id)   # returns True on success, raises on failure
 ```
 
 **Country codes** (full table in the Reference section — PROPERTY_CODES.md):
@@ -158,6 +158,7 @@ inact_id = prop.CreateMemberInactiveSpec()
 ## Gotchas
 
 - `CreatePlateThicknessProperty` takes a **list of 4 floats**, one value per corner — not a single scalar
+- `AssignBeamProperty` returns `True` on success and **raises on failure** — call it directly; do NOT check `if result < 0` (`execute_code` reports any uncaught error)
 - Always retrieve actual IDs via `GetBeamList()` / `GetPlateList()` before assigning — never assume IDs start at 1
 - `GetMemberDesignSectionName(bid)` raises an error when results are unavailable — use `GetSectionPropertyName` for pre-analysis lookup
 - Built-in material names: `"STEEL"`, `"CONCRETE"`, `"ALUMINUM"` — case-sensitive

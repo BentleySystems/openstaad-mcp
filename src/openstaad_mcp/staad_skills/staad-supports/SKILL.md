@@ -117,6 +117,7 @@ See [assign-fixed-supports.py](./scripts/assign-fixed-supports.py) for a complet
 ## Gotchas
 
 - `AssignSupportToNode` takes a SINGLE node ID — it does NOT accept a list; iterate with a loop
+- Support methods (`CreateSupportFixed`, `CreateSupportPinned`, `CreateSupportFixedBut`, `AssignSupportToNode`, `GetSupportNodes`, `GetSupportType`, `GetSupportInformation`, `DeleteSupport`) **raise on failure** instead of returning a negative code — call them directly; `execute_code` reports any uncaught error
 - When nodes were added in-memory in the same script, call `SaveModel(True)` before assigning supports — do NOT use `UpdateStructure()` (it discards unsaved geometry)
 - For `CreateSupportFixedBut`: use `-1` for spring DOFs (not `1`); `1` = released, `0` = fixed, `-1` = spring
 - **Compression-only supports (`springType=1`) are only compatible with plain linear static analysis** — using them with P-Delta, Nonlinear, Buckling, or Cable analysis causes an engine error. The engine uses spring deactivation iterations that cannot coexist with those solver modes.
