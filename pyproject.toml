@@ -22,7 +22,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
-    "fastmcp>=3.2.3,<4",
+    "fastmcp[tasks]>=3.2.3,<4",
     "packaging>=24",
     "starlette>=1.0.0,<2.0.0",
     "pydantic>=2,<3",

@@ -96,8 +96,30 @@ def setup_logging(log_level: str) -> None:
         handlers=[
             logging.StreamHandler(sys.stderr),
         ],
+        force=True,
     )
     logging.info(f"Logging initialized at {log_level} level")
+    _quiet_fastmcp_to_client_logger()
+
+
+def _quiet_fastmcp_to_client_logger() -> None:
+    """Silence FastMCP's internal "Sending <level> to client" trace logger.
+
+    FastMCP already delivers ``ctx.log()`` messages to clients out-of-band via
+    ``session.send_log_message`` — the ``to_client`` logger call in
+    ``fastmcp.server.context`` is a redundant internal trace, not the actual
+    delivery mechanism. Left at its default level, it duplicates every
+    progress message onto FastMCP's own Rich console handler, which resolves
+    ``sys.stderr`` dynamically on each write (``rich.console.Console(stderr=True)``).
+    Because ``execute_code`` temporarily reassigns the process-global
+    ``sys.stderr`` while sandboxed user code runs on a worker thread, a
+    same-time log call from the event-loop thread (e.g. triggered by
+    ``progress()``) can have its output captured into that request's sandboxed
+    ``stderr`` buffer instead of the real console — leaking internal SDK
+    chatter into the tool result and inflating it for long-running loops.
+    Raising this logger's level to WARNING removes the trace entirely.
+    """
+    logging.getLogger("fastmcp.server.context.to_client").setLevel(logging.WARNING)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -109,6 +131,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.transport == "stdio":
         # Run FastMCP server in the main thread, the COM thread will be started by the lifespan.
         mcp = create_mcp_server(allowed_dirs)
+        _quiet_fastmcp_to_client_logger()  # re-apply: create_mcp_server may reconfigure fastmcp's logger
         try:
             mcp.run(transport="stdio", show_banner=False)
         except KeyboardInterrupt:
@@ -129,6 +152,7 @@ def main(argv: list[str] | None = None) -> None:
             )
         }
         mcp = create_mcp_server(allowed_dirs, fastmcp_kwargs=fastmcp_kwargs)
+        _quiet_fastmcp_to_client_logger()  # re-apply: create_mcp_server may reconfigure fastmcp's logger
         try:
             mcp.run(
                 transport="http",

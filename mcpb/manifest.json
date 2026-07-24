@@ -51,11 +51,15 @@
         },
         {
             "name": "execute_code",
-            "description": "Execute Python code against the OpenSTAAD API in a sandboxed environment."
+            "description": "Execute Python code against the OpenSTAAD API in a sandboxed environment. Supports a progress callback and long-running/background execution."
         },
         {
             "name": "get_status",
-            "description": "Check the connection to STAAD.Pro. Returns connection state, STAAD version, model path, and analysis status."
+            "description": "Check the connection to STAAD.Pro. Returns connection state, STAAD version, model path, analysis status, and whether the executor is busy."
+        },
+        {
+            "name": "get_job_result",
+            "description": "Wait for a background `execute_code` job (started with `mode='poll'`) and return its progress or final result."
         }
     ],
     "tools_generated": false,

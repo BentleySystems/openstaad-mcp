@@ -11,7 +11,7 @@ STAAD skills content.
 import os
 from pathlib import Path
 
-from PyInstaller.utils.hooks import copy_metadata
+from PyInstaller.utils.hooks import collect_all, copy_metadata
 
 block_cipher = None
 
@@ -30,11 +30,16 @@ if skills_dir.exists():
 # Include distribution metadata so frozen builds can resolve it.
 package_metadata = copy_metadata("fastmcp")
 
+# fastmcp bundles `docket`, whose memory client backend dynamically imports
+# `burner_redis` (a native extension) via importlib at lifespan startup.
+# PyInstaller's static analysis misses this, so collect it explicitly.
+burner_datas, burner_binaries, burner_hiddenimports = collect_all("burner_redis")
+
 a = Analysis(
     [str(ROOT / "src" / "openstaad_mcp" / "main.py")],
     pathex=[str(ROOT / "src")],
-    binaries=[],
-    datas=skills_data + package_metadata,
+    binaries=burner_binaries,
+    datas=skills_data + package_metadata + burner_datas,
     hiddenimports=[
         "openstaad_mcp",
         "openstaad_mcp.server",
@@ -45,7 +50,8 @@ a = Analysis(
         "openstaadpy.os_analytical",
         "uvicorn",
         "fastmcp",
-    ],
+    ]
+    + burner_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
