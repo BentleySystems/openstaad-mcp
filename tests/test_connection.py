@@ -139,7 +139,7 @@ class TestInstanceSelection:
 
         with (
             _mock_get_active_instances(single),
-            patch("openstaad_mcp.server.connect_and_run", return_value=expected) as mock_run,
+            patch("openstaad_mcp.execution.connect_and_run", return_value=expected) as mock_run,
         ):
             mcp = create_mcp_server(allowed_dirs=[])
             asyncio.run(mcp.call_tool("execute_code", {"code": "result = 42"}))

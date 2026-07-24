@@ -7,10 +7,12 @@ See LICENSE.md in the project root for license terms and full copyright notice.
 MCP server definition — tools, lifespan, and ASGI app factory.
 
 Exposes MCP tools:
-- ``discover_api``  — lists available skills and usage guidance
-- ``read_skills``   — returns requested skill content
-- ``execute_code``  — runs validated Python against the COM bridge
-- ``get_status``    — reports connection health
+- ``discover_api``   — lists available skills and usage guidance
+- ``read_skills``    — returns requested skill content
+- ``list_instances`` — lists running STAAD.Pro instances
+- ``get_status``     — reports connection health
+- ``execute_code``   — runs validated Python against the COM bridge (native MCP task, poll fallback, or auto-detect)
+- ``get_job_result`` — returns the status/result of a background execution job
 """
 
 from __future__ import annotations
@@ -23,16 +25,11 @@ from typing import Any
 from fastmcp import FastMCP
 from fastmcp.server.context import Context
 from fastmcp.server.lifespan import lifespan
+from fastmcp.utilities.tasks import TaskConfig
 from mcp.types import ToolAnnotations
 
-from openstaad_mcp.connection import InstanceRegistry, StaadInstance, connect_and_run
-from openstaad_mcp.file_io.helpers import (
-    detect_input_output_collision,
-    get_allowed_dirs,
-    get_input_data,
-    write_output_file,
-)
-from openstaad_mcp.file_io.path_validator import FileIOError
+from openstaad_mcp.connection import InstanceRegistry, connect_and_run
+from openstaad_mcp.execution import ExecutionMode, ExecutionService
 from openstaad_mcp.sandbox.executor import Executor
 from openstaad_mcp.skills import SkillsManager
 from openstaad_mcp.version import check_version_warning
@@ -50,27 +47,9 @@ def _register_tools(
     skills_mgr: SkillsManager,
     args_allowed_dirs: list[Path],
 ) -> None:
-    """Register MCP tools on *mcp*, closing over the *InstanceRegistry*."""
+    """Register MCP tools on *mcp*, delegating execution to an :class:`ExecutionService`."""
 
-    def _resolve_target(instance: str | None) -> StaadInstance:
-        """Return the target StaadInstance or raise ValueError."""
-        instances = registry.get_active_instances()
-        if not instances:
-            raise ValueError("No STAAD.Pro instances found")
-        if instance is None:
-            if len(instances) > 1:
-                aliases = [i.alias for i in instances]
-                raise ValueError(f"Multiple instances running — specify one: {aliases}")
-            return instances[0]
-        pid = registry.resolve(instance)
-        if pid is None:
-            alive = [i.alias for i in instances]
-            raise ValueError(f"{instance!r} is unknown. Available: {alive}")
-        matches = [i for i in instances if i.pid == pid]
-        if not matches:
-            alive = [i.alias for i in instances]
-            raise ValueError(f"{instance!r} is no longer running. Available: {alive}")
-        return matches[0]
+    service = ExecutionService(registry, exc, args_allowed_dirs)
 
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -152,12 +131,13 @@ def _register_tools(
         Pass ``instance`` (alias from ``list_instances``) to target a
         specific instance.  Omit it when only one instance is running.
 
-        Returns connection state, STAAD version, and model path.
+        Returns connection state, STAAD version, model path, and whether the
+        executor is currently busy (``executor_busy``).
         """
         try:
-            target = _resolve_target(instance)
+            target = service.resolve_target(instance)
         except ValueError as e:
-            return {"connected": False, "error": str(e)}
+            return {"connected": False, "executor_busy": service.executor_busy, "error": str(e)}
 
         def _read_status(staad: Any) -> dict[str, Any]:
             version = staad.GetApplicationVersion()
@@ -175,6 +155,7 @@ def _register_tools(
                 "model_path": model_path,
                 "alias": target.alias,
                 "analyzing": analyzing,
+                "executor_busy": service.executor_busy,
             }
             warning = check_version_warning(version)
             if warning:
@@ -184,9 +165,9 @@ def _register_tools(
         try:
             return connect_and_run(_read_status, target.file_path, timeout=10.0)
         except TimeoutError:
-            return {"connected": False, "error": "Connection timed out"}
+            return {"connected": False, "executor_busy": service.executor_busy, "error": "Connection timed out"}
         except Exception as e:
-            return {"connected": False, "error": str(e)}
+            return {"connected": False, "executor_busy": service.executor_busy, "error": str(e)}
 
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -195,7 +176,8 @@ def _register_tools(
             destructiveHint=True,
             idempotentHint=False,  # Different result for repeated calls
             openWorldHint=False,  # Only internal data
-        )
+        ),
+        task=TaskConfig(mode="optional"),
     )
     async def execute_code(
         ctx: Context,
@@ -204,11 +186,16 @@ def _register_tools(
         input_data_path: str | None = None,
         output_data_path: str | None = None,
         overwrite: bool = False,
+        mode: ExecutionMode = "auto",
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         """Execute Python code in a sandbox against the OpenSTAAD API (don't forget to call discover_api and read_skills for API guidance).
 
         The sandbox provides pre-connected ``staad`` (the OpenSTAAD root object) and ``input_data`` (if input_data_path is provided) variables (plus ``json``
-        and ``math`` modules). `import` statements, `dir()`, `getattr()`, ... are **BLOCKED**.
+        and ``math`` modules) and a ``progress(message)`` callback. `import` statements, `dir()`, `getattr()`, ... are **BLOCKED**.
+
+        Call ``progress(f"Processing {i}/{total}")`` inside long loops or before a long single operation
+        (analysis, design) so the user sees real-time feedback.
 
         The last expression value or an explicit ``result = ...`` assignment is returned as the result.
         If ``output_data_path`` is provided, the sandbox will write the result to the specified file.
@@ -216,6 +203,20 @@ def _register_tools(
         Paths must be on the user LOCAL filesystem and inside MCP roots or configured `allowed_dirs`.
         On Claude Desktop, users can configure allowed directories in the extension settings and Claude can use the filesystem ``copy_file_to_claude``
         tool to move files to Claude's filesystem.
+
+        Long-running work: by default (``mode="auto"``) the server detects whether the client will
+        surface progress natively (via a progress token or native MCP background task) and falls back
+        to ``"poll"`` automatically when it cannot.  Pass ``mode="poll"`` explicitly to always use the
+        AI-polling path: the server returns a ``job_id`` immediately and you poll ``get_job_result(job_id)``
+        (writing its ``message`` to the user each time).  Pass ``mode="native"`` to always trust the
+        client's MCP progress notifications.
+
+        IMPORTANT — when a ``job_id`` is returned: your very next tool call MUST be
+        ``get_job_result``.  Do NOT write any text to the user before the first poll — every
+        second of delay is progress the user cannot see.  Write the ``message`` field to the
+        user *after* each ``get_job_result`` response, then call it again immediately.
+        Stop after 5 consecutive ``"running"`` responses: tell the user the job is still in
+        progress (include the ``job_id``) and wait for them to ask for an update.
 
         Parameters
         ----------
@@ -241,80 +242,47 @@ def _register_tools(
                 }
         overwrite: bool, optional
             Allow overwriting an existing output file.
+        mode: {"auto", "native", "poll"}, optional
+            ``"auto"`` (default) detects whether the client will surface progress natively and
+            falls back to ``"poll"`` when it cannot.  ``"native"`` trusts the client's MCP progress
+            notifications (``notifications/progress``).  ``"poll"`` always returns a ``job_id``
+            immediately so you can poll ``get_job_result`` and relay progress in your text responses.
+        timeout: float, optional
+            Max seconds to wait for the call to complete (default: 120). The COM operation
+            cannot be safely interrupted, so on timeout the call returns an error but the work
+            continues running in the background (the executor stays busy, reported via
+            ``get_status``'s ``executor_busy``, until it finishes on its own).
         """
-        try:
-            target = _resolve_target(instance)
-        except ValueError as e:
-            return {
-                "success": False,
-                "result": None,
-                "stdout": "",
-                "stderr": "",
-                "error": str(e),
-                "duration_seconds": 0.0,
-            }
+        return await service.execute(
+            ctx=ctx,
+            code=code,
+            instance=instance,
+            input_data_path=input_data_path,
+            output_data_path=output_data_path,
+            overwrite=overwrite,
+            mode=mode,
+            timeout=timeout,
+        )
 
-        # ── Resolve allowed dirs for path validation ──
-        allowed_dirs = await get_allowed_dirs(ctx, args_allowed_dirs, input_data_path, output_data_path)
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Get background job result — ALWAYS show message to user",
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=False,  # Job state can change between calls
+            openWorldHint=False,
+        )
+    )
+    async def get_job_result(job_id: str) -> dict[str, Any]:
+        """Wait (server-paced) for a background ``execute_code`` job and return its status or result.
 
-        # ── Input file handling (server-side, outside sandbox) ───────
-        try:
-            await detect_input_output_collision(input_data_path, output_data_path, allowed_dirs)
-            input_data, _ = await get_input_data(input_data_path, allowed_dirs)
-        except FileIOError as e:
-            return {
-                "success": False,
-                "result": None,
-                "stdout": "",
-                "stderr": "",
-                "error": f"{e.code}: {e.message}",
-                "duration_seconds": 0.0,
-            }
-
-        # ── Execute code in sandbox ──────────────────────────────────
-        def _run(staad: Any) -> dict[str, Any]:
-            return exc.execute(code, staad, input_data=input_data).to_dict()
-
-        try:
-            result = connect_and_run(_run, target.file_path)
-        except TimeoutError:
-            return {
-                "success": False,
-                "result": None,
-                "stdout": "",
-                "stderr": "",
-                "error": "Code execution timed out",
-                "duration_seconds": 0.0,
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "result": None,
-                "stdout": "",
-                "stderr": "",
-                "error": str(e),
-                "duration_seconds": 0.0,
-            }
-
-        # ── Output file handling (server-side, outside sandbox) ──────
-        if output_data_path is not None and result.get("success"):
-            try:
-                result["result"] = write_output_file(
-                    output_data_path, result["result"], allowed_dirs, overwrite=overwrite
-                )
-            except FileIOError as e:
-                return {
-                    "success": False,
-                    "result": None,
-                    "stdout": result.get("stdout", ""),
-                    "stderr": result.get("stderr", ""),
-                    "error": f"{e.code}: {e.message}",
-                    "duration_seconds": result.get("duration_seconds", 0.0),
-                }
-
-        if target.warning:
-            result["warning"] = target.warning
-        return result
+        The server sleeps internally before responding — call this again immediately after each
+        response regardless of status.  Write the ``message`` field to the user after each call;
+        that is the only way they see progress.  Stop when ``status`` is ``"completed"``,
+        ``"failed"`` (full result payload included; job is then removed from the store), or
+        ``"delivered"`` (the terminal result was already returned on an earlier poll).
+        """
+        return await service.get_job_result(job_id)
 
 
 def create_mcp_server(allowed_dirs: list[Path], fastmcp_kwargs: dict | None = None) -> FastMCP:
@@ -336,6 +304,8 @@ def create_mcp_server(allowed_dirs: list[Path], fastmcp_kwargs: dict | None = No
             "instructions. Use `list_instances` to see running STAAD instances, "
             "`execute_code` to run code against a live STAAD.Pro model, and "
             "`get_status` to check connection. "
+            "When `execute_code` returns a `job_id`, follow the `next_action` field exactly: "
+            "call `get_job_result` immediately — no text output before the first poll. "
             "When a `warning` field appears in any tool response, report it to the user."
         ),
         lifespan=mcp_lifespan,

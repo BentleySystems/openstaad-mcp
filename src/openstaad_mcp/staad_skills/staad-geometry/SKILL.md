@@ -133,6 +133,7 @@ pm_count = geo.GetPhysicalMemberCount()
 - [add-beam.py](./scripts/add-beam.py) — add a single beam between two new nodes
 - [add-plate.py](./scripts/add-plate.py) — create quad and triangular plates (shows the `0` triangle convention)
 - [select-members.py](./scripts/select-members.py) — select single and multiple beams
+- [plate-max-area.py](./scripts/plate-max-area.py) — find the largest plate in a 100k+ plate model (shows `progress()` + coordinate pre-fetch for heavy loops)
 
 ## Gotchas
 - **Triangle plates use `0` as a sentinel:** all plate functions always take exactly 4 node arguments; `0` tells STAAD the slot is empty (i.e., this is a 3-node element). See [add-plate.py](./scripts/add-plate.py) for a full example.
