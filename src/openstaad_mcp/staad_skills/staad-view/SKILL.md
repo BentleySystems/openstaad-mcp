@@ -1,6 +1,6 @@
 ﻿---
 name: staad-view
-description: "Use when controlling the STAAD.Pro user interface: camera views, show/hide elements, labels, result diagrams, annotations, screenshots, export to image, window management, saved views, display scales, or switching between modeling and post-processing modes. Covers: SetInterfaceMode, ShowIsometric, ShowPlan, ShowFront, ZoomExtentsMainView, ZoomAll, ShowMember, HideMember, ShowAllMembers, SetLabel (node/beam numbers), SetDiagramMode (displacement/moment/shear diagrams), SetDesignResults (utilization ratios), CopyPicture (clipboard), ExportView (save view as PNG/JPG/BMP/EMF/WMF — path-validated), SelectMembersParallelTo, SetSectionView (clipping plane), SaveView, SetWindowPosition. Requires staad-core."
+description: "Use when controlling the STAAD.Pro user interface: camera views, show/hide elements, labels, result diagrams, annotations, screenshots, export to image, window management, saved views, display scales, or switching between modeling and post-processing modes. Covers: SetInterfaceMode, GetInterfaceMode, ShowIsometric, ShowPlan, ShowFront, ZoomExtentsMainView, ZoomAll, ShowMember, HideMember, HideEntity, HideSurface, ShowAllMembers, SetLabel (node/beam numbers), SetDiagramMode (displacement/moment/shear diagrams), SetDesignResults (utilization ratios), CopyPicture (clipboard), ExportView (save view as PNG/JPG/BMP/EMF/WMF — path-validated), SelectMembersParallelTo, SetSectionView (clipping plane), SaveView, DetachView, CreateNewViewForSelectionsEx, GetScaleCount, GetScaleValueByType, SetWindowPosition. Requires staad-core."
 ---
 
 # STAAD.Pro View Control
@@ -53,6 +53,11 @@ view.HidePlate(plateNo)
 view.HideSolid(solidNo)
 view.ShowMembers(NMembers, NaMemberNos)
 view.HideMembers(NMembers, NaMemberNos)
+view.HideEntity(entityNo)     # hides any entity type (Beam/Plate/Solid/Surface) by number, no type argument needed
+view.HideSurface(surfaceNo)
+
+count = view.GetNoOfBeamsInView()
+# GetBeamsInView(beamList) does NOT populate beamList (verified live) — it only returns the count, same as GetNoOfBeamsInView(). Use geo.GetBeamList() to get actual beam IDs.
 ```
 
 ## Selection (View-Based)
@@ -60,11 +65,18 @@ view.HideMembers(NMembers, NaMemberNos)
 ```python
 view.SelectMembersParallelTo("Y")               # all vertical members
 view.SelectGroup("ALL")                          # by group name
-view.SelectInverse(entityType)                   # 0=node, 1=beam, 2=plate, 3=solid
-view.SelectByItemList(entityType, nItems, itemList)
-view.SelectEntitiesConnectedToNode(entityType, nodeNo)
+view.SelectInverse(entityType)                   # 1=Node, 2=Beam, 3=Plate, 4=Solid, 5=Surface
+view.SelectByItemList(entityType, nItems, itemList)  # same codes as SelectInverse
+view.SelectEntitiesConnectedToNode(entityType, nodeNo)      # 0=Geometry, 1=Beam, 2=Plate, 3=Solid (different codes, no Node option)
+view.SelectEntitiesConnectedToMember(entityType, memberNo)  # same codes as ConnectedToNode
+view.SelectEntitiesConnectedToPlate(entityType, plateNo)    # same codes as ConnectedToNode
+view.SelectEntitiesConnectedToSolid(entityType, solidNo)    # same codes as ConnectedToNode
 view.SelectByMissingAttribute(attributeCode)     # e.g. 4=missing supports
 ```
+
+**Two different `entityType` conventions exist** — don't assume one table applies to all `Select*` functions:
+- `SelectInverse`/`SelectByItemList`: `1=Node, 2=Beam, 3=Plate, 4=Solid, 5=Surface`
+- `SelectEntitiesConnectedTo*`: `0=Geometry, 1=Beam, 2=Plate, 3=Solid` (no dedicated Node code)
 
 ## Labels
 
@@ -165,8 +177,11 @@ view.SetWindowPosition(xTop, yTop, xWindow, yWindow)
 count = view.GetWindowCount()
 title = view.GetWindowTitle(id)   # IDs from 1
 view.SetActiveWindow(id)
-view.CreateNewViewForSelections()
+view.CreateNewViewForSelectionsEx(windowOptions)  # windowOptions: 0=new window, 1=active window (preferred — CreateNewViewForSelections() also available, always opens a new window)
 view.CloseActiveWindow()
+
+mode = view.GetInterfaceMode()   # 0=modeling, 1=post-processing, 2=STAAD.etc interop, 4=Piping, 5=BEAVA
+view.SetInterfaceMode(interfaceMode)
 ```
 
 ## Saved Views
@@ -175,6 +190,7 @@ view.CloseActiveWindow()
 view.SaveView("MyView", overWrite=True)
 view.OpenView("MyView", windowOptions=True)  # True=current window
 view.RenameView("NewName")
+view.DetachView()   # removes the active (open, non-"Whole Structure") view from the saved-views collection; returns 1=OK, 0=failed
 ```
 
 ## Diagram Scales
@@ -185,6 +201,8 @@ See **[VIEW_CODES.md — Scale Type IDs](./assets/VIEW_CODES.md)** for the full 
 scales = view.GetScaleValues()
 view.SetScaleValues(scales)
 view.SetScaleValueByType(scaleTypeId, value)
+count = view.GetScaleCount()
+value = view.GetScaleValueByType(scaleTypeId)   # single-value counterpart to GetScaleValues, in base units
 # After changing scale, toggle diagram off/on to force redraw:
 view.SetDiagramMode(diagramId, False, True)
 view.SetScaleValueByType(scaleTypeId, value)
@@ -207,6 +225,27 @@ view.SetUnits(uType, strUnit)   # e.g. SetUnits(5, "kN")
 ## Gotchas
 
 - Switch to post-processing mode (`SetInterfaceMode(5)`) before showing result diagrams; always call `staad.ShowApplication()` first
-- Do not try to read back the interface mode after setting it — the value is unreliable; trust that `SetInterfaceMode` applies correctly
+- Do not try to read back the interface mode after setting it — the value is unreliable; trust that `SetInterfaceMode` applies correctly. `GetInterfaceMode()` on its own (not right after a `SetInterfaceMode` call) is reliable — verified live, correctly returned `0` on a freshly opened model in modeling mode
+- `GetBeamsInView(beamList)` does **not** populate the passed list — verified live, the list is unchanged after the call and the return value is just the count (identical to `GetNoOfBeamsInView()`). Use `geo.GetBeamList()` for actual beam IDs.
 - Selection via `view.SelectByItemList` should be avoided for geometry — use `geo.SelectMultipleBeams` instead
+- **`geo.ClearMemberSelection()` doesn't clear the whole selection.** It raises `OsNoBeamSelected` if the selection is already empty, and otherwise only undoes the IDs from the *immediately preceding* `SelectBeam`/`SelectMultipleBeams` call ("undo last select", not "clear all") — beams selected via `staad.View` functions can survive it too. To reliably empty the selection from any state:
+  ```python
+  def reset_member_selection():
+      current = list(geo.GetSelectedBeams())
+      if current:
+          geo.SelectMultipleBeams(current)  # make it the "last select" target
+      try:
+          geo.ClearMemberSelection()
+      except Exception:
+          pass  # was already empty
+  ```
+- Prefer `geo.Select*` over `view.Select*` when both cover the same case (e.g. `geo.IsColumn`/`geo.IsBeam` for axis-aligned member selection instead of `view.SelectMembersParallelTo`) — but `view.Select*` functions with no `geo` equivalent (`SelectGroup`, `SelectInverse`, `SelectByMissingAttribute`, `SelectEntitiesConnectedToNode`, etc.) are fine to use directly:
+  ```python
+  # geo equivalent of view.SelectMembersParallelTo("Y") for a Y-up model
+  all_beams = list(geo.GetBeamList())
+  vertical_ids = [b for b in all_beams if geo.IsColumn(b, 5.0)]   # tol in degrees
+  geo.SelectMultipleBeams(vertical_ids)
+  # geo.IsBeam(bid, tol) is the horizontal equivalent; neither covers arbitrary
+  # non-cardinal axes, which only view.SelectMembersParallelTo supports
+  ```
 - `ExportView(directory, filename, ...)` takes a **directory** and **filename** as separate arguments; the combined path must be absolute, end with a supported image extension (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.emf`, `.wmf`), and not target a protected OS directory; UNC paths and `..` traversal are rejected

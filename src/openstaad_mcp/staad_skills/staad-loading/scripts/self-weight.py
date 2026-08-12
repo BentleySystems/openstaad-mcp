@@ -6,7 +6,7 @@
 load = staad.Load
 
 # Create load case and activate it before adding items
-lc = load.CreateNewPrimaryLoad('Self Weight')
+lc = load.CreateNewPrimaryLoadEx('Self Weight', 0)  # loadType 0 = Dead
 load.SetLoadActive(lc)          # mandatory — must call before adding items
 
 # AddSelfWeightInXYZ(direction, factor)

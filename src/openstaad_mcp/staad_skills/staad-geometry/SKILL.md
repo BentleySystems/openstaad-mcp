@@ -1,6 +1,6 @@
 ﻿---
 name: staad-geometry
-description: 'Use when creating, querying, modifying, or selecting structure geometry: nodes, beams, plates, solids, groups. Covers: AddNode, AddBeam, AddPlate (4 int args not a list), AddSolid, AddMultipleNodes/Beams/Plates, CreateNode/CreateBeam with explicit IDs, shared element ID sequence (beams+plates+solids share one counter — never assume IDs start at 1), GetBeamList, GetNodeList, GetPlateList, GetNodeCoordinates, GetMemberIncidence, SelectBeam, SelectMultipleBeams, ClearMemberSelection, groups (CreateGroupEx, UpdateGroup), SplitBeam, MergeBeams, IntersectBeams, DeleteBeam/Node/Plate, translational repeat, parametric surfaces, physical members. Requires staad-core.'
+description: 'Use when creating, querying, modifying, or selecting structure geometry: nodes, beams, plates, solids, groups. Covers: AddNode, AddBeam, AddPlate (4 int args not a list), AddSolid, AddMultipleNodes/Beams/Plates, CreateNode/CreateBeam with explicit IDs, shared element ID sequence (beams+plates+solids share one counter — never assume IDs start at 1), GetBeamList, GetNodeList, GetPlateList, GetNodeCoordinates, GetMemberIncidence, SelectBeam, SelectMultipleBeams, ClearMemberSelection, groups (CreateGroupEx, UpdateGroup), SplitBeam, MergeBeams, IntersectBeams, GetIntersectBeamsCount, BreakBeamsAtSpecificNodes, GetCountOfBreakableBeamsAtSpecificNodes, SetPID, GetPID, SetFlagForHiddenEntities, GetFlagForHiddenEntities, SetCheckForIdenticalEntity, DeleteBeam/Node/Plate, translational repeat, parametric surfaces, physical members, unique IDs. Requires staad-core.'
 ---
 
 # STAAD.Pro Geometry Modeling
@@ -21,6 +21,15 @@ description: 'Use when creating, querying, modifying, or selecting structure geo
 - `geo.AddMultipleBeams([[start,end], ...])` → list of beam IDs
 - `geo.AddMultiplePlates([[n1,n2,n3,n4], ...])` → list of plate IDs
   - **Triangle rows:** each row must have exactly 4 ints; use `0` as the sentinel 4th element → `[n1, n2, n3, 0]`
+- `geo.AddMultipleSolids([[n1..n8], ...])` → list of solid IDs (rows of 6/7/8 nodes are auto-padded with `0`)
+
+### Explicit-ID Bulk Creation
+Same as the `Add*` bulk functions above but with caller-chosen IDs (thin Python-side loops around `CreateNode`/`CreateBeam`/`CreatePlate` — not raw COM batch calls):
+```python
+geo.CreateMultipleNodes(node_ids, [[x1,y1,z1], [x2,y2,z2], ...])   # node_ids and coordinate rows must be same length
+geo.CreateMultipleBeams(beam_ids, [[start1,end1], [start2,end2], ...])
+geo.CreateMultiplePlates(plate_ids, [[n1,n2,n3,n4], ...])          # triangle rows: 0 as 4th node
+```
 
 ### Explicit ID Creation
 - `geo.CreateNode(nodeNo, x, y, z)` — creates node with a specific ID
@@ -52,11 +61,21 @@ description: 'Use when creating, querying, modifying, or selecting structure geo
 | `GetNodeCoordinates(nid)` | `(x,y,z)` | |
 | `GetMemberIncidence(bid)` | `(start,end)` | start/end node IDs |
 | `GetPlateIncidence(pid)` | `(n1,n2,n3,n4)` | 0 if triangle |
+| `GetPlateNodeCount(pid)` | `int` | 3 or 4 |
 | `GetBeamLength(bid)` | `float` | in base units |
 | `GetNodeDistance(nA, nB)` | `float` | distance between two nodes |
 | `IsColumn(bid, tol)` | `bool` | True if near-vertical (tol in degrees) |
 | `IsBeam(bid, tol)` | `bool` | True if near-horizontal |
 | `IsOrphanNode(nid)` | `bool` | True if not connected |
+| `IsZUp()` | `bool` | True if model uses Z-up convention |
+| `GetNodeNumber(x_y_z_coordinates)` | `int` | look up node ID from a `(x,y,z)` tuple |
+| `GetLastPlateNo()` | `int` | highest plate ID |
+| `GetLastSolidNo()` | `int` | highest solid ID |
+| `GetSolidIncidence(sid)` | `(n1..n8)` | 8 corner node IDs |
+| `GetNodeIncidence(nid)` | `(x,y,z)` | same data as `GetNodeCoordinates` |
+| `GetAreaOfPlates(plateIds)` | `list[float]` | one area value per plate in the input list |
+| `GetBeamsConnectedAtNode(nid)` | `list[int]` | beam IDs connected at a node |
+| `GetNoOfBeamsConnectedAtNode(nid)` | `int` | count before calling the getter above |
 
 ### Modifying Elements
 - `geo.SetNodeCoordinate(nodeNo, x, y, z)` — move a node
@@ -64,10 +83,29 @@ description: 'Use when creating, querying, modifying, or selecting structure geo
 - `geo.MergeNodes(newId, nodeList)` — merge coincident nodes
 - `geo.SplitBeamInEqlParts(beamNo, nParts)` — split beam into equal segments
 - `geo.SplitBeam(beamNo, nodes, distToNodes)` — split at specific distances
+- `geo.GetIntersectBeamsCount(beamList, tolerance)` — count before calling `IntersectBeams` (empty `beamList` = all beams; tolerance in base units)
 - `geo.IntersectBeams(method, beamList, tolerance)` — split beams at intersections
+- `geo.GetCountOfBreakableBeamsAtSpecificNodes(nodeList)` — count before calling `BreakBeamsAtSpecificNodes`
+- `geo.BreakBeamsAtSpecificNodes(nodeList)` → `(brokenBeamIds, newBeamIds)` tuple — break beams passing through the given nodes, copying attributes to the new segments
 - `geo.MergeBeams(beamList, newId, propId, betaAngle, material)` — merge collinear beams
 - `geo.RenumberBeam(oldNo, newNo)` — renumber a beam
-- `geo.BreakBeamsAtSpecificNodes(nodeList)` — break beams at nodes
+
+### Property IDs (PID)
+A separate ID system from element numbers, shared across entity types via `EntityType` (1=Node, 2=Beam, 3=Plate, 4=Solid, 5=Surface — same convention as `view.SelectByItemList`):
+```python
+geo.SetPID(entityNo, entityType, propertyID)
+pid = geo.GetPID(entityNo, entityType)
+```
+
+### Hidden Entities & Performance Flags
+```python
+# Controls whether hidden nodes/plates are included in count/list queries
+geo.SetFlagForHiddenEntities(flag)   # 0=All (default), 1=Ignore hidden, 2=Only hidden
+flag = geo.GetFlagForHiddenEntities()
+
+# Disable identical-entity checking to speed up bulk Add*/Create* calls
+geo.SetCheckForIdenticalEntity(entityType, checkFlag)  # entityType: 1-5 as above
+```
 
 ### Selection
 Selections are additive — **always clear before starting a new selection**.
@@ -80,17 +118,20 @@ Selections are additive — **always clear before starting a new selection**.
 | Query | `GetSelectedBeams()` | `GetSelectedNodes()` | `GetSelectedPlates()` | `GetSelectedSolids()` |
 | Count | `GetNoOfSelectedBeams()` | `GetNoOfSelectedNodes()` | `GetNoOfSelectedPlates()` | `GetNoOfSelectedSolids()` |
 
-All select/clear functions return `0` on success.
+`Select*` returns `bool` (`True` = OK), `SelectMultiple*`/`Clear*` return `None` on success. Query functions return a `tuple` of IDs (empty `()` when nothing is selected).
+
+**`Clear*Selection()` doesn't clear the whole selection.** It raises (e.g. `OsNoBeamSelected`) if the selection is already empty, and otherwise only undoes the IDs from the *immediately preceding* `Select*`/`SelectMultiple*` call. See [select-members.py](./scripts/select-members.py) for a `reset_member_selection()` helper that empties it reliably from any state.
 
 ### Groups
 
 | Function | Description |
 |----------|-------------|
-| `CreateGroup(type, name)` | create empty group |
-| `CreateGroupEx(type, name, entityList)` | create with entities |
+| `CreateGroup(type, name)` | create an empty group |
+| `CreateGroupEx(type, name, entityList)` | create with entities — raises if `entityList` is empty (verified live); use `CreateGroup` for an empty group |
 | `UpdateGroup(name, option, entityList)` | modify: 0=Replace, 1=Remove, 2=Add |
 | `DeleteGroup(name)` | delete group |
 | `GetGroupCount(type)` | count by type |
+| `GetGroupCountAll()` | count across all types |
 | `GetGroupNames(type)` | list names |
 | `GetGroupEntityCount(name)` | entity count |
 | `GetGroupEntities(name)` | entity ID list |
@@ -114,19 +155,84 @@ geo.DoTranslationalRepeat(
 surf_id = geo.DefineParametricSurface(name, type, origin_Node, x_vertex_node, y_vertex_node, vertices_list, auto_generate)
 geo.AddParametricSurfaceToModel(surf_id)
 geo.CommitParametricSurfaceMesh(surf_id)
+
+# After committing, query the generated mesh panels
+count = geo.GetNoOfGeneratedQuadPanels()
+nodeAs, nodeBs, nodeCs, nodeDs = geo.GetGeneratedQuadPanelIncidences()  # empty lists if count == 0
 ```
 Types: 1=Wall, 2=Slab
+
+**Mesh introspection & lifecycle:**
+```python
+count = geo.GetParametricSurfaceCount()
+node_count, element_count = geo.GetParametricSurfaceMeshInfo(surfaceNo)
+node_ids, element_ids = geo.GetParametricSurfaceMeshData(surfaceNo)   # actual generated node/plate IDs
+geo.RemoveParametricSurfaceMesh(surfaceNo)   # bool; removes the mesh but keeps the surface definition
+
+# Extended info (preferred) — name, type, sub-type, vertex count, mesh size, divisions, meshing method,
+# isQuad, origin/axis nodes, opening/region counts, density point/line counts (17 fields total)
+info_ex = geo.GetParametricSurfaceInfoEx(surfaceNo)
+# GetParametricSurfaceInfo(surfaceNo) also available — simpler 6-field subset (name, type, boundary/density counts, opening/region counts)
+surface_name, surface_type, boundary_count, density_count, opening_count, region_count = geo.GetParametricSurfaceInfo(surfaceNo)
+
+geo.SetParametricSurfaceSubType(surfaceName, subType)   # e.g. "FLOOR"
+sub_type = geo.GetParametricSurfaceSubType(surfaceName)
+geo.SetParametricSurfaceUniqueID(surfaceName, uniqueId)
+uid = geo.GetParametricSurfaceUniqueID(surfaceName)
+```
+
+**Mesh refinement — density points/lines and openings/regions:**
+```python
+geo.AddDensityPointToSurface(surfaceNo, pointData)
+line_index = geo.AddDensityLineToSurface(surfaceNo, x1, y1, z1, density1, x2, y2, z2, density2, divisions)
+ok = geo.AddCircularRegionToSurface(surfaceNo, x, y, z, radius, divisions, density, is_opening=False)
+geo.AddPolygonalRegionToSurface(surfaceNo, regionData)
+```
 
 ### Physical Members
 ```python
 geo.CreatePhysicalMember(memberList)
 pm_count = geo.GetPhysicalMemberCount()
+
+# Selection (separate from beam selection)
+geo.SelectPhysicalMember(physicalMemberId)
+geo.SelectMultiplePhysicalMembers(physicalMemberList)
+geo.ClearPhysicalMemberSelection()
+geo.SetPhysicalMemberUniqueID(physicalMemberId, uniqueId)
+```
+
+**Physical member introspection:**
+```python
+count = geo.GetPMemberCount()                         # total physical members (distinct from GetPhysicalMemberCount)
+ids = geo.GetPhysicalMemberList()
+last_id = geo.GetLastPhysicalMemberNo()
+uid = geo.GetPhysicalMemberUniqueID(physicalMemberId)
+
+sel_count = geo.GetNoOfSelectedPhysicalMembers()
+selected_ids = geo.GetSelectedPhysicalMembers()
+
+# Each physical member maps to 1+ underlying analytical (beam) members
+analytical_count = geo.GetAnalyticalMemberCountForPhysicalMember(physicalMemberId)
+analytical_ids = geo.GetAnalyticalMembersForPhysicalMember(physicalMemberId)
+
+geo.DeletePhysicalMember(physicalMemberId)
 ```
 
 ### Unique IDs (External Reference Strings)
 - `geo.SetNodeUniqueID(nodeNo, uniqueID)` / `geo.GetNodeUniqueID(nodeNo)`
 - `geo.SetMemberUniqueID(beamNo, uniqueID)` / `geo.GetMemberUniqueID(beamNo)`
 - `geo.SetPlateUniqueID(plateNo, uniqueID)` / `geo.GetPlateUniqueID(plateNo)`
+- `geo.SetSolidUniqueID(solidNo, uniqueID)` / `geo.GetSolidUniqueID(solidNo)`
+- `geo.SetPhysicalMemberUniqueID(physicalMemberId, uniqueId)`
+
+### CIS/2 Format Incidence (Interop)
+Same incidence data as the standard `Get*Incidence` functions above, but each also returns a CIS/2 unique string ID as the first tuple element — used for CIS/2 (CIMsteel) interoperability exports:
+```python
+unique_str_id, x, y, z = geo.GetNodeIncidence_CIS2(nodeId)
+unique_str_id, start_node, end_node = geo.GetMemberIncidence_CIS2(memberId)
+unique_str_id, n1, n2, n3, n4 = geo.GetPlateIncidence_CIS2(plateId)
+unique_str_id, n1, n2, n3, n4, n5, n6, n7, n8 = geo.GetSolidIncidence_CIS2(solidId)
+```
 
 ## Examples
 - [portal-frame.py](./scripts/portal-frame.py) — create a simple portal frame with supports
@@ -140,3 +246,4 @@ pm_count = geo.GetPhysicalMemberCount()
 - After adding geometry in the same script, call `staad.SetSilentMode(True)` → `staad.SaveModel(True)` → `staad.SetSilentMode(False)` before assigning properties, supports, or loads — do NOT use `UpdateStructure()` (it discards unsaved in-memory geometry)
 - Always use `geo` (OSGeometry) for selections — do NOT use `OSView.SelectByItemList`
 - Beams, plates, and solids share one ID counter — never assume IDs start at 1 per type
+- `ClearMemberSelection()` (and the node/plate/solid equivalents) raises an exception if the selection is already empty — guard the first call in a script, don't assume it's safe to call unconditionally

@@ -19,6 +19,7 @@ Both steps are required. `PerformAnalysis` alone does NOT run the solver.
 
 ```python
 cmd = staad.Command
+cmd.PerformAnalysis(0)  # adds the PERFORM ANALYSIS command — call once only, before AnalyzeEx
 staad.SetSilentMode(True)
 staad.SaveModel(True)
 status = staad.AnalyzeEx(1, 0, 1)  # silent, visible, waitTillComplete
@@ -121,6 +122,8 @@ cmd.DeleteFloorDiaphragmBaseCommand()
 ```python
 cmd.SetCheckSoftStoryCommand(DesignCode=3)
 cmd.SetCheckIrregularitiesCommand(DesignCode=3)
+cmd.DeleteCheckSoftStoryCommand()          # returns 1=OK, 0=failed
+cmd.DeleteCheckIrregularitiesCommand()      # returns 1=OK, 0=failed
 ```
 
 ### Delete Commands

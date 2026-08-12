@@ -107,4 +107,5 @@ sandbox, catch generic `Exception` and read the message:
 - Some methods silently return 0 even when something went wrong (e.g., `UpdateStructure` on read-only paths)
 - The `Assign*` methods (`AssignBeamProperty`, `AssignDesignCommand`, `AssignDesignParameter`, `AssignDesignGroup`) and support create/assign/query/delete methods **raise on failure** and return `True` on success — do NOT check `if result < 0` for these
 - Negative return codes still apply to many **getter** methods — always check `if result < 0` for those
+- `-3005` (`OsNoBeamSelected`) isn't only a getter-side error — `geo.ClearMemberSelection()` also raises it when the selection is already empty, so guard the first clear call of a script (see staad-geometry → Selection)
 - A "update STAAD.Pro" error usually means the connected instance is older than the called function requires (see staad-core → Version Compatibility)

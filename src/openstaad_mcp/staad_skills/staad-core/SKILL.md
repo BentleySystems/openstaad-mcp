@@ -135,6 +135,10 @@ staad.SaveAs("C:\\Projects\\Bridge\\bridge_backup.std")
 staad.CloseSTAADFile()
 ```
 
+- **`CloseSTAADFile()` can pop up a modal dialog** (e.g. unsaved-changes prompt) that blocks the COM call from returning — the same class of issue as `AnalyzeEx` triggering a save dialog. If it times out, the executor gets stuck until the dialog is dismissed in the STAAD.Pro window.
+- **After `CloseSTAADFile()`, the instance may disappear from `list_instances`/`get_status`** — instance discovery scans the Windows ROT for monikers ending in `.std`; with no file open there's nothing to find. Open a `.std` file again to make the instance visible.
+- **`OpenSTAADFile(path)` on the file that's already open is a no-op** — it does NOT force a fresh re-parse from disk. To verify that a file saved via the API actually re-parses correctly (e.g. to catch a syntax error introduced by a COM call), open a **different** `.std` file first, then `OpenSTAADFile(path)` back to the target — this forces STAAD to genuinely re-parse it and, if the file has bad syntax, pop the real `"(N) Errors, (N) Warnings found in input file. Would you like to edit the input file?"` dialog (confirmed live). Avoid `CloseSTAADFile()` for this purpose — it carries its own dialog/instance-visibility risk (see the gotcha above).
+
 ### Application Control
 
 - `staad.ShowApplication()` — show the STAAD.Pro window

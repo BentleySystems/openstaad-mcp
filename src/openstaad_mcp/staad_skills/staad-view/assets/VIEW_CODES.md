@@ -148,11 +148,23 @@
 | 12 | Results | Beam Stress | Force/length² |
 | 13 | Results | Mode Shape | (none) |
 
-## Entity Type Codes (SelectInverse, SelectByItemList, etc.)
+## Entity Type Codes (SelectInverse, SelectByItemList)
 
 | ID | Entity |
 |----|--------|
-| 0 | Node |
+| 1 | Node |
+| 2 | Beam/Member |
+| 3 | Plate |
+| 4 | Solid |
+| 5 | Surface |
+
+## Entity Type Codes (SelectEntitiesConnectedToNode/Member/Plate/Solid)
+
+Different convention from the table above — no dedicated Node code.
+
+| ID | Entity |
+|----|--------|
+| 0 | Geometry |
 | 1 | Beam/Member |
 | 2 | Plate |
 | 3 | Solid |

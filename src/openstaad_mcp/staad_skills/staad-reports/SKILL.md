@@ -27,6 +27,7 @@ table_no = table.AddTable(report_no, "Node Displacements", row_count, col_count)
 table.RenameTable(report_no, table_no, "New Name")
 table.ResizeTable(report_no, table_no, new_rows, new_cols)
 table.DeleteTable(report_no, table_no)
+count = table.GetTableCount(report_no)   # tables in a report
 ```
 
 ## Cell Values

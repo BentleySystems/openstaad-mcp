@@ -1,6 +1,6 @@
 ﻿---
 name: staad-supports
-description: "Use when creating or assigning supports, boundary conditions, restraints, pins, fixed bases, springs, inclined supports, elastic mat, plate mat, or elastic footing. Covers: CreateSupportFixed (all 6 DOF), CreateSupportPinned, CreateSupportFixedBut (selective releases/springs), CreateInclinedSupport, CreateElasticMat (subgrade modulus), CreatePlateMat, CreateElasticFooting, AssignSupportToNode (single node — loop for multiple), GetSupportCount, GetSupportNodes, GetSupportInformation, RemoveSupportFromNode, DeleteSupport. Requires staad-core."
+description: "Use when creating or assigning supports, boundary conditions, restraints, pins, fixed bases, springs, inclined supports, elastic mat, plate mat, or elastic footing. Covers: CreateSupportFixed (all 6 DOF), CreateSupportPinned, CreateSupportFixedBut (selective releases/springs), CreateInclinedSupport, CreateElasticMat (subgrade modulus), CreatePlateMat, CreateElasticFooting, AssignSupportToNode (single node — loop for multiple), AssignSupportToEntityList, GetSupportCount, GetSupportNodes, GetSupportInformation, GetCountOfPlateMat, GetPlateMatDetail, GetCountOfElasticFooting, GetElasticFootingDetail, RemoveSupportFromNode, RemovePlateMat, RemoveElasticFooting, DeleteSupport. Requires staad-core."
 ---
 
 # STAAD.Pro Supports
@@ -100,6 +100,19 @@ foot_id = sup.CreateElasticFooting(length, width, direction, subgrade)
 | `GetSupportName(supportNo)`       | support name                                      |
 | `GetCountOfElasticMat()`          | elastic mat count                                 |
 | `GetElasticMatDetail(matId)`      | `(direction, subgrade, print, spring, nodeCount)` |
+| `GetElasticMatAssignmentList(matId)` | assigned node IDs                             |
+| `GetCountOfPlateMat()`            | plate mat count                                   |
+| `GetPlateMatSupportId(index)`     | support ID at index (0-based)                     |
+| `GetPlateMatDetail(matId)`        | `(direction, subgrade1-3, print, spring, plateCount)` |
+| `GetPlateMatAssignmentList(matId)`| assigned plate IDs                                |
+| `GetCountOfElasticFooting()`      | elastic footing count                             |
+| `GetElasticFootingDetail(footId)` | `(length, width, direction, subgrade, nodeCount)` |
+| `GetElasticFootingAssignmentList(footId)` | assigned node IDs                        |
+| `GetSupportUniqueID(supportNo)`   | GUID string                                       |
+
+```python
+sup.SetSupportUniqueID(supportNo, guid)
+```
 
 ### Removing
 
@@ -108,6 +121,10 @@ sup.RemoveSupportFromNode([1, 2, 3])   # remove from nodes
 sup.DeleteSupport(supportNo)            # delete definition
 sup.RemoveElasticMatFromNode(nodeNo)     # remove elastic mat from node
 sup.RemoveElasticMat(matId)              # delete elastic mat definition
+sup.RemovePlateMatFromPlate(plateNo)     # remove plate mat from plate
+sup.RemovePlateMat(matId)                # delete plate mat definition
+sup.RemoveElasticFootingFromNode(nodeNo) # remove elastic footing from node
+sup.RemoveElasticFooting(footId)         # delete elastic footing definition
 ```
 
 ## Example

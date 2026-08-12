@@ -25,6 +25,13 @@ out.GetOutputUnitForDisplacement()  # e.g. "in"
 out.GetOutputUnitForStress()        # e.g. "KSI"
 out.GetOutputUnitForDimension()
 out.GetOutputUnitForRotation()
+out.GetOutputUnitForSectDimension()
+out.GetOutputUnitForSectArea()
+out.GetOutputUnitForSectInertia()
+out.GetOutputUnitForSectModulus()
+out.GetOutputUnitForDensity()
+out.GetOutputUnitForDistForce()
+out.GetOutputUnitForDistMoment()
 ```
 The `GetOutputUnitFor*` methods raise on error (e.g. if the model has no output
 units established yet) — `execute_code` reports any such error.
@@ -58,6 +65,7 @@ For the solver's error/warning text after a run (`GetAnalysisErrorMessages` /
 out.GetIntermediateMemberForcesAtDistance(bid, distance, lc)
 out.GetIntermediateMemberTransDisplacements(bid, distance, lc)
 out.GetIntermediateDeflectionAtDistance(bid, distance, lc)
+out.GetIntermediateMemberAbsTransDisplacements(bid, distance, lc)  # relative displacement in LOCAL X/Y/Z (vs global for the Trans variant above)
 ```
 
 ### Plate Results
@@ -68,6 +76,7 @@ out.GetAllPlateCenterForces(plateNo, lc)
 out.GetAllPlateCenterMoments(plateNo, lc)
 out.GetPlateCenterNormalPrincipalStresses(plateNo, lc)
 out.GetAllPlateCenterPrincipalStressesAndAngles(plateNo, lc)
+out.GetAllPlateCenterPrincipalStressesAndAnglesEx(plateNo, lc)  # adds top/bottom max-shear stress to the 4 principal values, plus per-face angles
 out.GetPlateCenterVonMisesStresses(plateNo, lc)
 
 # Corner forces
@@ -75,6 +84,10 @@ out.GetPlateCornerForces(plateNo, cornerCode, lc)  # cornerCode = node number
 
 # Stress at arbitrary point
 out.GetPlateStressAtPoint(plateNo, lc, stressPoint, facingPoint)  # [x,y,z] lists
+
+# Resultant force/moment along a cut line through a set of plates or a parametric surface
+fx_fy_fz_mx_my_mz = out.GetResultantForceAlongLineForPlateList(plateIds, len(plateIds), lc, startXYZ, endXYZ, transformToGlobal, node1, node2, node3)
+fx_fy_fz_mx_my_mz = out.GetResultantForceAlongLineForParametricSurface(surfaceName, plateCount, lc, startXYZ, endXYZ, facingXYZ, transformToGlobal, node1, node2, node3)
 ```
 
 ### Solid Results
@@ -132,6 +145,11 @@ if out.IsMultipleMemberSteelDesignResultsAvailable():
     blk_name = out.GetSteelDesignParameterBlockNameByIndex(i)
     ratio = out.GetMultipleMemberSteelDesignRatio(blk_name, bid)
     max_ratio = out.GetMultipleMemberSteelDesignMaxRatio(bid)
+    # Full result tuple for one block (code, status, ratio, allowable, critical lc, clause, section)
+    (code, status, ratio, allow, crit_lc, clause, section) = out.GetMultipleMemberSteelDesignResults(blk_name, bid)
+
+# Design section name assigned by a completed design run (raises if not found — pre-analysis use GetSectionPropertyName instead)
+section_name = out.GetMemberDesignSectionName(bid)
 ```
 
 ### Physical Member Forces
@@ -151,7 +169,7 @@ out.GetBasePressures(lc, nodeList)
 See [fetch-forces.py](./scripts/fetch-forces.py) for a complete working example.
 
 ## Gotchas
-- `GetMinMaxShearForce` and `GetMinMaxBendingMoment` `dir` argument is a **string** (`'FY'`, `'MZ'`), not an integer
+- `GetMinMaxShearForce`/`GetMinMaxBendingMoment` `dir` argument is a **string**, not an integer — `'FY'`/`'FZ'` for shear, `'MY'`/`'MZ'` for moment
 - `GetMemberEndForces` at end 0 (StartA) and end 1 (EndB) have opposite sign conventions
 - `GetPrimaryLoadCaseNumbers()` returns a tuple — convert with `list()` before indexing
 - `GetMemberSteelDesignResults` raises an error for members not in the design brief
