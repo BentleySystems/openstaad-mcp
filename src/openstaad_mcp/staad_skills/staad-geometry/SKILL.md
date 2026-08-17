@@ -1,6 +1,6 @@
 ﻿---
 name: staad-geometry
-description: 'Use when creating, querying, modifying, or selecting structure geometry: nodes, beams, plates, solids, groups. Covers: AddNode, AddBeam, AddPlate (4 int args not a list), AddSolid, AddMultipleNodes/Beams/Plates, CreateNode/CreateBeam with explicit IDs, shared element ID sequence (beams+plates+solids share one counter — never assume IDs start at 1), GetBeamList, GetNodeList, GetPlateList, GetNodeCoordinates, GetMemberIncidence, SelectBeam, SelectMultipleBeams, ClearMemberSelection, groups (CreateGroupEx, UpdateGroup), SplitBeam, MergeBeams, IntersectBeams, GetIntersectBeamsCount, BreakBeamsAtSpecificNodes, GetCountOfBreakableBeamsAtSpecificNodes, SetPID, GetPID, SetFlagForHiddenEntities, GetFlagForHiddenEntities, SetCheckForIdenticalEntity, DeleteBeam/Node/Plate, translational repeat, parametric surfaces, physical members, unique IDs. Requires staad-core.'
+description: 'Use when creating, querying, modifying, or selecting structure geometry: nodes, beams, plates, solids, groups. Covers: AddNode, AddBeam, AddPlate (4 int args not a list), AddSolid, AddMultipleNodes/Beams/Plates, CreateNode/CreateBeam with explicit IDs, shared element ID sequence (beams+plates+solids share one counter — never assume IDs start at 1), GetBeamList, GetNodeList, GetPlateList, GetNodeCoordinates, GetMemberIncidence, SelectBeam, SelectMultipleBeams, ClearMemberSelection, groups (CreateGroupEx, UpdateGroup), SplitBeam, MergeBeams, IntersectBeams, GetIntersectBeamsCount, BreakBeamsAtSpecificNodes, GetCountOfBreakableBeamsAtSpecificNodes, SetPID, GetPID, SetFlagForHiddenEntities, GetFlagForHiddenEntities, SetCheckForIdenticalEntity, DeleteBeam/Node/Plate/Solid, DeleteGroup, DeletePhysicalMember, RemoveParametricSurfaceMesh, translational repeat, parametric surfaces, physical members, unique IDs. Requires staad-core.'
 ---
 
 # STAAD.Pro Geometry Modeling
@@ -120,7 +120,7 @@ Selections are additive — **always clear before starting a new selection**.
 
 `Select*` returns `bool` (`True` = OK), `SelectMultiple*`/`Clear*` return `None` on success. Query functions return a `tuple` of IDs (empty `()` when nothing is selected).
 
-**`Clear*Selection()` doesn't clear the whole selection.** It raises (e.g. `OsNoBeamSelected`) if the selection is already empty, and otherwise only undoes the IDs from the *immediately preceding* `Select*`/`SelectMultiple*` call. See [select-members.py](./scripts/select-members.py) for a `reset_member_selection()` helper that empties it reliably from any state.
+`Clear*Selection()` empties the entire accumulated selection (verified live across multiple `SelectBeam`/`SelectMultipleBeams` calls) — but it raises (e.g. `OsNoBeamSelected`) if the selection is already empty, so guard the call. See [select-members.py](./scripts/select-members.py) for a `reset_member_selection()` helper.
 
 ### Groups
 
@@ -246,4 +246,4 @@ unique_str_id, n1, n2, n3, n4, n5, n6, n7, n8 = geo.GetSolidIncidence_CIS2(solid
 - After adding geometry in the same script, call `staad.SetSilentMode(True)` → `staad.SaveModel(True)` → `staad.SetSilentMode(False)` before assigning properties, supports, or loads — do NOT use `UpdateStructure()` (it discards unsaved in-memory geometry)
 - Always use `geo` (OSGeometry) for selections — do NOT use `OSView.SelectByItemList`
 - Beams, plates, and solids share one ID counter — never assume IDs start at 1 per type
-- `ClearMemberSelection()` (and the node/plate/solid equivalents) raises an exception if the selection is already empty — guard the first call in a script, don't assume it's safe to call unconditionally
+- `ClearMemberSelection()` (and the node/plate/solid equivalents) empties the whole accumulated selection in one call, but raises `OsNoBeamSelected`/equivalent if the selection is already empty — never call it unconditionally; wrap it in `try: geo.ClearMemberSelection() except Exception: pass`, or check `GetSelectedBeams()` first. See [select-members.py](./scripts/select-members.py)'s `reset_member_selection()` for the reliable pattern

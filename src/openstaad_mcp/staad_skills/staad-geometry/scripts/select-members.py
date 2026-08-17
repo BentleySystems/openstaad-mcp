@@ -6,11 +6,7 @@ geo = staad.Geometry
 
 
 def reset_member_selection():
-    # Clear only undoes the last Select call, not the whole selection — re-select
-    # whatever is currently selected first so Clear actually empties it.
-    current = list(geo.GetSelectedBeams())
-    if current:
-        geo.SelectMultipleBeams(current)
+    # ClearMemberSelection empties the whole selection but raises if already empty.
     try:
         geo.ClearMemberSelection()
     except Exception:

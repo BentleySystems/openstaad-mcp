@@ -1,6 +1,6 @@
 ﻿---
 name: staad-properties
-description: "Use when assigning section profiles to beams, plate thickness, materials, creating prismatic or tapered sections, or defining member specs (releases, truss, tension, compression, cable, inactive, offset). Covers: CreateBeamPropertyFromTable (country codes), CreateAngle/Channel/Tube/Pipe/TeePropertyFromTable, CreateBeamPropertyFromTableEx, CreatePrismaticRectangle/Circle/Tee/GeneralProperty, CreateTaperedIProperty/TaperedTubeProperty, CreatePlateThicknessProperty (list of 4 floats), AssignBeamProperty, AssignPlateThickness, CreateIsotropicMaterial/Steel/Concrete/Aluminum/Timber, GetIsotropicMaterialProperties, GetOrthotropic2D/3DMaterialProperties, AssignMaterialToMember/Plate/Solid, CreateMemberReleaseSpec, CreateMemberPartialReleaseSpec, CreateMemberTrussSpec, CreateMemberTensionSpec, CreateMemberCompressionSpec, CreateMemberInactiveSpec, CreateMemberOffsetSpec, CreateMemberFireProofingSpec, CreateElementPlaneStressSpec, CreateElementOffsetSpec, CreateElementIgnoreInplaneRotnSpec, CreateElementNodeReleaseSpec, AssignBetaAngle, GetBeamProperty, GetSectionPropertyList, GetBeamSectionPropertyTypeNo, CreateUPTTable (user provided tables), AddUPTPropertyWIDEFLANGE/CHANNEL/ANGLE/DOUBLEANGLE/TEE/PIPE/TUBE/ISECTION/PRISMATIC/GENERAL, CreatePropertyFromUserTable, CreateMemberAttribute, AssignMemberAttribute, GetMemberListByAttribute, GetElementListByAttribute. Requires staad-core."
+description: "Use when assigning section profiles to beams, plate thickness, materials, creating prismatic or tapered sections, or defining member specs (releases, truss, tension, compression, cable, inactive, offset). Covers: CreateBeamPropertyFromTable (country codes), CreateAngle/Channel/Tube/Pipe/TeePropertyFromTable, CreateBeamPropertyFromTableEx, CreatePrismaticRectangle/Circle/Tee/GeneralProperty, CreateTaperedIProperty/TaperedTubeProperty, CreatePlateThicknessProperty (list of 4 floats), AssignBeamProperty, AssignPlateThickness, CreateIsotropicMaterial/Steel/Concrete/Aluminum/Timber, GetIsotropicMaterialProperties, GetOrthotropic2D/3DMaterialProperties, AssignMaterialToMember/Plate/Solid, CreateMemberReleaseSpec, CreateMemberPartialReleaseSpec, CreateMemberTrussSpec, CreateMemberTensionSpec, CreateMemberCompressionSpec, CreateMemberInactiveSpec, CreateMemberOffsetSpec, CreateMemberFireProofingSpec, CreateElementPlaneStressSpec, CreateElementOffsetSpec, CreateElementIgnoreInplaneRotnSpec, CreateElementNodeReleaseSpec, AssignBetaAngle, GetBeamProperty, GetSectionPropertyList, GetBeamSectionPropertyTypeNo, CreateUPTTable (user provided tables), AddUPTPropertyWIDEFLANGE/CHANNEL/ANGLE/DOUBLEANGLE/TEE/PIPE/TUBE/ISECTION/PRISMATIC/GENERAL, CreatePropertyFromUserTable, CreateMemberAttribute, AssignMemberAttribute, GetMemberListByAttribute, GetElementListByAttribute, deleting/removing properties and specs (DeleteProperty, DeleteMemberSpec, DeleteMemberReleaseSpec, RemovePropertyFromBeam/Plate, RemoveMemberOffsetSpecFromBeam, RemoveMaterialFromBeam/Plate/Solid, DeleteMaterial, RemoveElementPlaneStressSpecFromPlate, RemoveUPTTable, DeleteMemberAttribute). Requires staad-core."
 ---
 
 # STAAD.Pro Properties & Materials
@@ -164,6 +164,15 @@ angle = prop.GetBetaAngle(beam_id)
 
 ### Member Specs
 
+Call `AssignMemberSpecToBeam` directly after `CreateMember*Spec()` — no `UpdateStructure()` or
+other setup step is needed between them (verified live: adding one only costs 8-36s of extra
+latency, vs <0.1s normally, and has correlated with the STAAD.Pro instance becoming unreachable).
+
+Verify the result with `prop.GetMemberSpecCode(beam_id)` (see the table under Section/Database
+Introspection) — this is the source of truth for whether the assignment took effect;
+`AssignMemberSpecToBeam`'s own boolean return has been observed to say `False` on calls that
+actually succeeded.
+
 ```python
 # Releases
 rel_id = prop.CreateMemberReleaseSpec(end, dofValues, springConstants)
@@ -176,13 +185,23 @@ tens_id  = prop.CreateMemberTensionSpec()
 comp_id  = prop.CreateMemberCompressionSpec()
 cable_id = prop.CreateMemberCableSpecEx(tension_or_length, value, tension_end_node_indicator=0, self_weight_factor_x=1.0, self_weight_factor_y=1.0, self_weight_factor_z=1.0)  # preferred — CreateMemberCableSpec(tension_or_length, value) also available without the advanced-analysis params
 inact_id = prop.CreateMemberInactiveSpec()
+prop.AssignMemberSpecToBeam(beam_ids, comp_id)
+prop.GetMemberSpecCode(beam_ids[0])  # source of truth for whether the assignment took effect
 
 # Offset (start=0/end=1 location, wrt Global=0/Local=1 axis)
 off_id = prop.CreateMemberOffsetSpec(location, wrtAxis, dx, dy, dz)
 prop.AssignMemberSpecToBeam(beam_ids, off_id)
 ```
 
-Removing a spec from a beam (each returns `bool`, symmetric to the `Create*` above):
+A member can only hold one of truss/tension/compression/cable at a time. To switch a member from
+one to another (e.g. compression → tension), remove the existing spec first
+(`RemoveMemberCompressionSpecFromBeam`), then assign the new one — assigning tension while
+compression is still active on the same member is silently rejected.
+
+Removing a spec from a beam (each returns `bool`, symmetric to the `Create*` above). Confirm the
+result with `GetMemberSpecCode(beam_id)` (expect `-1`) — same as assignment, this is the
+reliable check; the return value here has been observed to say `False` even when the spec was
+actually removed:
 ```python
 prop.RemoveMemberOffsetSpecFromBeam(beam_id, location)      # location: 0=start, 1=end
 prop.RemoveMemberTrussSpecFromBeam(beam_id)
@@ -425,3 +444,4 @@ stress_z, stress_y = prop.GetUptGeneralStressLocationPoints(table_reference_id, 
 - Built-in material names: `"STEEL"`, `"CONCRETE"`, `"ALUMINUM"` — case-sensitive
 - `CreateElementPlaneStressSpec()`/`CreateElementIgnoreInplaneRotnSpec()` can return spec ID `0` on success — don't treat `0` as a failure code for these (unlike most other `Create*` functions where `0` means failure)
 - After `CreateElementOffsetSpec` + `AssignElementSpecToPlate`, `GetElementOffsetSpecCount()` correctly reflects the new spec, but `GetElementLocalOffset()`/`GetElementOffSetSpec()` were observed still returning `(0.0, 0.0, 0.0)` in testing — verify offset specs via `GetElementOffsetSpecCount()` rather than assuming the per-node getters immediately reflect an assignment
+- `GetBeamProperty(bid)`/`GetBeamPropertyAll(bid)` **raise** `OsError [-1] General error` for a beam with no section property assigned. Two ways to find beams missing a property: (1) per-beam, wrap the call in `try/except Exception`; (2) bulk, diff `GetBeamList()` against the union of `GetSectionPropertyAssignedBeamList(sid)` over all `GetSectionPropertyList()` IDs — avoids one exception per beam. `GetBeamSectionName(bid)` is safe to call either way and just returns `""` for beams with no property

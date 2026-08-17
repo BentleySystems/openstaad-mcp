@@ -228,17 +228,14 @@ view.SetUnits(uType, strUnit)   # e.g. SetUnits(5, "kN")
 - Do not try to read back the interface mode after setting it — the value is unreliable; trust that `SetInterfaceMode` applies correctly. `GetInterfaceMode()` on its own (not right after a `SetInterfaceMode` call) is reliable — verified live, correctly returned `0` on a freshly opened model in modeling mode
 - `GetBeamsInView(beamList)` does **not** populate the passed list — verified live, the list is unchanged after the call and the return value is just the count (identical to `GetNoOfBeamsInView()`). Use `geo.GetBeamList()` for actual beam IDs.
 - Selection via `view.SelectByItemList` should be avoided for geometry — use `geo.SelectMultipleBeams` instead
-- **`geo.ClearMemberSelection()` doesn't clear the whole selection.** It raises `OsNoBeamSelected` if the selection is already empty, and otherwise only undoes the IDs from the *immediately preceding* `SelectBeam`/`SelectMultipleBeams` call ("undo last select", not "clear all") — beams selected via `staad.View` functions can survive it too. To reliably empty the selection from any state:
+- `geo.ClearMemberSelection()` empties the whole accumulated `Geometry`-side selection in one call (verified live), but raises `OsNoBeamSelected` if the selection is already empty — guard it:
   ```python
-  def reset_member_selection():
-      current = list(geo.GetSelectedBeams())
-      if current:
-          geo.SelectMultipleBeams(current)  # make it the "last select" target
-      try:
-          geo.ClearMemberSelection()
-      except Exception:
-          pass  # was already empty
+  try:
+      geo.ClearMemberSelection()
+  except Exception:
+      pass  # was already empty
   ```
+  Beams selected via `staad.View` functions (e.g. `view.SelectByItemList`) are a separate selection track and can survive a `geo.ClearMemberSelection()` call — clear both sides if you mixed `view.Select*` and `geo.Select*` calls.
 - Prefer `geo.Select*` over `view.Select*` when both cover the same case (e.g. `geo.IsColumn`/`geo.IsBeam` for axis-aligned member selection instead of `view.SelectMembersParallelTo`) — but `view.Select*` functions with no `geo` equivalent (`SelectGroup`, `SelectInverse`, `SelectByMissingAttribute`, `SelectEntitiesConnectedToNode`, etc.) are fine to use directly:
   ```python
   # geo equivalent of view.SelectMembersParallelTo("Y") for a Y-up model
