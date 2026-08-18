@@ -48,7 +48,7 @@ def parse_roots_to_dirs(roots: list) -> list[Path]:
     """
     dirs: list[Path] = []
     for root in roots:
-        uri: str = root.uri if hasattr(root, "uri") else str(root)
+        uri: str = str(root.uri) if hasattr(root, "uri") else str(root)
         parsed = urlparse(uri)
         if parsed.scheme != "file":
             continue
