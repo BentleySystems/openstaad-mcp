@@ -25,6 +25,8 @@ brief_ref = design.CreateDesignBrief(1067)  # AISC 360-16
 | 1149 | AS 4100 |
 | 1182 | CSA S16-14 |
 
+See **[DESIGN_CODES.md](./assets/DESIGN_CODES.md)** for the full international design-code index list.
+
 Query the code back from an existing design brief: `design.GetDesignBriefCode(brief_ref)`.
 
 **Step 2 — Assign design commands to members**

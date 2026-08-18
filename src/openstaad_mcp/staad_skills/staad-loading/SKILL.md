@@ -1,6 +1,6 @@
 ﻿---
 name: staad-loading
-description: "Use when defining load cases, applying self-weight, nodal loads, member loads (uniform, concentrated, trapezoidal, linear varying), plate pressure, floor loads, temperature loads, wind loads, seismic loads, load combinations, load lists, reference loads, notional loads, repeat loads, response spectrum loads, direct analysis parameters, or querying load data. Covers: CreateNewPrimaryLoad, CreateNewPrimaryLoadEx (typed), SetLoadActive (required before adding items), AddSelfWeightInXYZ, AddNodalLoad, AddMemberUniformForce (directions 1-9), AddMemberConcForce, AddMemberTrapezoidal, AddMemberLinearVari, AddElementPressure (uniform), AddElementTrapPressureEx (variable/hydrostatic), AddMemberFloorLoad, AddTemperatureLoad, AddWindLoad, AddWindDefinitionASCE7Parameters, AddSeismicLoad, AddSeismicDefFloorWeight/MemberWeight/ElementWeight/WallArea, ModifySeismicDefinitionParams, AddNotionalLoad, AddAutoCombinationRepeat, AddResponseSpectrumLoad, AddDirectAnalysisDefinitionParameter, CreateLoadList, CreateNewLoadCombination, AddLoadAndFactorToCombination, GetLoadAndFactorForCombination, GetNoOfLoadAndFactorPairsForCombination, GetNodalLoads, GetUDLLoads, GetTrapLoads, GetConcForces, GetConcMoments, GetLinearVaryingLoads, GetElementPressureLoads, GetElementConcLoads, GetReferenceLoadByIndex, GetMemberLoadInfo, GetNodalLoadInfo, GetElementLoadInfo, MergeLoadsOnBeam, SplitLoadsOnBeam, load envelopes, querying loads, deleting/removing loads (DeleteWindDefinition, DeleteLoadList, DeleteReferenceLoadCases, DeleteLoadEnvelop, RemoveLoadCasesFromEnvelop, DeletePrimaryLoadCases, RemoveAttribute, DeleteDirectAnalysisDefinition). Requires staad-core."
+description: "Use when defining load cases, applying self-weight, nodal loads, member loads (uniform, concentrated, trapezoidal, linear varying), plate pressure, floor loads, temperature loads, wind loads, seismic loads, load combinations, load lists, reference loads, notional loads, repeat loads, response spectrum loads, enclosed zone loads, direct analysis parameters, or querying load data. Covers: CreateNewPrimaryLoad, CreateNewPrimaryLoadEx (typed), SetLoadActive (required before adding items), AddSelfWeightInXYZ, AddNodalLoad, AddMemberUniformForce (directions 1-9), AddMemberConcForce, AddMemberTrapezoidal, AddMemberLinearVari, AddElementPressure (uniform), AddElementTrapPressureEx (variable/hydrostatic), AddMemberFloorLoad, AddTemperatureLoad, AddWindLoad, AddWindDefinitionASCE7Parameters, AddSeismicLoad, AddSeismicDefFloorWeight/MemberWeight/ElementWeight/WallArea, ModifySeismicDefinitionParams, AddNotionalLoad, AddAutoCombinationRepeat, AddResponseSpectrumLoad, GetResponseSpectrumLoadCount/List/ParamCount, GetResponseSpectrumDataArraySize, GetResponseSpectrumLoad, UpdateResponseSpectrumLoad, DeleteResponseSpectrumLoad, DefineEnclosedZone, AddOpeningInEnclosedZone, IgnoreMembersForPanelFormationInEnclosedZone, IgnoreMembersForLoadTransferInEnclosedZone, AddEnclosedZoneLoad, GetEnclosedZoneCount/Names, GetEnclosedZoneBoundaryNodesCount/List, GetEnclosedZoneOpeningCount/NodeList, GetCountOfMembersIgnoredForPanelFormation/LoadTransferInEnclosedZone, DeleteEnclosedZone, AddDirectAnalysisDefinitionParameter, CreateLoadList, CreateNewLoadCombination, AddLoadAndFactorToCombination, GetLoadAndFactorForCombination, GetNoOfLoadAndFactorPairsForCombination, GetNodalLoads, GetUDLLoads, GetTrapLoads, GetConcForces, GetConcMoments, GetLinearVaryingLoads, GetElementPressureLoads, GetElementConcLoads, GetReferenceLoadByIndex, GetMemberLoadInfo, GetNodalLoadInfo, GetElementLoadInfo, MergeLoadsOnBeam, SplitLoadsOnBeam, load envelopes, querying loads, deleting/removing loads (DeleteWindDefinition, DeleteLoadList, DeleteReferenceLoadCases, DeleteLoadEnvelop, RemoveLoadCasesFromEnvelop, DeletePrimaryLoadCases, RemoveAttribute, DeleteDirectAnalysisDefinition). Requires staad-core."
 ---
 
 # STAAD.Pro Loading
@@ -163,7 +163,7 @@ load.AddSeismicDefMemberWeight(seismicType, loadType, weight, startDist, endDist
 load.AddSeismicDefFloorWeight(rangeType, loadDirection, pressure, grpOrOneWay, yMin, yMax, zMin, zMax, xMin, xMax)
 load.AddSeismicDefWallArea(seismicType, direction, sizeArray)   # IS 1893-2016 only; direction: "X" or "Z"
 
-# Modify/add a single named parameter in the active seismic definition (param names/values are code-specific — see openstaadpy docstring for the full per-code table)
+# Modify/add a single named parameter in the active seismic definition (param names are code-specific — see LOAD_CODES.md "Seismic Definition Parameter Keywords" for the full per-code table)
 load.ModifySeismicDefinitionParams(paramName, value)  # e.g. load.ModifySeismicDefinitionParams("ZONE", 0.2)
 ```
 
@@ -172,7 +172,7 @@ load.ModifySeismicDefinitionParams(paramName, value)  # e.g. load.ModifySeismicD
 ```python
 # Notional load: combines primary + reference load cases with per-direction factors
 load.AddNotionalLoad(primaryLoadCaseIds, primaryFactors, primaryDirections, refLoadCaseIds, refFactors, refDirections)
-# directions: 1-3=X/Y/Z (Primary), 4-6=X/Y/Z (Global) — see openstaadpy docstring
+# directions: 1-3=X/Y/Z (Primary), 4-6=X/Y/Z (Global) — see LOAD_CODES.md "Notional Load Direction Codes"
 
 count = load.GetNotionalLoadCount()
 factor_count = load.GetNoLoadFactorDirectionInNotionalLoad(index)   # 1-based index
@@ -195,14 +195,57 @@ load.DeleteDirectAnalysisDefinition()   # deletes the whole definition
 ```
 
 ### Response Spectrum Load
-Adds a response-spectrum load item to the active load case. `rsaCode` selects the seismic code (Generic/IS1893/Eurocode/IBC/SNiP/etc.), `rsaCombination` selects the modal combination rule (0=SRSS, 1=ABS, 2=CQC, 3=ASCE, 4=TEN, 5=CSM, 6=GRP). The parameter keyword lists (`set1Names`/`set1Vals`) are code-specific — see the openstaadpy docstring for the full per-code keyword table:
+Adds a response-spectrum load item to the active load case. `rsaCode` and `rsaCombination` are **ints** (not strings — a string raises a COM Type mismatch) — full code tables in the Reference section (LOAD_CODES.md, "Response Spectrum Codes"), which also lists the per-code `set1Names`/`set1Vals` keywords:
 ```python
 load.AddResponseSpectrumLoad(rsaCode, rsaCombination, set1Names, set1Vals, set2Names, set2Vals, dataPairs)
 # set2Names/set2Vals (spectrum generation) and dataPairs (period/acceleration pairs) are mutually exclusive — pass [] for whichever is unused
+load.AddResponseSpectrumLoad(8, 0, ["X", "ACC"], [1.0, 32.2], [], [], [])   # confirmed live: IBC 2015, SRSS, X-direction
+```
+
+Manage/inspect existing response spectrum load items by load case number and load ID (`loadId` is 1-based, per-load-case):
+```python
+load.GetResponseSpectrumLoadCount(loadCaseNumber)          # → int count of RS loads in the case
+load.GetResponseSpectrumLoadList(loadCaseNumber)           # → list of RS load IDs in the case
+load.GetResponseSpectrumLoadParamCount(loadCaseNumber, loadId)   # → int count of code-specific default params
+load.GetResponseSpectrumDataArraySize(loadCaseNumber, loadId)    # → int size of the period/acceleration data array — requires the RS load to have been defined with dataPairs (raises General error if it used set2Names/Vals or no spectral data instead)
+load.GetResponseSpectrumLoad(loadCaseNumber, loadId, parameterList=[])
+# → (paramValues, spectralDataPairs) tuple. Pass parameterList=[] for all params, or specific keywords
+#   (e.g. ["XV", "DIS", "SCA"]) for a subset — see LOAD_CODES.md for the full per-code keyword table
+load.UpdateResponseSpectrumLoad(loadCaseNumber, loadId, paramToValueMap={}, spectralData={})
+# paramToValueMap: dict of {keyword: new_value}; spectralData: dict of {period: acceleration}
+load.DeleteResponseSpectrumLoad(loadCaseNumber, loadId)    # → bool
+```
+
+### Enclosed Zones
+Enclosed zones let you apply pressure/area loads over a boundary of nodes without modeling plates — used for panel/tributary load transfer to surrounding members. `boundaryNodeNos` must be passed in actual polygon traversal order (a walk around the perimeter), not sorted-by-ID order — use `staad.Geometry.IdentifyFloorBoundariesFromNodes()` + `GetFloorBoundaryNodesByIndex()` to get the correctly-ordered node list (confirmed live: passing `GetFloorNodesAtLevel()`'s raw sorted-ID list instead produced a self-intersecting/concave zone). See [enclosed-zone.py](./scripts/enclosed-zone.py) for the full required sequence.
+```python
+load.DefineEnclosedZone(zoneName, boundaryNodeNos)   # boundaryNodeNos: ≥3 node IDs forming a closed boundary; zoneName is uppercased internally → bool
+load.AddOpeningInEnclosedZone(zoneName, openingNodeNos)   # ≥3 node IDs forming an opening inside the zone → bool
+# accepts openingNodeNos without validating them against the zone boundary — confirmed live: passing the zone's own boundary
+# nodes as an "opening" still returns True with no error, so callers must ensure the opening is geometrically valid themselves
+load.IgnoreMembersForPanelFormationInEnclosedZone(zoneName, memberNos)   # exclude members from panel geometry → bool
+load.IgnoreMembersForLoadTransferInEnclosedZone(zoneName, memberNos)     # exclude members from receiving transferred load → bool
+load.AddEnclosedZoneLoad(zoneName, loadDirection, loadValue)
+# loadDirection: 3=Local Z, 4=Global X, 5=Global Y, 6=Global Z; loadValue in current input units; applies to the active load case
+load.DeleteEnclosedZone(zoneName)   # → bool
+```
+
+Query zones (read-only, no active load case required):
+```python
+load.GetEnclosedZoneCount()                              # → int
+load.GetEnclosedZoneNames()                               # → list of str
+load.GetEnclosedZoneBoundaryNodesCount(zoneName)           # → int
+load.GetEnclosedZoneBoundaryNodeList(zoneName)             # → list of int
+load.GetEnclosedZoneOpeningCount(zoneName)                 # → int
+load.GetEnclosedZoneOpeningNodeList(zoneName, openingIdx)  # openingIdx is 0-based → list of int
+load.GetCountOfMembersIgnoredForPanelFormationInEnclosedZone(zoneName)   # → int
+load.GetMembersIgnoredForPanelFormationInEnclosedZone(zoneName)         # → list of int
+load.GetCountOfMembersIgnoredForLoadTransferInEnclosedZone(zoneName)    # → int
+load.GetMembersIgnoredForLoadTransferInEnclosedZone(zoneName)           # → list of int
 ```
 
 ### Wind Definition — ASCE 7 Parameters
-Generates full ASCE 7 wind parameters/pressure profiles from code inputs (building class/type, exposure category, escarpment data, etc.) instead of manually specifying `AddWindIntensity`/`AddWindExposure`. Parameter lists are large and code-specific — see the openstaadpy docstring for the full per-index breakdown of each list argument:
+Generates full ASCE 7 wind parameters/pressure profiles from code inputs (building class/type, exposure category, escarpment data, etc.) instead of manually specifying `AddWindIntensity`/`AddWindExposure`. Parameter lists are large and code-specific — see LOAD_CODES.md "Wind ASCE 7 Parameters" for the full per-index breakdown of each list argument:
 ```python
 load.AddWindDefinitionASCE7Parameters(typeNo, code, windSpeed, heightAboveSeaLvl, bldgClass, bldgType, expCat,
                                        escarpment, wallType, isFlexible, escarpmentData, bldgData, unitsData,
@@ -342,7 +385,7 @@ conc_loads = load.GetElementConcLoads(plateNo)   # list of (direction, pressure,
 ```
 
 ### Load Item Introspection
-Lower-level access to raw load items within a load case, keyed by a numeric load-type code (e.g. 4000=SelfWeight, 3110=Nodal Load, 3210=Uniform Force, 3710=Temperature — see `GetLoadTypeCount`'s openstaadpy docstring for the full code table):
+Lower-level access to raw load items within a load case, keyed by a numeric load-type code (e.g. 4000=SelfWeight, 3110=Nodal Load, 3210=Uniform Force, 3710=Temperature — see LOAD_CODES.md "Load Item Type Codes" for the full code table):
 ```python
 item_count = load.GetLoadItemsCount(loadCaseNo)
 item_type = load.GetLoadItemType(loadCaseNo, loadItemIndex)
@@ -396,6 +439,7 @@ beam_to_area = load.GetInfluenceArea(xMin, xMax, yMin, yMax, zMin, zMax, directi
 - [self-weight.py](./scripts/self-weight.py) — create a primary load case with self-weight
 - [hydrostatic-tank.py](./scripts/hydrostatic-tank.py) — assign hydrostatic pressure to a plate tank
 - [load-lists-and-reference-loads.py](./scripts/load-lists-and-reference-loads.py) — group load cases into a load list, build a reference load
+- [enclosed-zone.py](./scripts/enclosed-zone.py) — define an enclosed zone on a floor boundary and apply a zone load (shows the required `Geometry.IdentifyFloorBoundariesFromNodes` → `GetFloorBoundaryNodesByIndex` boundary-ordering step)
 
 ## Gotchas
 

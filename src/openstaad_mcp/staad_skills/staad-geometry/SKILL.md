@@ -1,6 +1,6 @@
 ﻿---
 name: staad-geometry
-description: 'Use when creating, querying, modifying, or selecting structure geometry: nodes, beams, plates, solids, groups. Covers: AddNode, AddBeam, AddPlate (4 int args not a list), AddSolid, AddMultipleNodes/Beams/Plates, CreateNode/CreateBeam with explicit IDs, shared element ID sequence (beams+plates+solids share one counter — never assume IDs start at 1), GetBeamList, GetNodeList, GetPlateList, GetNodeCoordinates, GetMemberIncidence, SelectBeam, SelectMultipleBeams, ClearMemberSelection, groups (CreateGroupEx, UpdateGroup), SplitBeam, MergeBeams, IntersectBeams, GetIntersectBeamsCount, BreakBeamsAtSpecificNodes, GetCountOfBreakableBeamsAtSpecificNodes, SetPID, GetPID, SetFlagForHiddenEntities, GetFlagForHiddenEntities, SetCheckForIdenticalEntity, DeleteBeam/Node/Plate/Solid, DeleteGroup, DeletePhysicalMember, RemoveParametricSurfaceMesh, translational repeat, parametric surfaces, physical members, unique IDs. Requires staad-core.'
+description: 'Use when creating, querying, modifying, or selecting structure geometry: nodes, beams, plates, solids, groups. Covers: AddNode, AddBeam, AddPlate (4 int args not a list), AddSolid, AddMultipleNodes/Beams/Plates, CreateNode/CreateBeam with explicit IDs, shared element ID sequence (beams+plates+solids share one counter — never assume IDs start at 1), GetBeamList, GetNodeList, GetPlateList, GetNodeCoordinates, GetMemberIncidence, SelectBeam, SelectMultipleBeams, ClearMemberSelection, groups (CreateGroupEx, UpdateGroup), SplitBeam, MergeBeams, IntersectBeams, GetIntersectBeamsCount, BreakBeamsAtSpecificNodes, GetCountOfBreakableBeamsAtSpecificNodes, SetPID, GetPID, SetFlagForHiddenEntities, GetFlagForHiddenEntities, SetCheckForIdenticalEntity, DeleteBeam/Node/Plate/Solid, DeleteGroup, DeletePhysicalMember, RemoveParametricSurfaceMesh, translational repeat, parametric surfaces, physical members, unique IDs, floor functions (GetFloorLevels, GetFloorNodesAtLevel, GetFloorBeamsAtLevel, IdentifyFloorBoundariesFromNodes, GetFloorBoundaryNodesByIndex, GetFloorBoundaryBeamsByIndex, GetFloorBoundaryAreaByIndex). Requires staad-core.'
 ---
 
 # STAAD.Pro Geometry Modeling
@@ -224,6 +224,15 @@ geo.DeletePhysicalMember(physicalMemberId)
 - `geo.SetPlateUniqueID(plateNo, uniqueID)` / `geo.GetPlateUniqueID(plateNo)`
 - `geo.SetSolidUniqueID(solidNo, uniqueID)` / `geo.GetSolidUniqueID(solidNo)`
 - `geo.SetPhysicalMemberUniqueID(physicalMemberId, uniqueId)`
+
+### Floor Functions
+- `geo.GetFloorLevels()` → list of unique vertical coordinates (base units) — nodes are grouped along the vertical axis (Y if Y-up, Z if Z-up) using a small tolerance
+- `geo.GetFloorNodesAtLevel(floorLevel)` → sorted list of node numbers at that level (use a value from `GetFloorLevels()`)
+- `geo.GetFloorBeamsAtLevel(floorLevel)` → sorted list of beam numbers whose start AND end nodes are both at that level
+- `geo.IdentifyFloorBoundariesFromNodes(nodeIds)` → number of floor boundaries (sub-floors) identified from a set of ≥3 coplanar, non-collinear, beam-connected node IDs — stores results internally for the three functions below
+- `geo.GetFloorBoundaryNodesByIndex(boundaryIndex)` → list of node numbers forming boundary `boundaryIndex` (0-based) — call after `IdentifyFloorBoundariesFromNodes`
+- `geo.GetFloorBoundaryBeamsByIndex(boundaryIndex)` → list of beam numbers in that boundary
+- `geo.GetFloorBoundaryAreaByIndex(boundaryIndex)` → area of that boundary in current base units
 
 ### CIS/2 Format Incidence (Interop)
 Same incidence data as the standard `Get*Incidence` functions above, but each also returns a CIS/2 unique string ID as the first tuple element — used for CIS/2 (CIMsteel) interoperability exports:

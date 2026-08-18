@@ -339,7 +339,7 @@ table_no = prop.GetUserProvidedTableNo(beam_id)   # UPT table number a beam's se
 ```python
 country_code = prop.GetCountryTableNo(beam_id)
 table_no     = prop.GetSectionTableNo(beam_id)
-prop_type_no = prop.GetBeamSectionPropertyTypeNo(beam_id)   # e.g. 610=BEAM ST, 630=CHANNEL ST, 640=ANGLE ST — see openstaadpy docstring for full table
+prop_type_no = prop.GetBeamSectionPropertyTypeNo(beam_id)   # e.g. 610=BEAM ST, 630=CHANNEL ST, 640=ANGLE ST — see PROPERTY_CODES.md "Section Property Type Numbers" for the full table
 alpha_rad    = prop.GetAlphaAngleForSection(section_property_id)   # angle between principal and geometric axis
 cy, cz       = prop.GetCentroidLocationForSection(section_property_id)
 section_type, prop_values = prop.GetBeamSectionPropertyValuesEx(beam_id)  # float list, meaning keyed by prop_type_no

@@ -78,7 +78,6 @@ class _CompositePathRule:
 VALIDATED_COM_METHODS: dict[str, _PathRule | _CompositePathRule] = {
     "NewSTAADFile": _PathRule(arg_index=0, allowed_extensions=frozenset({".std"})),
     "OpenSTAADFile": _PathRule(arg_index=0, allowed_extensions=frozenset({".std"})),
-    "SaveAs": _PathRule(arg_index=0, allowed_extensions=frozenset({".std"})),
     "ExportView": _CompositePathRule(
         dir_arg_index=0,
         name_arg_index=1,

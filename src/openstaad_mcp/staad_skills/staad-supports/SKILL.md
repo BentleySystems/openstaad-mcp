@@ -1,6 +1,6 @@
 ﻿---
 name: staad-supports
-description: "Use when creating or assigning supports, boundary conditions, restraints, pins, fixed bases, springs, inclined supports, elastic mat, plate mat, or elastic footing. Covers: CreateSupportFixed (all 6 DOF), CreateSupportPinned, CreateSupportFixedBut (selective releases/springs), CreateInclinedSupport, CreateElasticMat (subgrade modulus), CreatePlateMat, CreateElasticFooting, AssignSupportToNode (single node — loop for multiple), AssignSupportToEntityList, GetSupportCount, GetSupportNodes, GetSupportInformation, GetCountOfPlateMat, GetPlateMatDetail, GetCountOfElasticFooting, GetElasticFootingDetail, RemoveSupportFromNode, RemovePlateMat/RemovePlateMatFromPlate, RemoveElasticFooting/RemoveElasticFootingFromNode, RemoveElasticMat/RemoveElasticMatFromNode, DeleteSupport. Requires staad-core."
+description: "Use when creating or assigning supports, boundary conditions, restraints, pins, fixed bases, springs, inclined supports, elastic mat, plate mat, or elastic footing. Covers: CreateSupportFixed (all 6 DOF), CreateSupportPinned, CreateSupportFixedBut (selective releases/springs), CreateInclinedSupport, CreateElasticMat (subgrade modulus), CreatePlateMat, CreateElasticFooting, CreateCompressionOnlySpring, CreateTensionOnlySpring, AssignSupportToNode (single node — loop for multiple), AssignSupportToEntityList, GetSupportCount, GetSupportNodes, GetSupportInformation, GetCountOfPlateMat, GetPlateMatDetail, GetCountOfElasticFooting, GetElasticFootingDetail, RemoveSupportFromNode, RemovePlateMat/RemovePlateMatFromPlate, RemoveElasticFooting/RemoveElasticFootingFromNode, RemoveElasticMat/RemoveElasticMatFromNode, DeleteSupport. Requires staad-core."
 ---
 
 # STAAD.Pro Supports
@@ -77,6 +77,16 @@ pm_id = sup.CreatePlateMat(direction, subgrades, printFlag, springType)
 foot_id = sup.CreateElasticFooting(length, width, direction, subgrade)
 ```
 
+### Compression/Tension-Only Springs
+
+Standalone spring supports (not tied to a mat/footing) that only resist compression or only resist tension. `kFX`/`kFY`/`kFZ` are direction flags — pass a value greater than 0 to enable the spring in that translational direction:
+
+```python
+comp_id = sup.CreateCompressionOnlySpring(kFX=1, kFY=0, kFZ=1)   # spring active in X and Z
+tens_id = sup.CreateTensionOnlySpring(kFX=0, kFY=1, kFZ=0)       # spring active in Y
+```
+Both return a support reference number ID — assign with `AssignSupportToEntityList(supportId, [nodeId, ...])`, which reports `type` 14 for compression-only and 15 for tension-only springs. Inspect an assigned spring with `GetSupportInformationEx(nodeNo)`.
+
 ### Assigning Supports
 
 - `sup.AssignSupportToNode(nodeID, supportID)` — assigns to a **SINGLE node**
@@ -96,7 +106,7 @@ foot_id = sup.CreateElasticFooting(length, width, direction, subgrade)
 | `GetSupportNodes()`               | list of supported node IDs                        |
 | `GetSupportType(nodeNo)`          | support type code (see SUPPORT_CODES.md)          |
 | `GetSupportInformation(nodeNo)`   | `(type, releases, springs)`                       |
-| `GetSupportInformationEx(nodeNo)` | `(supportNo, type, releases, springs)`            |
+| `GetSupportInformationEx(nodeNo)` | `(supportNo, type, releases, springs)` — `type` includes 14=CompressionOnlySpring, 15=TensionOnlySpring (see SUPPORT_CODES.md) |
 | `GetSupportName(supportNo)`       | support name                                      |
 | `GetCountOfElasticMat()`          | elastic mat count                                 |
 | `GetElasticMatDetail(matId)`      | `(direction, subgrade, print, spring, nodeCount)` |
@@ -138,3 +148,5 @@ See [assign-fixed-supports.py](./scripts/assign-fixed-supports.py) for a complet
 - When nodes were added in-memory in the same script, call `SaveModel(True)` before assigning supports — do NOT use `UpdateStructure()` (it discards unsaved geometry)
 - For `CreateSupportFixedBut`: use `-1` for spring DOFs (not `1`); `1` = released, `0` = fixed, `-1` = spring
 - **Compression-only supports (`springType=1`) are only compatible with plain linear static analysis** — using them with P-Delta, Nonlinear, Buckling, or Cable analysis causes an engine error. The engine uses spring deactivation iterations that cannot coexist with those solver modes.
+- The same tension/compression-only incompatibility applies to `CreateCompressionOnlySpring`/`CreateTensionOnlySpring` — use plain linear static analysis only.
+- `CreateCompressionOnlySpring`/`CreateTensionOnlySpring` supports must be assigned with `AssignSupportToEntityList` — confirmed live: `AssignSupportToNode` fails with `"Unable to assign support to node(s)"` for these two support types even on a node with no existing support, while `AssignSupportToEntityList(supportId, [nodeId])` succeeds.

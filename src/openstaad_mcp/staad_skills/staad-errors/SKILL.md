@@ -63,6 +63,8 @@ for s, e in [(1, 2), (2, 3), (3, 99)]:
 
 ## Common Error Code Groups
 
+See **[ERROR_CODES.md](./assets/ERROR_CODES.md)** for the full table of exception class names per code.
+
 | Range | Category | Examples |
 |-------|----------|----------|
 | `-1` | General error | Generic failure |
@@ -71,6 +73,7 @@ for s, e in [(1, 2), (2, 3), (3, 99)]:
 | `-101` | Model not opened | `OsModelNotOpened` |
 | `-114` | OLE exception | `OsOleException` |
 | `-115` | License not supported | OpenSTAAD Professional functions unavailable |
+| `-130`, `-131` | Argument errors | Index out of range, invalid direction code |
 | `-1003` | File error | File not found / access denied |
 | `-2001` to `-2006` | Node errors | Node not found, duplicate node |
 | `-3001` to `-3005` | Beam errors | Beam not found, invalid incidence |
@@ -79,7 +82,8 @@ for s, e in [(1, 2), (2, 3), (3, 99)]:
 | `-5001` to `-5005` | Solid errors | Solid not found |
 | `-6001` to `-6045` | Property errors | Profile not found, invalid property |
 | `-7001` | Group error | Group not found |
-| `-8001` to `-8041` | Load errors | Load case not found, create failed |
+| `-8001` to `-8049` | Load errors | Load case not found, create failed, enclosed zone errors |
+| `-8101` to `-8106` | Floor boundary errors | `IdentifyFloorBoundariesFromNodes` boundary validation failures |
 | `-9004`, `-9911` | Results errors | Results not available |
 
 ### Named Error Classes

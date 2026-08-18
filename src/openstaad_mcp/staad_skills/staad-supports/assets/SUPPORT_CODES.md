@@ -34,7 +34,7 @@ Used in `CreateElasticMat()`, `CreatePlateMat()`, `GetElasticMatDetail()`.
 
 ## GetSupportType Return Codes
 
-Returned by `GetSupportType(nodeNo)` and embedded in `GetSupportInformation` / `GetSupportInformationEx`.
+Returned by `GetSupportType(nodeNo)` and embedded in `GetSupportInformation` / `GetSupportInformationEx` (confirmed live: `GetSupportType` returns 14/15 for the new spring types at runtime even though its own docstring table doesn't list them).
 
 | Value | Type                              |
 | ----- | --------------------------------- |
@@ -52,6 +52,8 @@ Returned by `GetSupportType(nodeNo)` and embedded in `GetSupportInformation` / `
 | 11    | Generated pinned                  |
 | 12    | Generated fixed                   |
 | 13    | Generated fixed with releases     |
+| 14    | Compression-only spring           |
+| 15    | Tension-only spring               |
 | -1    | Error                             |
 
 ## Spring Types

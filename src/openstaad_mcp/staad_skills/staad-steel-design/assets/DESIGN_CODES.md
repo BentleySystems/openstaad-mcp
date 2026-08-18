@@ -2,11 +2,7 @@
 
 This file contains design code indices for `CreateSteelDesignCommand()`.
 
-**Note:** The complete parameter tables are extensive (1000+ lines). Use Python introspection for full details:
-
-```python
-help(staad.Command.CreateSteelDesignCommand)
-```
+**Note:** The complete per-code parameter tables are extensive (1000+ lines) — this file lists the most commonly used parameter keywords/`NCommandNo` values below. Prefer the `Design` sub-module (see staad-steel-design SKILL.md) over this low-level `Command.CreateSteelDesignCommand` path when possible.
 
 ## Design Code Indices (NDesignCode)
 
@@ -123,4 +119,4 @@ The `IntValues`, `FloatValues`, and `StringValues` arrays depend on the command:
 - **KY=0.85**: `FloatValues=[0.85]`
 - **TRACK=2**: `IntValues=[2]` (detailed output)
 
-Consult the full docstring via `help()` for code-specific parameter requirements.
+This list covers the most common parameters; if a needed parameter/keyword isn't listed here, prefer the `Design` sub-module's typed methods (staad-steel-design SKILL.md) instead of guessing an `NCommandNo`.

@@ -1,6 +1,6 @@
 ﻿---
 name: staad-core
-description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), units and axis check via execute_code, unit conversion (English=inches/KIP, Metric=meters/kN), GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeModel/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit). Do not auto-save."
+description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), units and axis check via execute_code, unit conversion (English=inches/KIP, Metric=meters/kN), GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeModel/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit), job metadata (GetFullJobInfo, GetShortJobInfo, SetFullJobInfo, SetShortJobInfo). Do not auto-save."
 ---
 
 # STAAD.Pro Core — Sandbox & Model Setup
@@ -70,7 +70,7 @@ that version or newer.
 - Y-up: vertical axis is Y; Z-up: vertical axis is Z
 - Convert all user-provided dimensions to the base unit before passing to the API
 - Do NOT change the unit system unless the user explicitly asks
-- `staad.SetInputUnits(lengthUnit, forceUnit)` → change input units (integer codes)
+- `staad.SetInputUnits(lengthUnit, forceUnit)` → change input units (integer codes) — see **[UNIT_CODES.md](./assets/UNIT_CODES.md)** for the full length/force code tables
 
 ### SetSilentMode
 
@@ -110,7 +110,6 @@ The following functions are available but **path-validated** by the sandbox:
 
 - `staad.OpenSTAADFile(filePath)` — open an existing STAAD model file
 - `staad.NewSTAADFile(filePath, envCode, unitCode)` — create a new STAAD model file
-- `staad.SaveAs(filePath)` — save the current model to a new file path
 - `staad.CloseSTAADFile()` — close the currently open model
 
 **Path rules** (enforced automatically — violations raise an error):
@@ -128,9 +127,6 @@ staad.OpenSTAADFile("C:\\Projects\\Bridge\\bridge_v2.std")
 # Create a new model (envCode=1 for general, unitCode depends on unit system)
 staad.NewSTAADFile("C:\\Projects\\NewModel\\frame.std", 1, 0)
 
-# Save a copy
-staad.SaveAs("C:\\Projects\\Bridge\\bridge_backup.std")
-
 # Close the current model
 staad.CloseSTAADFile()
 ```
@@ -145,6 +141,14 @@ staad.CloseSTAADFile()
 - `staad.GetApplicationVersion()` → version string
 - `staad.IsPhysicalModel()` → True if physical model mode
 - `staad.Quit()` — close the application (use with caution)
+- `staad.GetErrorMessage()` → last error message text thrown by OpenSTAAD (e.g. missing license, missing named view)
+
+### Job Metadata
+
+- `staad.GetShortJobInfo()` → `(job_name, job_id, job_status)`
+- `staad.SetShortJobInfo(job_name, job_id, job_status)`
+- `staad.GetFullJobInfo()` → `[job_name, job_client, eng_name, eng_date, job_number, revision, part_name, reference, checker_name, checker_date, approver_name, approval_date, comments]` (13 fields)
+- `staad.SetFullJobInfo(job_name, job_client, eng_name, eng_date, job_number, revision, part_name, reference, checker_name, checker_date, approver_name, approval_date, comments)` — only `job_name` is required, the rest default to `""`
 
 ### Analysis Shortcuts
 
@@ -164,3 +168,4 @@ staad.CloseSTAADFile()
 - **Never** call `SaveModel` without explicit user instruction
 - `UpdateStructure` **discards** in-memory geometry not yet on disk — use `SaveModel(True)` instead when you need to flush before support/load assignment
 - `AnalyzeEx` runs both analysis AND design; `AnalyzeModel` runs analysis only
+

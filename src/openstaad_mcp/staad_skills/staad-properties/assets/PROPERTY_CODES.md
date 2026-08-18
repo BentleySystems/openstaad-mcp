@@ -131,3 +131,32 @@ The `dof_values` and `spring_constant_values` lists have 6 elements:
 | 2     | Concrete      |
 | 3     | Aluminum      |
 | 4     | Timber        |
+
+## Section Property Type Numbers (GetBeamSectionPropertyTypeNo)
+
+| Section Type | Value | Section Type | Value |
+| ------------ | ----- | ------------- | ----- |
+| BEAM ST | 610 | HSS RECTANGLE | 654 |
+| BEAM D | 616 | HSS ROUND | 655 |
+| BEAM TC | 613 | CASTEL ST | 656 |
+| BEAM BC | 614 | TUBE ST | 650 |
+| BEAM TB | 615 | TEE ST | 620 |
+| BEAM T | 611 | PLATE STRIP | 666 |
+| BEAM CM | 612 | ANGLE COLD ST | 644 |
+| CHANNEL ST | 630 | ANGLE COLD ST WITH LIPS | 645 |
+| CHANNEL D | 631 | CHANNEL COLD ST | 634 |
+| CHANNEL FR | 633 | CHANNEL COLD ST WITH LIPS | 635 |
+| ANGLE ST | 640 | ZEE COLD ST | 662 |
+| ANGLE LD | 642 | ZEE COLD ST WITH LIPS | 663 |
+| ANGLE SD | 643 | HAT COLD ST | 664 |
+| ANGLE RA | 641 | TAPER | 680 |
+| ANGLE SA | 646 | TAPERED TUBE | 675 |
+| PIPE ST | 660 | PRISMATIC CIRCLE | 671 |
+| PRISMATIC RECT | 672 | PRISMATIC TRAP | 674 |
+| PRISMATIC TEE | 673 | PRISMATIC GENERAL | 676 |
+| SOLID ROUND | 668 | UPT PRISMATIC | 699 |
+| UPT GENERAL | 697 | UPT WIDE FLANGE | 690 |
+| UPT CHANNEL | 691 | UPT ANGLE | 692 |
+| UPT DOUBLE ANGLE | 693 | UPT TEE | 694 |
+| UPT PIPE | 695 | UPT TUBE | 696 |
+| UPT ISECTION | 698 | | |

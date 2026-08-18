@@ -69,6 +69,7 @@ out.GetIntermediateMemberAbsTransDisplacements(bid, distance, lc)  # relative di
 ```
 
 ### Plate Results
+See **[PLATE_RESULT_INDICES.md](./assets/PLATE_RESULT_INDICES.md)** for the index→symbol meaning of each return value below.
 ```python
 # Center stresses [SQX, SQY, MX, MY, MXY, SX, SY, SXY]
 out.GetAllPlateCenterStressesAndMoments(plateNo, lc)

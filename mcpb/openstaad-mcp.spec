@@ -8,11 +8,12 @@ Both bundle the Python runtime, all dependencies, openstaadpy, and bundled
 STAAD skills content.
 """
 
+import importlib.util
 import os
 import tomllib
 from pathlib import Path
 
-from PyInstaller.utils.hooks import copy_metadata
+from PyInstaller.utils.hooks import collect_all, copy_metadata
 from PyInstaller.utils.win32.versioninfo import (
     FixedFileInfo,
     StringFileInfo,
@@ -39,6 +40,24 @@ if skills_dir.exists():
 # fastmcp reads its version via importlib.metadata at import time.
 # Include distribution metadata so frozen builds can resolve it.
 package_metadata = copy_metadata("fastmcp")
+
+# openstaadpy is installed editable in dev venvs: its finder redirects imports to
+# the real source checkout, but PyInstaller's static modulegraph analysis does not
+# follow that redirection, so hidden-import verification fails even though
+# collect_all() can find the submodule names by walking the filesystem. Resolve the
+# real source directory via importlib and add its parent to pathex so modulegraph
+# treats it like a normal package on the path.
+openstaadpy_extra_pathex = []
+_openstaadpy_spec = importlib.util.find_spec("openstaadpy")
+if _openstaadpy_spec and _openstaadpy_spec.submodule_search_locations:
+    openstaadpy_extra_pathex.append(str(Path(list(_openstaadpy_spec.submodule_search_locations)[0]).parent))
+
+openstaadpy_datas, openstaadpy_binaries, openstaadpy_hiddenimports = collect_all("openstaadpy")
+
+# comtypes is openstaadpy's COM layer; collect_all("openstaadpy") does not pull in
+# transitive third-party deps, and comtypes dynamically generates/imports
+# submodules (comtypes.gen, comtypes.stream, etc.) that static analysis misses.
+comtypes_datas, comtypes_binaries, comtypes_hiddenimports = collect_all("comtypes")
 
 
 def _build_version_info(raw_version):
@@ -95,20 +114,20 @@ version_info = _build_version_info(raw_version)
 
 a = Analysis(
     [str(ROOT / "src" / "openstaad_mcp" / "main.py")],
-    pathex=[str(ROOT / "src")],
-    binaries=[],
-    datas=skills_data + package_metadata,
+    pathex=[str(ROOT / "src")] + openstaadpy_extra_pathex,
+    binaries=openstaadpy_binaries + comtypes_binaries,
+    datas=skills_data + package_metadata + openstaadpy_datas + comtypes_datas,
     hiddenimports=[
         "openstaad_mcp",
         "openstaad_mcp.server",
         "openstaad_mcp.connection",
         "openstaad_mcp.sandbox",
-        "openstaad_mcp.executor",
-        "openstaadpy",
-        "openstaadpy.os_analytical",
+        "openstaad_mcp.sandbox.executor",
         "uvicorn",
         "fastmcp",
-    ],
+    ]
+    + openstaadpy_hiddenimports
+    + comtypes_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

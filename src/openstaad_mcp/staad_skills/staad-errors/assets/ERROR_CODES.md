@@ -17,6 +17,8 @@ All exceptions inherit from `OsErrorBase(Exception)` and expose a `.code` attrib
 | -112 | `OsDoubleExpected` | Double value expected |
 | -113 | `OsIntegerExpected` | Integer value expected |
 | -125 | `OsArraySizeLessThanReqd` | Array size less than required |
+| -130 | `OsIndexOutOfRange` | Index out of range |
+| -131 | `OsInvalidDirectionCode` | Invalid direction code |
 
 ## File Errors
 
@@ -102,6 +104,19 @@ All exceptions inherit from `OsErrorBase(Exception)` and expose a `.code` attrib
 | -8039 | `OsInvalidLoadDefId` | Invalid load definition ID |
 | -8040 | `OsInvalidLoadCombName` | Invalid load combination name |
 | -8041 | `OsInvalidLoadCombCategory` | Invalid load combination category |
+| -8043 | `OsEnclosedZoneNotFound` | Enclosed zone not found |
+| -8044 | `OsCreateEnclosedZoneFailed` | Failed to create enclosed zone |
+| -8045 | `OsAddOpeningFailed` | Failed to add opening to enclosed zone |
+| -8046 | `OsIgnoreMemberPanelFailed` | Failed to ignore members for panel formation |
+| -8047 | `OsIgnoreMemberLoadFailed` | Failed to ignore members for load transfer |
+| -8048 | `OsEnclosedZoneAlreadyExists` | Enclosed zone already exists |
+| -8049 | `OsAddEnclosedZoneLoadFailed` | Failed to add load to enclosed zone |
+| -8101 | `OsBoundaryNoBeamsFound` | No beams found for the floor boundary |
+| -8102 | `OsBoundaryInsufficientNodes` | Insufficient nodes for the floor boundary |
+| -8103 | `OsBoundaryInsufficientBeams` | Insufficient beams for the floor boundary |
+| -8104 | `OsBoundaryNonCoplanar` | Floor boundary nodes are not coplanar |
+| -8105 | `OsBoundaryAllNodesCollinear` | All floor boundary nodes are collinear |
+| -8106 | `OsBoundaryMissingNodeReference` | Missing node reference in the floor boundary |
 
 ## Results Errors
 
