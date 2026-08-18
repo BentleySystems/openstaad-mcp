@@ -255,7 +255,7 @@ def _register_tools(
             }
 
         # ── Resolve allowed dirs for path validation ──
-        allowed_dirs = await get_allowed_dirs(ctx, args_allowed_dirs, input_data_path, output_data_path)
+        allowed_dirs = await get_allowed_dirs(ctx, args_allowed_dirs)
 
         # ── Input file handling (server-side, outside sandbox) ───────
         try:
