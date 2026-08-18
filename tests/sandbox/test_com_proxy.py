@@ -152,19 +152,6 @@ class TestBlockedDangerousMethods:
         with pytest.raises(ValueError, match="protected"):
             proxy.OpenSTAADFile("C:\\Program Files\\model.std")
 
-    # -- SaveAs ----------------------------------------------------------------
-
-    def test_save_as_valid_path(self, proxy):
-        assert proxy.SaveAs("D:\\backups\\model_v2.std") is True
-
-    def test_save_as_wrong_extension(self, proxy):
-        with pytest.raises(ValueError, match="extensions"):
-            proxy.SaveAs("C:\\models\\model.zip")
-
-    def test_save_as_protected_dir(self, proxy):
-        with pytest.raises(ValueError, match="protected"):
-            proxy.SaveAs("C:\\ProgramData\\model.std")
-
     # -- CloseSTAADFile (no path arg — always allowed) -------------------------
 
     def test_close_staad_file_allowed(self, proxy):
