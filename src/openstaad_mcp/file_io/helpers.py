@@ -8,12 +8,12 @@ Server-level helpers and public dispatch functions for file I/O."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
 
 from fastmcp.server.context import Context
-from mcp.shared.exceptions import McpError
 
 from openstaad_mcp.file_io.path_validator import FileIOError, parse_roots_to_dirs, validate_io_path
 from openstaad_mcp.file_io.readers import BaseReader, CSVReader, XLSXReader
@@ -80,22 +80,19 @@ def write_output_file(path: str, data: Any, allowed_dirs: list[Path], *, overwri
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-async def get_allowed_dirs(
-    ctx: Context, args_allowed_dirs: list[Path], input_path: str | None, output_path: str | None
-) -> list[Path]:
-    """Resolve MCP roots into a list of allowed directories."""
-    logger.debug("Args allowed dirs: %s", args_allowed_dirs)
-    allowed_dirs: list[Path] = [Path(el) for el in args_allowed_dirs]
-    if input_path is not None or output_path is not None:
-        try:
+async def get_allowed_dirs(ctx: Context, args_allowed_dirs: list[Path]) -> list[Path]:
+    """Resolve the list of allowed directories. Best-effort support for (deprecated) MCP Roots."""
+    if isinstance(args_allowed_dirs, list) and args_allowed_dirs:
+        logger.debug("Using allowed directories from CLI args: %s", args_allowed_dirs)
+        return args_allowed_dirs
+    try:
+        async with asyncio.timeout(2):
             roots = await ctx.list_roots()
-            logger.debug(f"Received MCP roots: {roots}")
-        except McpError as exc:
-            logger.error(f"Error listing MCP roots: {exc}")
-            roots = []
-        allowed_dirs += parse_roots_to_dirs(roots)
-    logger.debug(f"Allowed directories for file I/O: {allowed_dirs}")
-    return allowed_dirs
+        logger.debug("Received MCP roots: %s", roots)
+    except Exception as exc:
+        logger.error("Error listing MCP roots: %s", exc)
+        roots = []
+    return parse_roots_to_dirs(roots)
 
 
 async def get_input_data(input_path: str | None, allowed_dirs: list[Path]) -> tuple[Any, dict[str, Any] | None]:
