@@ -4,14 +4,13 @@ Copyright (c) Bentley Systems, Incorporated. All rights reserved.
 See LICENSE.md in the project root for license terms and full copyright notice.
 ---------------------------------------------------------------------------------------------
 
-Validation and data-freezing utilities for file I/O.
+Validation utilities for file I/O.
 """
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
-from types import MappingProxyType
 from typing import Any
 
 from pydantic import ValidationError
@@ -27,7 +26,7 @@ def validate_return_value(path: Path, value: Any) -> None:
     - ``list[list[primitive]]``  (flat / CSV / single-sheet)
     - ``dict[str, {columns: list, rows: list[list[primitive]]}]``  (multi-sheet)
 
-    Tuples are accepted interchangeably with lists (sandbox returns frozen data).
+    Pydantic accepts tuples interchangeably with lists.
     """
     ext = path.suffix.lower()
     if isinstance(value, (list, tuple)):
@@ -87,19 +86,3 @@ def validate_args_allowed_dirs(allowed_dirs: list[str] | None) -> list[Path]:
             result.append(normalized_original)
 
     return result
-
-
-def deep_freeze(data: Any) -> Any:
-    """Recursively convert mutable containers to immutable equivalents.
-
-    - ``list`` -> ``tuple``
-    - ``dict`` -> ``MappingProxyType`` (with recursively frozen values)
-    - Primitives (str, int, float, bool, None) pass through unchanged.
-    """
-    if data is None or isinstance(data, (str, int, float, bool)):
-        return data
-    if isinstance(data, (list, tuple)):
-        return tuple(deep_freeze(item) for item in data)
-    if isinstance(data, dict):
-        return MappingProxyType({k: deep_freeze(v) for k, v in data.items()})
-    return data
