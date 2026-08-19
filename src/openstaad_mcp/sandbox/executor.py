@@ -94,7 +94,7 @@ class Executor:
         staad_object:
             The connected OpenSTAAD root object (or a mock for testing).
         input_data:
-            Optional pre-parsed, deep-frozen data injected as ``input_data``
+            Optional pre-parsed data injected as ``input_data``
             in the sandbox globals.  ``None`` when no input file is provided.
 
         Returns

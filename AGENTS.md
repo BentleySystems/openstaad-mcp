@@ -51,7 +51,7 @@ pytest -m integration -v              # Integration tests (Windows + STAAD runni
 - `ALLOWED_BUILTINS` and `ALLOWED_MODULE_ATTRS` in `sandbox/const.py` are allowlists, not blocklists
 - `COMProxy` must block all internal COM attributes (`_oleobj_`, `_ApplyTypes_`, etc.)
 - File path validation must reject UNC paths and writes to `Windows/`, `Program Files/`, `ProgramData/`
-- Inputs passed to the sandbox must be deep-frozen (tuples, not lists) to prevent mutation
+- File inputs passed to the sandbox use fresh native lists/dicts for agent compatibility. Sandbox mutations must remain local to that execution and must never alter the source file or persist across executions.
 - HTTP mode requires `SecFetchMiddleware` and supports optional bearer token auth
 - Never expose stack traces to end users — sanitize error messages
 

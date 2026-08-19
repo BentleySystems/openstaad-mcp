@@ -17,7 +17,7 @@ from fastmcp.server.context import Context
 
 from openstaad_mcp.file_io.path_validator import FileIOError, parse_roots_to_dirs, validate_io_path
 from openstaad_mcp.file_io.readers import BaseReader, CSVReader, XLSXReader
-from openstaad_mcp.file_io.validation import deep_freeze, validate_return_value
+from openstaad_mcp.file_io.validation import validate_return_value
 from openstaad_mcp.file_io.writers import BaseWriter, CSVWriter, XLSXWriter
 
 logger = logging.getLogger(__name__)
@@ -96,12 +96,11 @@ async def get_allowed_dirs(ctx: Context, args_allowed_dirs: list[Path]) -> list[
 
 
 async def get_input_data(input_path: str | None, allowed_dirs: list[Path]) -> tuple[Any, dict[str, Any] | None]:
-    """Validate path, read file, freeze data.  Returns ``(data, summary)``."""
+    """Validate and read an input file. Returns ``(data, summary)``."""
     if input_path is None:
         return None, None
     resolved_input = validate_io_path(input_path, allowed_dirs, mode="read")
-    data, input_summary = read_input_file(resolved_input)
-    return deep_freeze(data), input_summary
+    return read_input_file(resolved_input)
 
 
 async def detect_input_output_collision(

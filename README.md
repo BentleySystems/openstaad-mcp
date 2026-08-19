@@ -194,9 +194,14 @@ CSV and XLSX files directly and injects the data into the sandbox as the `input_
 
 | Parameter | Description |
 |-----------|-------------|
-| `input_path` | Path to a `.csv` or `.xlsx` file. The server reads and parses it, then injects the data as the immutable `input_data` variable in the sandbox. |
-| `output_path` | Path where the sandbox return value will be written. The return value must be a list-of-lists (CSV) or a `{sheet_name: {columns, rows}}` dict (multi-sheet XLSX). |
+| `input_data_path` | Path to a `.csv` or `.xlsx` file. The server reads and parses it, then injects as the `input_data` variable in the sandbox. |
+| `output_data_path` | Path where the sandbox return value will be written. The return value must be a list-of-lists (CSV) or a `{sheet_name: {columns, rows}}` dict (multi-sheet XLSX). |
 | `overwrite` | Allow overwriting an existing output file (default `false`). |
+
+`input_data` has a stable, extension-specific shape:
+
+- CSV: a list of row lists. If a header is detected, it is `input_data[0]` and data rows start at `input_data[1:]`.
+- XLSX: a dict: `{sheet_name: {"columns": list, "rows": list_of_rows}}`.
 
 **Path containment:** File paths must resolve inside a configured allowed boundary before any read/write occurs.
 The server supports both **client-configured MCP roots** and **server-configured allowed directories** (via `--allowed-dirs` or `user_config.allowed_directories` in the manifest).

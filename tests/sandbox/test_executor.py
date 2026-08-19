@@ -682,25 +682,6 @@ class TestInputInjection:
         assert r.success
         assert r.result == [["a", "b"], [1, 2], [3, 4]]
 
-    def test_input_deeply_immutable(self, staad, executor):
-        """Sandbox code cannot mutate ``input_data`` (tuples are immutable)."""
-        data = (("a", "b"), (1, 2))
-        r = executor.execute(
-            dedent(
-                """
-                try:
-                    input_data[0] = "mutated"
-                    result = "mutation succeeded"
-                except TypeError:
-                    result = "immutable"
-                """
-            ),
-            staad,
-            input_data=data,
-        )
-        assert r.success
-        assert r.result == "immutable"
-
     def test_input_iterable(self, staad, executor):
         """Sandbox code can iterate over ``input_data``."""
         data = ((10,), (20,), (30,))
@@ -728,11 +709,11 @@ class TestInputInjection:
 
     def test_input_dict_shape(self, staad, executor):
         """Dict-shaped input_data (XLSX multi-sheet) works."""
-        data = {"Sheet1": {"columns": ("a",), "rows": ((1,), (2,))}}
+        data = {"Sheet1": {"columns": ["a"], "rows": [[1], [2]]}}
         r = executor.execute(
-            "result = len(input_data['Sheet1']['rows'])",
+            "input_data['Sheet1']['rows'].append([3])\nresult = [isinstance(input_data, dict), input_data]",
             staad,
             input_data=data,
         )
         assert r.success
-        assert r.result == 2
+        assert r.result == [True, {"Sheet1": {"columns": ["a"], "rows": [[1], [2], [3]]}}]
