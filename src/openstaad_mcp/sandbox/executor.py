@@ -21,6 +21,7 @@ import json
 import sys
 import threading
 import time
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
@@ -116,7 +117,7 @@ class Executor:
         sandbox_globals: dict[str, Any] = {"__builtins__": self.safe_builtins.copy()}
         sandbox_globals.update(self.injected_modules)
         sandbox_globals["staad"] = COMProxy(staad_object)
-        sandbox_globals["input_data"] = input_data
+        sandbox_globals["input_data"] = deepcopy(input_data)
 
         # ── 4. Execute with stdout/stderr capture ───────────────────
         captured_out, captured_err = LimitedStringIO(), LimitedStringIO()
