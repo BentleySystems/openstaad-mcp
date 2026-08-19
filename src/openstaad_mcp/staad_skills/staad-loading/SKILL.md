@@ -229,7 +229,7 @@ load.IgnoreMembersForLoadTransferInEnclosedZone(zoneName, memberNos)     # exclu
 load.DeleteEnclosedZone(zoneName)   # → bool
 ```
 
-**Zone load** — applies to the active load case; `loadValue` in current input units (see staad-core Units & Axis):
+**Zone load** — applies to the active load case; `loadValue` in base units (see staad-core Units & Axis):
 
 | loadDirection | Coordinate system |     | loadDirection | Coordinate system |
 | ------------- | ------------------ | --- | -------------- | ------------------ |

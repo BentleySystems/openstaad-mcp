@@ -63,13 +63,14 @@ that version or newer.
 ### Units & Axis
 
 - Before any modeling operation, query units via `execute_code`:
-  - `staad.GetBaseUnit()` → `"English"` or `"Metric"` (unit family only, NOT the exact unit — see below)
+  - `staad.GetBaseUnit()` → `"English"` or `"Metric"`
   - `staad.Geometry.IsZUp()` → `True` if Z is up
-  - `staad.GetInputUnitForLength()` / `staad.GetInputUnitForForce()` → the ACTUAL current input unit strings (e.g. `"Feet"`/`"Inch"`, `"Kilopound"`) that every load/geometry numeric input must match
-- Do NOT assume `English` always means inches/KIP or `Metric` always means meters/kN — the active length/force unit can change independently within either family (confirmed live: an `English` model had `GetInputUnitForLength()` return `"Feet"`, not inches). Always query `GetInputUnitForLength()`/`GetInputUnitForForce()` and convert user-provided values to those exact units before any COM call that takes a numeric magnitude (loads, dimensions, etc.)
+- `English` = inches + KIP; `Metric` = meters + kN
 - Y-up: vertical axis is Y; Z-up: vertical axis is Z
+- Convert all user-provided dimensions to the base unit before passing to the API
 - Do NOT change the unit system unless the user explicitly asks
 - `staad.SetInputUnits(lengthUnit, forceUnit)` → change input units (integer codes) — see **[UNIT_CODES.md](./assets/UNIT_CODES.md)** for the full length/force code tables
+- `staad.GetInputUnitForLength()` / `staad.GetInputUnitForForce()` do NOT reflect the unit used by geometry/load numeric inputs — confirmed live: `GetBaseUnit()` stays `"English"` and `AddNode`/`GetNodeCoordinates` raw values are unaffected even after calling `SetInputUnits` with a Metric length code. Do not use these two getters to decide unit conversion for `AddNode`, `AddBeam`, or load magnitudes — rely on `GetBaseUnit()` instead.
 
 ### SetSilentMode
 
