@@ -15,7 +15,7 @@ Sub-modules
 ``readers``     -- BaseReader, CSVReader, XLSXReader
 ``writers``     -- BaseWriter, CSVWriter, XLSXWriter
 ``models``      -- Pydantic models for return-value validation
-``validation``  -- validate_return_value, validate_args_allowed_dirs, deep_freeze
+``validation``  -- validate_return_value, validate_args_allowed_dirs
 ``helpers``     -- get_allowed_dirs, get_input_data, dispatch functions
 """
 
@@ -26,18 +26,13 @@ from openstaad_mcp.file_io.helpers import (
     write_output_file,
 )
 from openstaad_mcp.file_io.readers import CSVReader, XLSXReader
-from openstaad_mcp.file_io.validation import (
-    deep_freeze,
-    validate_args_allowed_dirs,
-    validate_return_value,
-)
+from openstaad_mcp.file_io.validation import validate_args_allowed_dirs, validate_return_value
 from openstaad_mcp.file_io.writers import CSVWriter
 
 __all__ = [
     "CSVReader",
     "CSVWriter",
     "XLSXReader",
-    "deep_freeze",
     "get_allowed_dirs",
     "get_input_data",
     "read_input_file",

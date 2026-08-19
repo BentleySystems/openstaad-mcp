@@ -225,8 +225,19 @@ def _register_tools(
         instance: str
             Alias (from ``list_instances``, e.g. ``staadPro1``) of the STAAD instance to target. If omitted, last opened instance is selected.
         input_data_path: str, optional
-            Path on user LOCAL filesystem to a ``.csv`` or ``.xlsx`` file. Its content is injected as the immutable `input_data` variable inside the sandbox.
+            Path on user LOCAL filesystem to a ``.csv`` or ``.xlsx`` file. Its content is parsed and injected as ``input_data`` inside the sandbox.
             Use this to feed large datasets (e.g. node loads, section properties) into your code without hardcoding them.
+            The shape is determined by the extension:
+            - CSV -> list of row lists. When a header is detected, it is the first row:
+                columns = input_data[0]
+                for row in input_data[1:]:
+                    print(row)
+            - XLSX -> dict mapping every sheet to ``columns`` and ``rows`` lists:
+                sheet = input_data["Sheet1"]
+                columns = sheet["columns"]
+                for row in sheet["rows"]:
+                    print(row)
+            The containers are mutable for normal Python compatibility, but are fresh for each execution; mutations do not change the source file or persist across executions.
         output_data_path: str, optional
             Path on user LOCAL filesystem to a ``.csv`` or ``.xlsx`` file where to write the ``result`` value.
             Use this to avoid flooding the context window with large amount of data. The ``result`` variable must be formatted as one of:

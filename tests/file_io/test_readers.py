@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from openstaad_mcp.file_io import CSVReader, XLSXReader, read_input_file
+from openstaad_mcp.file_io import CSVReader, XLSXReader, get_input_data, read_input_file
 from openstaad_mcp.file_io.path_validator import FileIOError
 from openstaad_mcp.file_io.readers import _detect_header
 
@@ -288,6 +288,34 @@ class TestSummaries:
         summary = XLSXReader(FIXTURES_DIR / "multi_sheet.xlsx").build_summary(data)
         assert set(summary["sheets"]) == {"Beams", "Loads"}
         assert summary["total_rows"] == 1
+
+
+class TestInputData:
+    async def test_csv_returns_fresh_mutable_native_containers(self):
+        data, _ = await get_input_data(str(FIXTURES_DIR / "basic.csv"), [FIXTURES_DIR])
+
+        assert isinstance(data, list)
+        assert isinstance(data[0], list)
+        data[1][0] = "changed"
+        data.append(["new", 3])
+
+        reread, _ = await get_input_data(str(FIXTURES_DIR / "basic.csv"), [FIXTURES_DIR])
+        assert reread == [["name", "value"], ["A", 1], ["B", 2.5]]
+
+    async def test_xlsx_returns_fresh_mutable_native_containers(self):
+        data, _ = await get_input_data(str(FIXTURES_DIR / "single_sheet.xlsx"), [FIXTURES_DIR])
+
+        assert isinstance(data, dict)
+        assert isinstance(data["Sheet1"], dict)
+        assert isinstance(data["Sheet1"]["columns"], list)
+        assert isinstance(data["Sheet1"]["rows"], list)
+        assert isinstance(data["Sheet1"]["rows"][0], list)
+        data["Sheet1"]["columns"][0] = "changed"
+        data["Sheet1"]["rows"].append([5, 6])
+        data["Other"] = {"columns": [], "rows": []}
+
+        reread, _ = await get_input_data(str(FIXTURES_DIR / "single_sheet.xlsx"), [FIXTURES_DIR])
+        assert reread == {"Sheet1": {"columns": ["a", "b"], "rows": [[1, 2], [3, 4]]}}
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -86,7 +86,7 @@ def check_cell(v: Any, reject_formula: bool = True) -> CellValue:
 
 
 # ---------------------------------------------------------------------------
-# Row type — a list (or tuple) of cell values
+# Row type — a list of cell values
 # ---------------------------------------------------------------------------
 
 Row = Annotated[list[CellValue], "A row of cell values"]
@@ -99,14 +99,6 @@ Row = Annotated[list[CellValue], "A row of cell values"]
 
 class FlatOutput(RootModel[list[Row]]):
     """Flat tabular output: list of rows, each row a list of JSON-primitive cells."""
-
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce_sequences(cls, v: Any) -> Any:
-        """Accept tuples (from deep_freeze) as rows."""
-        if isinstance(v, (list, tuple)):
-            return [list(row) if isinstance(row, (list, tuple)) else row for row in v]
-        return v
 
     @model_validator(mode="after")
     def _check_limits(self) -> FlatOutput:
@@ -133,19 +125,6 @@ class SheetData(BaseModel):
 
     columns: list[CellValue]
     rows: list[Row]
-
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce_sequences(cls, v: Any) -> Any:
-        """Accept tuples (from deep_freeze) as columns/rows."""
-        if isinstance(v, dict):
-            data = dict(v)
-            if "columns" in data and isinstance(data["columns"], tuple):
-                data["columns"] = list(data["columns"])
-            if "rows" in data and isinstance(data["rows"], (list, tuple)):
-                data["rows"] = [list(r) if isinstance(r, (list, tuple)) else r for r in data["rows"]]
-            return data
-        return v
 
     @model_validator(mode="after")
     def _check_limits(self) -> SheetData:

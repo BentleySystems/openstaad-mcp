@@ -21,6 +21,7 @@ import json
 import sys
 import threading
 import time
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
@@ -94,7 +95,7 @@ class Executor:
         staad_object:
             The connected OpenSTAAD root object (or a mock for testing).
         input_data:
-            Optional pre-parsed, deep-frozen data injected as ``input_data``
+            Optional pre-parsed data injected as ``input_data``
             in the sandbox globals.  ``None`` when no input file is provided.
 
         Returns
@@ -116,7 +117,7 @@ class Executor:
         sandbox_globals: dict[str, Any] = {"__builtins__": self.safe_builtins.copy()}
         sandbox_globals.update(self.injected_modules)
         sandbox_globals["staad"] = COMProxy(staad_object)
-        sandbox_globals["input_data"] = input_data
+        sandbox_globals["input_data"] = deepcopy(input_data)
 
         # ── 4. Execute with stdout/stderr capture ───────────────────
         captured_out, captured_err = LimitedStringIO(), LimitedStringIO()
