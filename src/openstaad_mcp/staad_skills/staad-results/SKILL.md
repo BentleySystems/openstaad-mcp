@@ -1,6 +1,6 @@
 ﻿---
 name: staad-results
-description: 'Use when fetching analysis output: member end forces, bending moments, shear forces, axial forces, node displacements, support reactions, plate center/corner stresses, solid stresses, modal frequencies, buckling factors, time-history responses, steel design ratios. Covers: AreResultsAvailable (always check first), GetPrimaryLoadCaseNumbers (returns tuple — wrap in list()), GetMemberEndForces, GetMinMaxBendingMoment (dir is string not int), GetMinMaxShearForce, GetMinMaxAxialForce, GetNodeDisplacements, GetSupportReactions, GetAllPlateCenterStressesAndMoments, GetAllSolidNormalStresses, GetNoOfModesExtracted, GetModeFrequency, GetBucklingFactor, GetTimeHistoryResponse, GetMemberSteelDesignResults, output units. Requires staad-core and staad-analysis.'
+description: 'Use when fetching analysis output: member end forces, bending moments, shear forces, axial forces, node displacements, support reactions, plate center/corner stresses, solid stresses, modal frequencies, buckling factors, time-history responses, steel design ratios. Covers: AreResultsAvailable (always check first), GetPrimaryLoadCaseNumbers (returns tuple — wrap in list()), GetMemberEndForces, GetMinMaxBendingMoment (dir is string not int), GetMinMaxShearForce, GetMinMaxAxialForce, GetNodeDisplacements, GetSupportReactions, GetAllPlateCenterStressesAndMoments, GetAllSolidNormalStresses, GetNoOfModesExtracted, GetModeFrequency, GetBucklingFactor, GetTimeHistoryResponse, GetMemberSteelDesignResults; all results are returned in base units — use GetOutputUnitFor* as the conversion target when displaying values to the user. Requires staad-core and staad-analysis.'
 ---
 
 # STAAD.Pro Analysis Results
@@ -12,27 +12,75 @@ description: 'Use when fetching analysis output: member end forces, bending mome
 ### Always Check First
 - `out.AreResultsAvailable()` → `True` if results exist; `False` if analysis has not run
 - If `False`, run analysis before querying any results (see staad-analysis skill)
+- If the preceding `AnalyzeEx` returned status `4` (errors) or `-1` (terminated), do NOT call any `Output` getter yet — querying results from a failed run has been observed to raise a misleading `COMError: Memory is locked.` instead of a clear failure message. Check the status code and `AreResultsAvailable()` first, then read `staad.GetAnalysisErrorMessages()` for the real cause — see staad-analysis → [check-analysis-results.py](../staad-analysis/scripts/check-analysis-results.py)
 
 ### Load Cases
 - `load.GetPrimaryLoadCaseNumbers()` → returns a **tuple** — always wrap in `list()` before indexing
 - Never hardcode load case numbers — always fetch dynamically
 
-### Output Units
+### Output Units — results are in BASE units; convert for display
+
+**Every result getter (`GetMemberEndForces`, `GetNodeDisplacements`,
+`GetSupportReactions`, `GetAllPlateCenterStressesAndMoments`, etc.) returns numbers
+in the model's base unit system** — the same units used by every input function
+(see staad-core → Units & Axis: English=inches/KIP, Metric=meters/kN).
+`staad.GetBaseUnit()` is the only source of truth for interpreting a returned value.
+
+`GetOutputUnitFor*` report the unit the **STAAD.Pro UI** is currently configured to
+display each result category in. Use them as the **target** of a conversion so the
+values you report match what the user sees on screen — never as a description of
+what the getters returned.
+
 ```python
-out.GetOutputUnitForForce()         # e.g. "KIP"
-out.GetOutputUnitForMoment()        # e.g. "KIP-IN"
-out.GetOutputUnitForDisplacement()  # e.g. "in"
-out.GetOutputUnitForStress()        # e.g. "KSI"
-out.GetOutputUnitForDimension()
-out.GetOutputUnitForRotation()
-out.GetOutputUnitForSectDimension()
-out.GetOutputUnitForSectArea()
-out.GetOutputUnitForSectInertia()
-out.GetOutputUnitForSectModulus()
-out.GetOutputUnitForDensity()
-out.GetOutputUnitForDistForce()
-out.GetOutputUnitForDistMoment()
+out.GetOutputUnitForForce()         # e.g. "kN"
+out.GetOutputUnitForMoment()        # e.g. "kN-m"
+out.GetOutputUnitForDisplacement()  # e.g. "mm"
+out.GetOutputUnitForStress()        # e.g. "N/mm2"
+out.GetOutputUnitForDimension()     # e.g. "m"
+out.GetOutputUnitForRotation()      # e.g. "rad"
+out.GetOutputUnitForSectDimension() # e.g. "cm"
+out.GetOutputUnitForSectArea()      # e.g. "cm2"
+out.GetOutputUnitForSectInertia()   # e.g. "cm4"
+out.GetOutputUnitForSectModulus()   # e.g. "cm3"
+out.GetOutputUnitForDensity()       # e.g. "kg/m3"
+out.GetOutputUnitForDistForce()     # e.g. "kN/m"
+out.GetOutputUnitForDistMoment()    # e.g. "kN-m/m"
 ```
+
+**Base unit → UI unit is rarely 1:1.** On a Metric model the base length is `m`
+but the UI displays displacements in `mm` — a factor of 1000. Reporting a raw
+`GetNodeDisplacements` value next to the `mm` label without converting overstates
+or understates the result by three orders of magnitude, which silently breaks any
+serviceability check (e.g. "is the drift under 10 mm?").
+
+**Recommended reporting workflow:**
+
+1. Read the raw value from the getter — it is in base units.
+2. Do all engineering comparisons and calculations in base units (convert the
+   user's limits/targets into base units, not the other way round).
+3. Only when presenting a number to the user, convert it to the matching
+   `GetOutputUnitFor*` unit and label it with that unit string.
+
+```python
+out = staad.Output
+base = staad.GetBaseUnit()                     # 'English' or 'Metric'
+disp_unit = out.GetOutputUnitForDisplacement()  # UI display unit, e.g. 'mm'
+
+# Length conversion factors FROM the base length unit (Metric: m, English: in)
+per_base_length = {
+    'Metric':  {'m': 1.0, 'cm': 100.0, 'mm': 1000.0},
+    'English': {'in': 1.0, 'ft': 1.0 / 12.0},
+}
+factor = per_base_length[base][disp_unit]
+
+ux, uy, uz, rx, ry, rz = out.GetNodeDisplacements(node_id, lc)
+print(f'Node {node_id} UY = {uy * factor:.3f} {disp_unit}')   # matches the STAAD.Pro UI
+```
+
+Build the factor table only for the unit strings you actually receive — read the
+`GetOutputUnitFor*` value at runtime rather than assuming a fixed UI configuration,
+and raise/report clearly if the returned string is one you have no factor for.
+
 The `GetOutputUnitFor*` methods raise on error (e.g. if the model has no output
 units established yet) — `execute_code` reports any such error.
 
@@ -175,3 +223,6 @@ See [fetch-forces.py](./scripts/fetch-forces.py) for a complete working example.
 - `GetPrimaryLoadCaseNumbers()` returns a tuple — convert with `list()` before indexing
 - `GetMemberSteelDesignResults` raises an error for members not in the design brief
 - Always call `AreResultsAvailable()` before any output query
+- All result getters return values in **base units** (`GetBaseUnit()`). Compare against limits in base units, then convert to the `GetOutputUnitFor*` unit only when displaying to the user
+- Base and UI units are often different by orders of magnitude — a Metric model returns displacements in **m** while the UI shows **mm** (×1000). Never label a raw getter value with a `GetOutputUnitFor*` string without converting it first
+- Querying any `Output` getter right after a failed/errored `AnalyzeEx` (status `4` or `-1`) can raise `COMError: Memory is locked.` instead of a clear error — check `AreResultsAvailable()` and the analysis status first, see staad-analysis skill

@@ -39,6 +39,11 @@ This file contains the complete unit code mappings for `SetInputUnits()`, `SetIn
 
 ## Base Unit System
 
+**All input and output API functions work in base units.** `GetBaseUnit()` is the
+only unit source of truth — `GetInputUnitForLength()`/`GetInputUnitForForce()` and
+`Output.GetOutputUnitFor*` reflect STAAD.Pro UI display settings, not the units of
+values passed to or returned by the API.
+
 The `GetBaseUnit()` method returns:
 
 - `"English"` - Length values based on inches (in), force values based on kilopounds (kip)

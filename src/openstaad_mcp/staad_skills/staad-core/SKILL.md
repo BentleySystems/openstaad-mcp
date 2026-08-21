@@ -1,6 +1,6 @@
 ﻿---
 name: staad-core
-description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), units and axis check via execute_code, unit conversion (English=inches/KIP, Metric=meters/kN), GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeModel/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit), job metadata (GetFullJobInfo, GetShortJobInfo, SetFullJobInfo, SetShortJobInfo). Do not auto-save."
+description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), units and axis check via execute_code, ALL input and output API functions work in base units (English=inches/KIP, Metric=meters/kN) — GetOutputUnitFor*/GetInputUnitFor* are UI-display only, GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeModel/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit), job metadata (GetFullJobInfo, GetShortJobInfo, SetFullJobInfo, SetShortJobInfo). Do not auto-save."
 ---
 
 # STAAD.Pro Core — Sandbox & Model Setup
@@ -62,15 +62,22 @@ that version or newer.
 
 ### Units & Axis
 
+**EVERY input and output API function works in BASE UNITS.** Coordinates, lengths,
+section dimensions, load magnitudes, and every analysis result (member forces,
+displacements, reactions, stresses) are expressed in the model's base unit system —
+there is no per-function or per-module unit. `staad.GetBaseUnit()` is the single
+source of truth for what those units are.
+
 - Before any modeling operation, query units via `execute_code`:
   - `staad.GetBaseUnit()` → `"English"` or `"Metric"`
   - `staad.Geometry.IsZUp()` → `True` if Z is up
 - `English` = inches + KIP; `Metric` = meters + kN
 - Y-up: vertical axis is Y; Z-up: vertical axis is Z
-- Convert all user-provided dimensions to the base unit before passing to the API
+- Convert all user-provided dimensions to the base unit before passing to the API, and convert results back from base units when reporting to the user
 - Do NOT change the unit system unless the user explicitly asks
 - `staad.SetInputUnits(lengthUnit, forceUnit)` → change input units (integer codes) — see **[UNIT_CODES.md](./assets/UNIT_CODES.md)** for the full length/force code tables
 - `staad.GetInputUnitForLength()` / `staad.GetInputUnitForForce()` do NOT reflect the unit used by geometry/load numeric inputs — confirmed live: `GetBaseUnit()` stays `"English"` and `AddNode`/`GetNodeCoordinates` raw values are unaffected even after calling `SetInputUnits` with a Metric length code. Do not use these two getters to decide unit conversion for `AddNode`, `AddBeam`, or load magnitudes — rely on `GetBaseUnit()` instead.
+- `staad.Output.GetOutputUnitFor*` (Force, Moment, Displacement, Stress, …) report the unit the **STAAD.Pro UI** displays each result category in — not the unit the API returned. Do arithmetic and comparisons in base units, then convert to the UI unit when presenting values so they match what the user sees on screen (see staad-results → Output Units). Beware they often differ: a Metric model returns displacements in **m** while the UI shows **mm**.
 
 ### SetSilentMode
 
@@ -168,4 +175,5 @@ staad.CloseSTAADFile()
 - **Never** call `SaveModel` without explicit user instruction
 - `UpdateStructure` **discards** in-memory geometry not yet on disk — use `SaveModel(True)` instead when you need to flush before support/load assignment
 - `AnalyzeEx` runs both analysis AND design; `AnalyzeModel` runs analysis only
+- **All** input and output API values are in base units — `GetBaseUnit()` is the only unit source of truth; `GetOutputUnitFor*`/`GetInputUnitFor*` are UI display settings, useful as a conversion target when reporting values, never as a description of what the API returned
 

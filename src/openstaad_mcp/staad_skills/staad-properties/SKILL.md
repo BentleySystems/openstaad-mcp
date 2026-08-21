@@ -14,6 +14,7 @@ description: "Use when assigning section profiles to beams, plate thickness, mat
 ```python
 prop_id = prop.CreateBeamPropertyFromTable(countryCode, sectionName, typeSpec, v1, v2)
 prop.AssignBeamProperty(beam_ids, prop_id)   # returns True on success, raises on failure
+prop.AssignMaterialToMember("STEEL", beam_ids)  # re-assign material — AssignBeamProperty silently drops it, see Gotchas
 ```
 
 **Country codes** (full table in the Reference section — PROPERTY_CODES.md):
@@ -123,7 +124,7 @@ prop.RemoveMaterialFromSolid(solid_ids)      # list
 prop.DeleteMaterial("Q235")
 ```
 
-**Isotropic material catalog (indexed by material number, not name)** — use this to enumerate all materials in the model rather than looking each one up by name:
+**Isotropic material catalog (indexed by material number, not name)** — use this to enumerate all materials in the model rather than looking each one up by name. This index is a **catalog/table position** (e.g. 1=STEEL, 2=CONCRETE, ... depends on the model), **not a beam/member ID** — calling `GetIsotropicMaterialProperties(beam_id)` does not raise or error, it just silently returns the unrelated catalog entry at that index. Use `GetBeamMaterialName(beam_id)` to query a member's actual material:
 ```python
 count = prop.GetIsotropicMaterialCount()
 for i in range(1, count + 1):
@@ -445,3 +446,5 @@ stress_z, stress_y = prop.GetUptGeneralStressLocationPoints(table_reference_id, 
 - `CreateElementPlaneStressSpec()`/`CreateElementIgnoreInplaneRotnSpec()` can return spec ID `0` on success — don't treat `0` as a failure code for these (unlike most other `Create*` functions where `0` means failure)
 - After `CreateElementOffsetSpec` + `AssignElementSpecToPlate`, `GetElementOffsetSpecCount()` correctly reflects the new spec, but `GetElementLocalOffset()`/`GetElementOffSetSpec()` were observed still returning `(0.0, 0.0, 0.0)` in testing — verify offset specs via `GetElementOffsetSpecCount()` rather than assuming the per-node getters immediately reflect an assignment
 - `GetBeamProperty(bid)`/`GetBeamPropertyAll(bid)` **raise** `OsError [-1] General error` for a beam with no section property assigned. Two ways to find beams missing a property: (1) per-beam, wrap the call in `try/except Exception`; (2) bulk, diff `GetBeamList()` against the union of `GetSectionPropertyAssignedBeamList(sid)` over all `GetSectionPropertyList()` IDs — avoids one exception per beam. `GetBeamSectionName(bid)` is safe to call either way and just returns `""` for beams with no property
+- **`AssignBeamProperty` (via `CreateBeamPropertyFromTable`/etc.) silently drops the beam's existing material assignment** — it does not raise or warn. The member is left with no material, which only surfaces later as an analysis error (`ELASTIC MODULUS (E) NOT ENTERED FOR MEMBER/ELEMENT/SOLID NO. n`). Always call `prop.AssignMaterialToMember("STEEL", beam_ids)` again immediately after reassigning a section
+- `GetIsotropicMaterialProperties(i)`/`GetIsotropicMaterialPropertiesEx(i)` take a **material catalog index**, not a beam/member ID — passing a member ID silently returns a plausible-looking but unrelated material entry instead of erroring. Use `GetBeamMaterialName(beam_id)` to look up a member's material by ID

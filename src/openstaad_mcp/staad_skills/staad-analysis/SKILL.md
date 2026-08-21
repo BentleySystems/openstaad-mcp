@@ -143,6 +143,7 @@ For workflows, prefer the staad-steel-design skill which uses the `Design` sub-m
 
 ## Example
 See [run-analysis.py](./scripts/run-analysis.py) for a complete working example.
+See [check-analysis-results.py](./scripts/check-analysis-results.py) for the recommended status/error check before querying `Output` results.
 
 ## Gotchas
 - Do NOT call `PerformAnalysis` more than once — it adds duplicate commands
@@ -151,3 +152,5 @@ See [run-analysis.py](./scripts/run-analysis.py) for a complete working example.
 - For design workflows always use `AnalyzeEx(1, 0, 1)` — never `AnalyzeModel`
 - `AnalyzeEx` runs both analysis AND design; `AnalyzeModel` runs analysis only
 - **Compression-only springs/supports (elastic mat, plate mat with `springType=1`) are incompatible with P-Delta, Nonlinear, Buckling, and Cable analysis** — the engine uses member/spring deactivation iterations that cannot coexist with geometric nonlinearity or those other solver loops. The engine will throw an error. Use plain `PerformAnalysis` + `AnalyzeEx` for models with compression-only supports.
+- **After `AnalyzeEx` returns status `4` (errors) or `-1` (terminated), do NOT call `Output` getters directly** — querying results from a failed/incomplete run has been observed to raise a misleading, unrelated-looking `COMError: Memory is locked.` instead of a clear "results not available" message. Always check the status code and `out.AreResultsAvailable()` first, and read `staad.GetAnalysisErrorMessages()` to see the actual cause (e.g. a member missing a material) — see [check-analysis-results.py](./scripts/check-analysis-results.py)
+- If a script needs to change properties/loads and re-run analysis in a loop (e.g. iteratively resizing members until a result target is met), each `SaveModel`+`AnalyzeEx` cycle can take several seconds — looping more than a few iterations inside a single `execute_code` call risks hitting the tool's execution timeout with no partial results returned. Split long iterative loops across multiple `execute_code` calls (one or a few iterations per call) instead of one large loop
