@@ -14,6 +14,7 @@ result = prop.AssignElementSpecToPlate(plate_ids[:2], plane_stress_id)
 print(f'Assigned to first 2 plates: {result}')
 
 # Offset spec — direction: 0=Local, 1=Global; nodeIndex: 1-4
+# CreateElementOffsetSpec raises on failure; AssignElementSpecToPlate raises too.
 offset_id = prop.CreateElementOffsetSpec(0, 1, 0.1, 0.0, 0.0)
 print(f'CreateElementOffsetSpec -> spec_id: {offset_id}')
 prop.AssignElementSpecToPlate(plate_ids[0], offset_id)

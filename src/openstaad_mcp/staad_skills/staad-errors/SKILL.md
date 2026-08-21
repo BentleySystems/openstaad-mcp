@@ -1,6 +1,6 @@
 ﻿---
 name: staad-errors
-description: 'Use when handling errors from OpenSTAAD operations, interpreting negative return codes, or writing robust error-handling patterns. Covers: execute_code reports uncaught exceptions automatically (no try/except needed just to report), common error code groups (general, file, node, beam, plate, solid, property, group, load, results), when to use try/except for control flow (loop-skip, fallback), checking getter return values. NOTE: In the MCP sandbox import is blocked — catch generic Exception, not typed oserrors classes.'
+description: 'Use when handling errors from OpenSTAAD operations, interpreting negative return codes, or writing robust error-handling patterns. Covers: execute_code reports uncaught exceptions automatically (no try/except needed just to report), the three return contracts (raises / silent bool / raw negative int), the code-to-exception dispatcher and its unmapped-code gap, common error code groups (general, file, node, beam, plate, solid, property, spring, group, load, results, export), when to use try/except for control flow (loop-skip, fallback), checking getter return values. NOTE: In the MCP sandbox import is blocked — catch generic Exception, not typed oserrors classes.'
 ---
 
 # STAAD.Pro Error Handling
@@ -27,21 +27,45 @@ staad-core → Version Compatibility), not a coding mistake.
 
 ## Return Contracts
 
-**Many methods raise on failure** — call them directly and let `execute_code`
-surface any error. This applies to the `Assign*` methods and the support
-create/assign/query/delete methods, which return `True` on success and raise on
-failure:
+There are **three** contracts, and they are not consistent across the API — check the
+owning skill before assuming which one applies.
+
+**1. Raises on failure** — most `Create*` functions, nearly all `Get*` functions, and
+the support create/assign/query/delete methods. Call them directly and let
+`execute_code` surface the error:
 ```python
-prop.AssignBeamProperty(beam_ids, prop_id)   # True on success; raises on failure
+prop_id = prop.CreateBeamPropertyFromTable(1, 'W14X120', 0, 0.0, 0.0)   # raises on failure
 ```
 
-Some **query/getter** methods still return negative integers on error instead of
-raising — for those, check the sign:
+**2. Returns a silent `bool`** — notably `AssignBeamProperty`,
+`AssignMemberSpecToBeam`, `RemovePropertyFromBeam`, `RemoveMaterialFromBeam` and the
+`RemoveMember*SpecFromBeam` family. These **never raise**; a failed call is
+indistinguishable from a no-op unless you check:
 ```python
-shape = prop.GetShapeCode(country, name)
-if isinstance(shape, int) and shape < 0:
-    print(f"Section not found (code {shape})")
+if not prop.AssignBeamProperty(beam_ids, prop_id):
+    print('assignment reported failure')
 ```
+
+**3. Returns a raw integer** — some getters return a negative code instead of
+raising. Where a function may do either, guard both paths:
+```python
+try:
+    shape = prop.GetShapeCode(country, name)
+except Exception as exc:
+    shape = -1
+    print(f'GetShapeCode failed: {exc}')
+if shape < 0:
+    print('Section not found')
+```
+
+### The Dispatcher Only Knows Some Codes
+
+Internally the wrapper maps a numeric code to an exception class. **Unmapped codes
+are swallowed** — the function returns normally with unpopulated output values. Code
+`0` in particular is unmapped. So "no exception raised" is not proof of success:
+sanity-check suspicious results such as all-zero properties or empty lists. A known
+case is `Property.GetMaterialProperty(name)`, which returns `(0.0, 0.0, 0.0, 0.0, 0.0)`
+for an unknown material instead of raising — use `GetMaterialPropertyEx(name)`.
 
 ## Robust Model Building Pattern
 Catch per-item inside a loop so one bad entity doesn't abort the whole batch:
@@ -109,7 +133,7 @@ sandbox, catch generic `Exception` and read the message:
 - In standalone Python, you can `from openstaadpy.os_analytical.oserrors import OsBeamNotFound` — but NOT in the MCP sandbox
 - `execute_code` already catches uncaught exceptions — do NOT wrap a single call in `try/except` just to `print` the error
 - Some methods silently return 0 even when something went wrong (e.g., `UpdateStructure` on read-only paths)
-- The `Assign*` methods (`AssignBeamProperty`, `AssignDesignCommand`, `AssignDesignParameter`, `AssignDesignGroup`) and support create/assign/query/delete methods **raise on failure** and return `True` on success — do NOT check `if result < 0` for these
+- `AssignBeamProperty` and `AssignMemberSpecToBeam` return a plain `bool` and **never raise** — check the return value and confirm with a getter. Other `Assign*` methods (`AssignPlateThickness`, `AssignMaterialToMember/Plate/Solid`, `AssignElementSpecToPlate`, `AssignDesignCommand`, `AssignDesignParameter`, `AssignDesignGroup`) and the support create/assign/query/delete methods **do** raise on failure — for those, do NOT check `if result < 0`
 - Negative return codes still apply to many **getter** methods — always check `if result < 0` for those
 - `-3005` (`OsNoBeamSelected`) isn't only a getter-side error — `geo.ClearMemberSelection()` also raises it when the selection is already empty, so guard the first clear call of a script (see staad-geometry → Selection)
 - A "update STAAD.Pro" error usually means the connected instance is older than the called function requires (see staad-core → Version Compatibility)

@@ -1,6 +1,6 @@
 ﻿---
 name: staad-properties
-description: "Use when assigning section profiles to beams, plate thickness, materials, creating prismatic or tapered sections, or defining member specs (releases, truss, tension, compression, cable, inactive, offset). Covers: CreateBeamPropertyFromTable (country codes), CreateAngle/Channel/Tube/Pipe/TeePropertyFromTable, CreateBeamPropertyFromTableEx, CreatePrismaticRectangle/Circle/Tee/GeneralProperty, CreateTaperedIProperty/TaperedTubeProperty, CreatePlateThicknessProperty (list of 4 floats), AssignBeamProperty, AssignPlateThickness, CreateIsotropicMaterial/Steel/Concrete/Aluminum/Timber, GetIsotropicMaterialProperties, GetOrthotropic2D/3DMaterialProperties, AssignMaterialToMember/Plate/Solid, CreateMemberReleaseSpec, CreateMemberPartialReleaseSpec, CreateMemberTrussSpec, CreateMemberTensionSpec, CreateMemberCompressionSpec, CreateMemberInactiveSpec, CreateMemberOffsetSpec, CreateMemberFireProofingSpec, CreateElementPlaneStressSpec, CreateElementOffsetSpec, CreateElementIgnoreInplaneRotnSpec, CreateElementNodeReleaseSpec, AssignBetaAngle, GetBeamProperty, GetSectionPropertyList, GetBeamSectionPropertyTypeNo, CreateUPTTable (user provided tables), AddUPTPropertyWIDEFLANGE/CHANNEL/ANGLE/DOUBLEANGLE/TEE/PIPE/TUBE/ISECTION/PRISMATIC/GENERAL, CreatePropertyFromUserTable, CreateMemberAttribute, AssignMemberAttribute, GetMemberListByAttribute, GetElementListByAttribute, deleting/removing properties and specs (DeleteProperty, DeleteMemberSpec, DeleteMemberReleaseSpec, RemovePropertyFromBeam/Plate, RemoveMemberOffsetSpecFromBeam, RemoveMaterialFromBeam/Plate/Solid, DeleteMaterial, RemoveElementPlaneStressSpecFromPlate, RemoveUPTTable, DeleteMemberAttribute). Requires staad-core."
+description: "Use when assigning section profiles to beams, plate thickness, materials, creating prismatic or tapered sections, or defining member specs (releases, truss, tension, compression, cable, inactive, offset). Covers: CreateBeamPropertyFromTable (country codes), CreateAngle/Channel/Tube/Pipe/TeePropertyFromTable, CreateBeamPropertyFromTableEx, CreatePrismaticRectangle/Circle/Tee/GeneralProperty, CreateTaperedIProperty/TaperedTubeProperty, CreatePlateThicknessProperty (list of 4 floats), AssignBeamProperty, AssignPlateThickness, CreateIsotropicMaterial/Steel/Concrete/Aluminum/Timber, GetIsotropicMaterialProperties, GetOrthotropic2D/3DMaterialProperties, AssignMaterialToMember/Plate/Solid, CreateMemberReleaseSpec, CreateMemberPartialReleaseSpec, CreateMemberTrussSpec, CreateMemberTensionSpec, CreateMemberCompressionSpec, CreateMemberInactiveSpec, CreateMemberOffsetSpec, CreateMemberFireProofingSpec, CreateElementPlaneStressSpec, CreateElementOffsetSpec, CreateElementIgnoreInplaneRotnSpec, CreateElementNodeReleaseSpec, AssignBetaAngle, GetBeamProperty, GetSectionPropertyList, GetBeamSectionPropertyTypeNo, CreateUPTTable (user provided tables), AddUPTPropertyWIDEFLANGE/CHANNEL/ANGLE/DOUBLEANGLE/TEE/PIPE/TUBE/ISECTION/PRISMATIC/GENERAL, CreatePropertyFromUserTable, CreateMemberAttribute, AssignMemberAttribute, GetMemberListByAttribute, GetElementListByAttribute, deleting/removing properties and specs (DeleteProperty, DeleteMemberSpec, DeleteMemberReleaseSpec, RemovePropertyFromBeam/Plate, RemoveMemberOffsetSpecFromBeam, RemoveMaterialFromBeam/Plate/Solid, DeleteMaterial, RemoveElementPlaneStressSpecFromPlate, RemoveUPTTable, DeleteMemberAttribute); documents which Property functions raise OsErrorBase exceptions versus which return a silent bool/int that must be checked. Requires staad-core."
 ---
 
 # STAAD.Pro Properties & Materials
@@ -9,11 +9,35 @@ description: "Use when assigning section profiles to beams, plate thickness, mat
 
 - Define the shorthand once per script: `prop = staad.Property`
 
+### Error Behaviour — Read Before Writing a Script
+
+`staad.Property` functions fall into **three** groups. Getting this wrong is the most
+common reason a generated script reports success while nothing changed.
+
+| Group | Behaviour on failure | How to write the call |
+| ----- | -------------------- | --------------------- |
+| **Raises** (most `Create*`, all `Get*`, `AssignPlateThickness`, `AssignMaterialToMember/Plate/Solid`, `AssignElementSpecToPlate`, `AssignBetaAngle`, `DeleteMaterial`, `DeleteProperty`) | raises an `OsErrorBase` subclass, message formatted `[code] message` | call directly — `execute_code` surfaces the error |
+| **Silent bool** (`AssignBeamProperty`, `AssignMemberSpecToBeam`, `RemovePropertyFromBeam`, `RemoveMaterialFromBeam`, `RemoveMember*SpecFromBeam`, `RemoveElement*SpecFromPlate`, `AddControlDependentRelation`, most `AddUPTProperty*`) | returns `False`, **never raises** | check the return value **and** verify with a getter |
+| **Silent int/void** (`CreateMemberOffsetSpec`, `GetMemberSpecCode`, `Get*Count`, `SetMaterialName`, `SetPropertyUniqueID`, `IsStandardDatabaseSection`, `GetStandardSection*`) | returns the raw value / nothing | inspect the value yourself |
+
+The raising group uses an internal code→exception lookup that **only covers known
+codes**. An unrecognised negative code is swallowed and the function returns
+normally with unpopulated values. Practical consequences:
+
+- `GetMaterialProperty(name)` **never raises** — on failure it returns `(0.0, 0.0, 0.0, 0.0, 0.0)`. Use `GetMaterialPropertyEx(name)`, which does raise, or reject an all-zero `E`.
+- `GetShapeCode(country, name)` raises for a recognised "profile not found" code but returns the raw negative integer for anything else — guard with **both** a `try/except Exception` and a `< 0` check.
+
+See staad-errors → [ERROR_CODES.md](../staad-errors/assets/ERROR_CODES.md) for the
+full code→class table. In the sandbox catch generic `Exception` — the typed
+exception classes cannot be imported.
+
 ### Beam Sections from Database
 
 ```python
-prop_id = prop.CreateBeamPropertyFromTable(countryCode, sectionName, typeSpec, v1, v2)
-prop.AssignBeamProperty(beam_ids, prop_id)   # returns True on success, raises on failure
+prop_id = prop.CreateBeamPropertyFromTable(countryCode, sectionName, typeSpec, v1, v2)   # raises if the section can't be created
+
+if not prop.AssignBeamProperty(beam_ids, prop_id):   # returns False on failure — it does NOT raise
+    print('AssignBeamProperty reported failure')
 prop.AssignMaterialToMember("STEEL", beam_ids)  # re-assign material — AssignBeamProperty silently drops it, see Gotchas
 ```
 
@@ -53,20 +77,27 @@ prop.AssignMaterialToMember("STEEL", beam_ids)  # re-assign material — AssignB
 | `CreateBeamPropertyFromTableEx(country, name, solidShapeType)`      | Solid/cable/plate-strip shapes (1=Plate Strip, 2=Solid Rect, 3=Solid Round, 4=Round, 5=Cable) — distinct from `CreateBeamPropertyFromTable`, not a newer replacement for it |
 
 **Name helpers — CRITICAL validation workflow:**
-Before calling `CreateBeamPropertyFromTable`, validate the section name exists in the database:
+Before calling `CreateBeamPropertyFromTable`, validate the section name exists in the database.
+`GetShapeCode` **raises** for a recognised "profile not found" code and **returns a raw
+negative integer** for any other failure, so handle both:
 
 ```python
-code = prop.GetShapeCode(countryCode, sectionName)
+try:
+    code = prop.GetShapeCode(countryCode, sectionName)
+except Exception as exc:
+    code = -1
+    print(f"GetShapeCode failed: {exc}")
+
 if code < 0:
     print(f"Section '{sectionName}' not found in country {countryCode}")
 else:
-    staad_name = prop.GetSTAADProfileName(sectionName, countryCode)
+    staad_name = prop.GetSTAADProfileName(sectionName, countryCode)   # raises if there is no equivalent
     print(f"Valid section: {staad_name} (shape code {code})")
 ```
 
-- `GetShapeCode(country, name)` → shape code integer (negative = not found)
-- `GetPublishedProfileName(name, country)` → catalog name
-- `GetSTAADProfileName(name, country)` → STAAD internal name
+- `GetShapeCode(country, name)` → shape code integer (raises, or negative = not found)
+- `GetPublishedProfileName(name, country)` → catalog name — **raises** when no equivalent exists
+- `GetSTAADProfileName(name, country)` → STAAD internal name — **raises** when no equivalent exists
 - `GetRecordForSection(country, name)` → record number within that country's section database table
 
 ### Prismatic Sections (User-Defined)
@@ -111,8 +142,9 @@ prop.AssignMaterialToMember("STEEL", member_ids)
 prop.AssignMaterialToPlate("CONCRETE", plate_ids)
 prop.AssignMaterialToSolid("CONCRETE", solid_ids)
 
-# Query (by material name)
-E, nu, density, alpha, damp, fy, fu, ry, rt, fcu = prop.GetMaterialPropertyEx("STEEL")  # preferred — adds strength values; GetMaterialProperty("STEEL") also available for just the base 5-tuple
+# Query (by material name) — all of these raise if the name/ID has no material
+E, nu, density, alpha, damp, fy, fu, ry, rt, fcu = prop.GetMaterialPropertyEx("STEEL")  # 10 values, no shear modulus
+E, nu, density, alpha, damp = prop.GetMaterialProperty("STEEL")  # base 5-tuple — returns all zeros instead of raising when the material is missing
 name = prop.GetBeamMaterialName(beam_id)
 name = prop.GetPlateMaterialName(plate_id)
 name = prop.GetSolidMaterialName(solid_id)
@@ -130,8 +162,8 @@ count = prop.GetIsotropicMaterialCount()
 for i in range(1, count + 1):
     # preferred — adds strength values; GetIsotropicMaterialProperties(i) also available for just the base 7-tuple
     name, E, poisson, G, density, alpha, damp, fy, fu, ry, rt, fcu = prop.GetIsotropicMaterialPropertiesEx(i)
-    # ...Assigned variant also returns whether it's used: 1=unassigned, 2=assigned
-    E, poisson, G, density, alpha, damp, is_assigned = prop.GetIsotropicMaterialPropertiesAssigned(i)
+    # ...Assigned variant also leads with the name and ends with a bool
+    name, E, poisson, G, density, alpha, damp, is_assigned = prop.GetIsotropicMaterialPropertiesAssigned(i)
 
 beam_count = prop.GetIsotropicMaterialAssignedBeamCount(name)
 beam_ids   = prop.GetIsotropicMaterialAssignedBeamList(name)
@@ -140,11 +172,9 @@ plate_ids  = prop.GetIsotropicMaterialAssignedPlateList(name)
 solid_count = prop.GetIsotropicMaterialAssignedSolidCount(name)
 solid_ids  = prop.GetIsotropicMaterialAssignedSolidList(name)
 
-# _Ex variants add strength values (fy, fu, ry, rt, fcu) beyond the base 6-tuple
-name, E, poisson, G, density, alpha, damp, fy, fu, ry, rt, fcu = prop.GetIsotropicMaterialPropertiesEx(i)
-E, poisson, G, density, alpha, damp = prop.GetMaterialPropertyEx("STEEL")
-mat_type = prop.GetTypeForIsotropicMaterial(i)          # e.g. steel/concrete/aluminum/timber type code
-prop.SetTypeToIsotropicMaterial(i, mat_type)
+# Material type is keyed by NAME, not by catalog index
+mat_type = prop.GetTypeForIsotropicMaterial("STEEL")     # e.g. steel/concrete/aluminum/timber type code
+prop.SetTypeToIsotropicMaterial("STEEL", mat_type)
 ```
 
 **Orthotropic materials** (2D for plates, 3D for solids) — same 6-value tuple shape as isotropic, no material name:
@@ -190,7 +220,7 @@ prop.AssignMemberSpecToBeam(beam_ids, comp_id)
 prop.GetMemberSpecCode(beam_ids[0])  # source of truth for whether the assignment took effect
 
 # Offset (start=0/end=1 location, wrt Global=0/Local=1 axis)
-off_id = prop.CreateMemberOffsetSpec(location, wrtAxis, dx, dy, dz)
+off_id = prop.CreateMemberOffsetSpec(location, wrtAxis, dx, dy, dz)   # returns the raw code, never raises — treat <= 0 as failure
 prop.AssignMemberSpecToBeam(beam_ids, off_id)
 ```
 
@@ -256,8 +286,9 @@ table_id = prop.CreateUPTTable(table_type)   # 1=WideFlange, 2=Channel, 3=Angle,
 prop.AddUPTPropertyWIDEFLANGE(table_id, name, area, depth, webThk, flangeW, flangeThk, torsConst, Iy, Iz, shearAy, shearAz)
 # AddUPTProperty<SHAPE> exists per table_type (CHANNEL, ANGLE, TEE, PIPE, TUBE, GENERAL, ISECTION, PRISMATIC, ...)
 
-sec_id = prop.CreatePropertyFromUserTable(sectionName, table_id)   # 0 if not found
-prop.AssignBeamProperty(beam_ids, sec_id)
+sec_id = prop.CreatePropertyFromUserTable(sectionName, table_id)   # raises if the section isn't in that table
+if not prop.AssignBeamProperty(beam_ids, sec_id):
+    print('AssignBeamProperty reported failure')
 
 count  = prop.GetUserProvidedTableCount()
 ids    = prop.GetUserProvidedTableList()
@@ -388,7 +419,7 @@ prop.RemoveMemberIgnoreStiffSpecFromBeam(beam_id)
 dx, dy, dz = prop.GetMemberGlobalOffSet(beam_id, position)  # position: 0=start, 1=end
 dx, dy, dz = prop.GetMemberLocalOffSet(beam_id, position)
 dx, dy, dz = prop.GetElementGlobalOffSet(plate_id, node_index)
-name = prop.GetElementMaterialName(element_id)  # for plate/solid element IDs — returns empty string for beam IDs (use GetBeamMaterialName for beams)
+name = prop.GetElementMaterialName(element_id)  # for plate/solid element IDs — raises for an ID with no material (use GetBeamMaterialName for beams)
 
 prop.UpdatePropertiesToDesignSection()   # commits SELECT MEMBER design results as new fixed section properties
 
@@ -439,12 +470,19 @@ stress_z, stress_y = prop.GetUptGeneralStressLocationPoints(table_reference_id, 
 ## Gotchas
 
 - `CreatePlateThicknessProperty` takes a **list of 4 floats**, one value per corner — not a single scalar
-- `AssignBeamProperty` returns `True` on success and **raises on failure** — call it directly; do NOT check `if result < 0` (`execute_code` reports any uncaught error)
+- `AssignBeamProperty` returns a plain `bool` and **never raises** — a failed assignment looks identical to a no-op unless you check the return value and confirm with `GetBeamSectionName(bid)`. The same applies to `AssignMemberSpecToBeam`, `RemovePropertyFromBeam`, `RemoveMaterialFromBeam`, the `RemoveMember*SpecFromBeam`/`RemoveElement*SpecFromPlate` family, `AddControlDependentRelation`, and most `AddUPTProperty*` functions
 - Always retrieve actual IDs via `GetBeamList()` / `GetPlateList()` before assigning — never assume IDs start at 1
 - `GetMemberDesignSectionName(bid)` raises an error when results are unavailable — use `GetSectionPropertyName` for pre-analysis lookup
 - Built-in material names: `"STEEL"`, `"CONCRETE"`, `"ALUMINUM"` — case-sensitive
 - `CreateElementPlaneStressSpec()`/`CreateElementIgnoreInplaneRotnSpec()` can return spec ID `0` on success — don't treat `0` as a failure code for these (unlike most other `Create*` functions where `0` means failure)
 - After `CreateElementOffsetSpec` + `AssignElementSpecToPlate`, `GetElementOffsetSpecCount()` correctly reflects the new spec, but `GetElementLocalOffset()`/`GetElementOffSetSpec()` were observed still returning `(0.0, 0.0, 0.0)` in testing — verify offset specs via `GetElementOffsetSpecCount()` rather than assuming the per-node getters immediately reflect an assignment
-- `GetBeamProperty(bid)`/`GetBeamPropertyAll(bid)` **raise** `OsError [-1] General error` for a beam with no section property assigned. Two ways to find beams missing a property: (1) per-beam, wrap the call in `try/except Exception`; (2) bulk, diff `GetBeamList()` against the union of `GetSectionPropertyAssignedBeamList(sid)` over all `GetSectionPropertyList()` IDs — avoids one exception per beam. `GetBeamSectionName(bid)` is safe to call either way and just returns `""` for beams with no property
+- `GetBeamProperty(bid)`/`GetBeamPropertyAll(bid)` **raise** `OsError [-1] General error` for a beam with no section property assigned. Two ways to find beams missing a property: (1) per-beam, wrap the call in `try/except Exception`; (2) bulk, diff `GetBeamList()` against the union of `GetSectionPropertyAssignedBeamList(sid)` over all `GetSectionPropertyList()` IDs — avoids one exception per beam
+- `GetBeamSectionName(bid)`, `GetBeamSectionDisplayName(bid)`, `GetBeamMaterialName(bid)`, `GetPlateMaterialName(pid)`, `GetSolidMaterialName(sid)` and `GetElementMaterialName(eid)` all **raise** when the underlying call yields an empty string — none of them return `""`. Wrap them in `try/except Exception` when scanning a model that may contain unassigned entities
+- `GetMaterialProperty(name)` is the one getter that **fails silently**: an unknown material yields `(0.0, 0.0, 0.0, 0.0, 0.0)` rather than an exception. Prefer `GetMaterialPropertyEx(name)`, which raises
+- `GetMaterialPropertyEx(name)` returns **10** values `(E, poisson, density, alpha, damping, fy, fu, ry, rt, fcu)` — there is **no shear modulus** in this tuple, unlike `GetIsotropicMaterialPropertiesEx(i)` which returns 12 values starting with the material name and including `G`
+- `GetTypeForIsotropicMaterial`/`SetTypeToIsotropicMaterial` take the material **name**, not the catalog index used by `GetIsotropicMaterialProperties*`
+- `GetIsotropicMaterialPropertiesAssigned(i)` returns **8** values leading with the material name and ending with a `bool` — `(name, E, poisson, G, density, alpha, damping, is_assigned)`
 - **`AssignBeamProperty` (via `CreateBeamPropertyFromTable`/etc.) silently drops the beam's existing material assignment** — it does not raise or warn. The member is left with no material, which only surfaces later as an analysis error (`ELASTIC MODULUS (E) NOT ENTERED FOR MEMBER/ELEMENT/SOLID NO. n`). Always call `prop.AssignMaterialToMember("STEEL", beam_ids)` again immediately after reassigning a section
 - `GetIsotropicMaterialProperties(i)`/`GetIsotropicMaterialPropertiesEx(i)` take a **material catalog index**, not a beam/member ID — passing a member ID silently returns a plausible-looking but unrelated material entry instead of erroring. Use `GetBeamMaterialName(beam_id)` to look up a member's material by ID
+- `CreateBeamPropertyFromTable`, `CreateAnglePropertyFromTable`, `CreatePropertyFromUserTable`, `CreatePropertyFromUPTTable` and the `CreatePrismatic*`/`CreateTapered*` family **raise** when creation fails — they never return `0` as a failure sentinel, so do not write `if prop_id == 0:` guards around them
+- The internal error-code lookup only raises for **known** codes; an unrecognised negative code is swallowed and the call returns with unpopulated output values. Sanity-check suspicious results (all-zero properties, empty lists) rather than trusting "no exception" as proof of success
