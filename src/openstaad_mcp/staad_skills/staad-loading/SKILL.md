@@ -218,9 +218,12 @@ load.DeleteResponseSpectrumLoad(loadCaseNumber, loadId)    # → bool
 
 ### Enclosed Zones
 Enclosed zones let you apply pressure/area loads over a boundary of nodes without modeling plates — used for panel/tributary load transfer to surrounding members. `boundaryNodeNos` must be passed in actual polygon traversal order (a walk around the perimeter), not sorted-by-ID order — use `staad.Geometry.IdentifyFloorBoundariesFromNodes()` + `GetFloorBoundaryNodesByIndex()` to get the correctly-ordered node list (confirmed live: passing `GetFloorNodesAtLevel()`'s raw sorted-ID list instead produced a self-intersecting/concave zone). See [enclosed-zone.py](./scripts/enclosed-zone.py) for the full required sequence.
-`zoneName` must be **alphanumeric only** (letters/digits, no spaces, underscores, or hyphens) and ≤ the engine's max zone-name length — `DefineEnclosedZone` does not reject invalid names at call time, but the error surfaces later when the model is saved and the `.std` file is re-parsed (e.g. on save/reopen), so validate the name yourself before calling.
+
+> **WARNING — data integrity:** `zoneName` must be **uppercase alphanumeric only** (`A-Z`, `0-9`, ≤ the engine's max zone-name length) — no spaces, underscores, or hyphens (e.g. `ZONE144`, not `MID_LEVEL-ZONE`). `DefineEnclosedZone` uppercases the name internally and does **not** reject invalid names at call time — errors surface later, silently, when the model is saved and the `.std` file is re-parsed. Sanitize `zoneName` yourself before calling.
+
 ```python
-load.DefineEnclosedZone(zoneName, boundaryNodeNos)   # boundaryNodeNos: ≥3 node IDs forming a closed boundary; zoneName is uppercased internally → bool
+load.DefineEnclosedZone(zoneName, boundaryNodeNos)   # zoneName: uppercase alphanumeric only, see WARNING above; uppercased internally → bool
+# boundaryNodeNos: ≥3 node IDs forming a closed boundary
 load.AddOpeningInEnclosedZone(zoneName, openingNodeNos)   # ≥3 node IDs forming an opening inside the zone → bool
 # accepts openingNodeNos without validating them against the zone boundary — confirmed live: passing the zone's own boundary
 # nodes as an "opening" still returns True with no error, so callers must ensure the opening is geometrically valid themselves
