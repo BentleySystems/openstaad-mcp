@@ -1,6 +1,6 @@
 ﻿---
 name: staad-core
-description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), units and axis check via execute_code, ALL input and output API functions work in base units (English=inches/KIP, Metric=meters/kN) — GetOutputUnitFor*/GetInputUnitFor* are UI-display only, GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeModel/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit), job metadata (GetFullJobInfo, GetShortJobInfo, SetFullJobInfo, SetShortJobInfo). Do not auto-save."
+description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), units and axis check via execute_code, standard units convention — setters consume the current input unit setting and convert to base for storage, getters return fixed base units (exception: geometry always uses base units, ignores input unit setting); use GetInputUnitForLength/Force to discover the current unit instead of calling SetInputUnits; GetOutputUnitFor* is a separate UI-display-only subsystem, GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeModel/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit), job metadata (GetFullJobInfo, GetShortJobInfo, SetFullJobInfo, SetShortJobInfo). Do not auto-save."
 ---
 
 # STAAD.Pro Core — Sandbox & Model Setup
@@ -62,22 +62,47 @@ that version or newer.
 
 ### Units & Axis
 
-**EVERY input and output API function works in BASE UNITS.** Coordinates, lengths,
-section dimensions, load magnitudes, and every analysis result (member forces,
-displacements, reactions, stresses) are expressed in the model's base unit system —
-there is no per-function or per-module unit. `staad.GetBaseUnit()` is the single
-source of truth for what those units are.
+**The API follows one standard convention: setters consume the current input
+unit setting and convert it to base units for storage; getters return a
+fixed base-unit value.** `staad.GetBaseUnit()` (`"English"` = inches + KIP,
+`"Metric"` = meters + kN) tells you the base system; `staad.GetInputUnitForLength()`/
+`staad.GetInputUnitForForce()` tell you what unit a setter currently expects.
 
-- Before any modeling operation, query units via `execute_code`:
-  - `staad.GetBaseUnit()` → `"English"` or `"Metric"`
-  - `staad.Geometry.IsZUp()` → `True` if Z is up
-- `English` = inches + KIP; `Metric` = meters + kN
-- Y-up: vertical axis is Y; Z-up: vertical axis is Z
-- Convert all user-provided dimensions to the base unit before passing to the API, and convert results back from base units when reporting to the user
-- Do NOT change the unit system unless the user explicitly asks
-- `staad.SetInputUnits(lengthUnit, forceUnit)` → change input units (integer codes) — see **[UNIT_CODES.md](./assets/UNIT_CODES.md)** for the full length/force code tables
-- `staad.GetInputUnitForLength()` / `staad.GetInputUnitForForce()` do NOT reflect the unit used by geometry/load numeric inputs — confirmed live: `GetBaseUnit()` stays `"English"` and `AddNode`/`GetNodeCoordinates` raw values are unaffected even after calling `SetInputUnits` with a Metric length code. Do not use these two getters to decide unit conversion for `AddNode`, `AddBeam`, or load magnitudes — rely on `GetBaseUnit()` instead.
-- `staad.Output.GetOutputUnitFor*` (Force, Moment, Displacement, Stress, …) report the unit the **STAAD.Pro UI** displays each result category in — not the unit the API returned. Do arithmetic and comparisons in base units, then convert to the UI unit when presenting values so they match what the user sees on screen (see staad-results → Output Units). Beware they often differ: a Metric model returns displacements in **m** while the UI shows **mm**.
+- `staad.GetBaseUnit()` → `"English"` or `"Metric"` — the model's underlying base unit system, and what every getter returns values in.
+- `staad.Geometry.IsZUp()` → `True` if Z is up.
+- `staad.GetInputUnitForLength()` / `staad.GetInputUnitForForce()` — **read these to discover what unit a setter currently expects**, instead of calling `SetInputUnits`. E.g. `CreatePlateThicknessProperty([50.0]*4)` while `GetInputUnitForLength()` reports `"Meter"` stores `1968.5` in (`50 × 39.3701`); the same call with `2.0` while it reports `"Feet"` stores `24` in (`2 × 12`). Convert the user's value into whatever unit these getters currently report, then call the setter — this is non-mutating.
+- `staad.SetInputUnits(lengthUnit, forceUnit)` → changes the current input unit setting (integer codes, see **[UNIT_CODES.md](./assets/UNIT_CODES.md)**). This **mutates and persists into the saved `.std` file** — only call it when the user explicitly wants to change the model's unit preference, not just to convert a value (prefer the read-then-convert approach above).
+- **Exception — coordinate-valued `Add*`/`Get*` geometry functions** (`AddNode`, `GetNodeCoordinates`): always raw base-unit values, no conversion applied regardless of the current input unit setting. Convert user-given coordinates to base units yourself before calling these. (`AddBeam`/`AddPlate` take node ID integers, not coordinates, so this unit exception doesn't apply to them.)
+  - **Careful:** the sibling `Create*` family (`CreateNode`, `CreateMultipleNodes`) looks like it only adds "an explicit ID" option, but it actually does NOT share this exception — it follows the standard convention (consumes current input units, converts to base), unlike `AddNode`. See staad-geometry for the live-verified proof. Don't assume `Add*` and `Create*` geometry functions share the same units behavior just because they look like thin variants of each other.
+- `staad.Output.GetOutputUnitFor*` (Force, Moment, Displacement, Stress, …) is a separate, unrelated subsystem reporting the label the **STAAD.Pro UI** displays results in — use only as a display/reporting target when presenting values to the user (see staad-results → Output Units), never to decide how to convert an input value.
+- **Compound units are built from `GetInputUnitForLength()`/`GetInputUnitForForce()` combined**, not a separate lookup: stress-type parameters (E, G, Fy, Fu) are force/length², unit weight/density is force/length³, distributed loads are force/length. E.g. under Meter+kN, a setter expecting stress consumes **kN/m²**, not MPa/GPa — passing a textbook MPa value (e.g. `E=200000` for steel) silently stores a material 1000× too soft. Convert to the compound unit yourself before calling the setter (see staad-properties → Materials).
+
+```python
+# Standard pattern: discover current input unit, convert the user's value into
+# it, call the setter, then read back with a getter — result is base units.
+staad.SetSilentMode(True)
+length_unit = staad.GetInputUnitForLength()      # e.g. "Meter"
+force_unit = staad.GetInputUnitForForce()        # e.g. "KiloNewton"
+# ... convert the user's value from whatever unit they gave you into length_unit/force_unit ...
+mat_id = staad.Support.CreatePlateMat(2, [subgrade_in_current_units]*3, 0, 0)
+subgrade_base = staad.Support.GetPlateMatDetail(mat_id)[1]   # always base units, regardless of current input unit
+staad.SetSilentMode(False)
+```
+
+If a function isn't covered above and you're unsure of its convention, verify
+empirically: call the setter with a known value under one `SetInputUnits`
+setting, then again under another, and compare the stored/returned number
+against the known conversion factor. If no getter exists at all (e.g.
+`AddEnclosedZoneLoad`), verify through a real analysis instead — build a small
+symmetric test structure (e.g. a square panel with 4 identical pinned
+corners) where equilibrium + symmetry predicts an exact reaction split, run
+the solver, and compare `GetSupportReactions` against the hand-calculated
+expected value in base units.
+
+Convert all user-provided dimensions into whatever unit the target setter
+currently expects (per above) before passing to the API, convert results back
+from base units when reporting to the user, and do NOT call `SetInputUnits`
+unless the user explicitly asks to change the model's unit setting.
 
 ### SetSilentMode
 
@@ -175,5 +200,5 @@ staad.CloseSTAADFile()
 - **Never** call `SaveModel` without explicit user instruction
 - `UpdateStructure` **discards** in-memory geometry not yet on disk — use `SaveModel(True)` instead when you need to flush before support/load assignment
 - `AnalyzeEx` runs both analysis AND design; `AnalyzeModel` runs analysis only
-- **All** input and output API values are in base units — `GetBaseUnit()` is the only unit source of truth; `GetOutputUnitFor*`/`GetInputUnitFor*` are UI display settings, useful as a conversion target when reporting values, never as a description of what the API returned
+- Units convention: setters consume the **current input unit setting** and convert to base for storage; getters return a **fixed base-unit value** (`GetBaseUnit()` tells you what that is). Coordinate-valued functions (`AddNode`, `GetNodeCoordinates`) are the exception — always base units, ignores the input unit setting entirely (`AddBeam`/`AddPlate` take node IDs, not coordinates, so this exception is moot for them); but the sibling `Create*` family (`CreateNode`, etc.) does NOT share this exception despite looking like a thin ID-labeling variant — it follows the standard conversion (see staad-geometry). Use `GetInputUnitForLength()`/`GetInputUnitForForce()` to discover what unit a setter currently expects instead of calling `SetInputUnits` (which mutates and persists into the saved model); `GetOutputUnitFor*` is a separate UI-display-only subsystem, useful as a conversion target when reporting values, never as a description of what an input API consumed
 

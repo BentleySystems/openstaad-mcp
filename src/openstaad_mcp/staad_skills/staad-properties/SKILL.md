@@ -121,11 +121,16 @@ prop_id = prop.CreateTaperedTubeProperty(type, start_d, end_d, thickness)
 ### Plate Thickness
 
 ```python
+# t: CURRENT SetInputUnits, converted to base for storage at creation time
+# (verified: t=0.25 while input=Meter is stored as 9.8425 in). GetPlateThickness
+# returns a FIXED base-unit value afterward, unaffected by later SetInputUnits calls.
 thick_id = prop.CreatePlateThicknessProperty([t, t, t, t])  # list of 4 floats, one per node
 prop.AssignPlateThickness(plate_ids, thick_id)
 ```
 
 ### Materials
+
+**Units** (see staad-core → Units & Axis for the general rule): E/G/Fy/Fu and density are stress/unit-weight compound units, not MPa/GPa — live-verified example: entering steel `E=200000` unconverted under Meter+kN input units stores 200 MPa, not 200,000 MPa (1000× too soft, though internally self-consistent — G/E ratio still correct).
 
 ```python
 # Create

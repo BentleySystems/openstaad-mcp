@@ -10,7 +10,7 @@ description: 'Use when creating, querying, modifying, or selecting structure geo
 - Define the shorthand once per script: `geo = staad.Geometry`
 
 ### Creating Elements
-- `geo.AddNode(x, y, z)` → node ID (coordinates in base unit)
+- `geo.AddNode(x, y, z)` → node ID — coordinates are **raw base-unit values, no conversion applied at all** regardless of the current input unit setting (live-verified: `AddNode(10.0, ...)` while `GetInputUnitForLength()` reports `"Meter"` still reads back as `10.0`, not `393.7`). Convert the user's value to base units yourself before calling.
 - `geo.AddBeam(startNode, endNode)` → beam ID
 - `geo.AddPlate(n1, n2, n3, n4)` → plate ID — pass **4 separate int args**, NOT a list
   - **Triangle:** the API always takes 4 args; pass `0` as a sentinel for the missing 4th node → `geo.AddPlate(n1, n2, n3, 0)`
@@ -32,8 +32,11 @@ geo.CreateMultiplePlates(plate_ids, [[n1,n2,n3,n4], ...])          # triangle ro
 ```
 
 ### Explicit ID Creation
-- `geo.CreateNode(nodeNo, x, y, z)` — creates node with a specific ID
-- `geo.CreateBeam(beamNo, startNode, endNode)` — beam with specific ID
+
+> **Units gotcha:** despite the official docs describing the only difference from `AddNode`/etc. as "lets you choose the ID", `CreateNode` (and therefore `CreateMultipleNodes`, which loops it) actually **also converts coordinates from the current input unit setting to base** — the opposite of `AddNode`'s raw pass-through. Live-verified: `CreateNode(id, 10.0, 0, 0)` while `GetInputUnitForLength()` reports `"Meter"` stores `393.7` (base inches), not `10.0`. If you need a specific node ID AND want raw/base-unit coordinates like `AddNode`, convert to base units yourself first, same as any other input-unit-consuming setter.
+
+- `geo.CreateNode(nodeNo, x, y, z)` — creates node with a specific ID; **consumes current input units**, converted to base for storage
+- `geo.CreateBeam(beamNo, startNode, endNode)` — beam with specific ID (references existing node IDs, no coordinates — no units concern)
 - `geo.CreatePlate(plateNo, nA, nB, nC, nD)` — plate with specific ID
   - **Triangle:** pass `0` for `nD` (the sentinel for a missing 4th node) → `geo.CreatePlate(id, nA, nB, nC, 0)`
 - `geo.CreateSolid(solidNo, nA, nB, nC, nD, nE, nF, nG, nH)` — solid with specific ID

@@ -54,11 +54,15 @@ See **[SUPPORT_CODES.md — Direction Codes](./assets/SUPPORT_CODES.md)** for `d
 # Typical case: springs in Y direction (STAAD adds X/Z fixity for stability)
 mat_id = sup.CreateElasticMat(
     direction=1,     # 1=Y Direction (use for most foundations)
-    subgrade=20.0,   # kN/m^3 or equivalent
+    subgrade=20.0,   # CURRENT SetInputUnits, e.g. kN/m^3 if input=Meter/kN — converted to base internally, NOT the model's base unit
     printFlag=0,
     springType=0     # 0=Normal (bi-directional); 1=Compression only
 )
 sup.AssignSupportToEntityList(mat_id, [41, 42, 43])
+
+# GetElasticMatDetail(mat_id) returns subgrade in FIXED base units afterward
+# (live-verified: unaffected by later SetInputUnits calls) — see staad-core
+# Units & Axis for the verification pattern if the value looks off.
 
 # Y Only (direction=4): springs act ONLY in Y — use only when the model already
 # has other supports (e.g. pinned/fixed nodes) providing X and Z restraint.
@@ -68,6 +72,8 @@ sup.AssignSupportToEntityList(mat_id, [41, 42, 43])
 ### Plate Mat Support
 
 ```python
+# subgrades: CURRENT SetInputUnits (same convention as CreateElasticMat above)
+# GetPlateMatDetail(pm_id) returns a FIXED base-unit value afterward
 pm_id = sup.CreatePlateMat(direction, subgrades, printFlag, springType)
 ```
 

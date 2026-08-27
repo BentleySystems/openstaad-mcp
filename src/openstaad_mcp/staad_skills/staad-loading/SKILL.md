@@ -48,6 +48,11 @@ load.AddSelfWeightInXYZToGeometry(elementIds, 3 if geo.IsZUp() else 2, -1.0)
 ### Nodal Loads
 
 ```python
+# FX/FY/FZ/MX/MY/MZ: CURRENT SetInputUnits, converted to base for storage
+# (verified: FX=100 while input=kN is stored as 22.4809 kip). GetNodalLoads
+# returns a FIXED base-unit value afterward. Same convention applies to
+# essentially every other load-adding function below (AddMemberUniformForce,
+# AddMemberConcForce, AddElementPressure, AddEnclosedZoneLoad, etc.).
 load.AddNodalLoad(nodeIds, FX, FY, FZ, MX, MY, MZ)
 
 # Support displacement (prescribed)
@@ -232,7 +237,10 @@ load.IgnoreMembersForLoadTransferInEnclosedZone(zoneName, memberNos)     # exclu
 load.DeleteEnclosedZone(zoneName)   # → bool
 ```
 
-**Zone load** — applies to the active load case; `loadValue` in base units (see staad-core Units & Axis):
+**Zone load** — applies to the active load case. No getter exists to read the
+value back; live-verified via a real analysis instead (square panel, 4
+symmetric pinned corners — reactions matched the hand-calculated
+base-unit-converted expected value exactly):
 
 | loadDirection | Coordinate system |     | loadDirection | Coordinate system |
 | ------------- | ------------------ | --- | -------------- | ------------------ |
@@ -240,6 +248,8 @@ load.DeleteEnclosedZone(zoneName)   # → bool
 | 4             | Global X           |     | 6              | Global Z           |
 
 ```python
+# loadValue: CURRENT SetInputUnits, converted to base internally (same
+# convention as AddNodalLoad/AddMemberUniformForce above)
 load.AddEnclosedZoneLoad(zoneName, loadDirection, loadValue)
 ```
 
