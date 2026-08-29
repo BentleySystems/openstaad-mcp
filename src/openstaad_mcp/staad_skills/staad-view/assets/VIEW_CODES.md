@@ -93,14 +93,14 @@
 | 14 | Hide Structure |
 | 15 | Fill Plates & Solids |
 | 16 | Hide Plates & Solids |
-| 18 | Hide Piping |
-| 19 | Sort Geometry |
-| 20 | Sort Nodes |
-| 21 | Plate Stress |
-| 22 | Solid Stress |
-| 23 | Mode Shape |
-| 24 | Stress Animation |
-| 25 | Plate reinforcement |
+| 17 | Hide Piping |
+| 18 | Sort Geometry |
+| 19 | Sort Nodes |
+| 20 | Plate Stress |
+| 21 | Solid Stress |
+| 22 | Mode Shape |
+| 23 | Stress Animation |
+| 24 | Plate reinforcement |
 
 ## Unit Type Codes (SetUnits)
 

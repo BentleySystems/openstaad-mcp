@@ -293,7 +293,18 @@ load.AddAutoLoadCombinations(code, category, loadList)
 
 # Query the load cases/factors that make up a combination
 load.GetNoOfLoadAndFactorPairsForCombination(loadCombNo)  # int count
-load.GetLoadAndFactorForCombination(loadCombNo)           # (loadCaseIds, factors) — for SRSS, factors has one extra trailing element (overall SRSS factor)
+load.GetLoadAndFactorForCombination(loadCombNo)           # (loadCaseIds, factors) — by API convention,
+                                                           # factors ALWAYS has one more element than
+                                                           # loadCaseIds/count, for EVERY combination type,
+                                                           # not just SRSS. For a normal/ABS combination the
+                                                           # trailing element is unused padding (verified
+                                                           # live: a plain 2-case LOAD COMB returned
+                                                           # factors=[0.9, 1.3, 0.0] for 2 case IDs). Only for
+                                                           # SRSS does the trailing element carry a real value
+                                                           # (the overall SRSS factor). Always zip
+                                                           # `factors[:count]` with `loadCaseIds`, never the
+                                                           # raw `factors` list, to avoid an off-by-one
+                                                           # mismatch/bogus extra factor.
 load.GetLoadCombinationCaseCount()      # total number of combination cases
 load.GetLoadCombinationCaseNumbers()    # list of combination case IDs
 ```

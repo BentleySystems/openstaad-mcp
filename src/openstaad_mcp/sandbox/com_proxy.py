@@ -47,12 +47,18 @@ class _CompositePathRule:
     """Rule for methods where the path is split across two arguments (directory + filename).
 
     The validator joins ``args[dir_arg_index] / args[name_arg_index]`` into a
-    single path before running :func:`validate_file_path`.
+    single path before running :func:`validate_file_path`. If ``format_arg_index`` and
+    ``format_extension_map`` are given, an extension present in the filename must match the
+    extension(s) implied by ``args[format_arg_index]`` — catching a caller passing e.g. a
+    ".jpg" filename with a TIF format code. A bare filename (no extension at all) is always
+    allowed, since the extension is only used to catch a *mismatch*, never to require one.
     """
 
     dir_arg_index: int
     name_arg_index: int
     allowed_extensions: frozenset[str]
+    format_arg_index: int | None = None
+    format_extension_map: dict[int, frozenset[str]] | None = None
 
     def validate(self, args: tuple[Any, ...], method_name: str) -> None:
         """Join directory + filename from *args* and run :func:`validate_file_path`."""
@@ -65,10 +71,22 @@ class _CompositePathRule:
         name_part = args[self.name_arg_index]
         if not isinstance(dir_part, str) or not isinstance(name_part, str):
             raise ValueError(f"'{method_name}' requires string arguments for directory and filename")
+
+        expected_extensions = self.allowed_extensions
+        if (
+            self.format_arg_index is not None
+            and self.format_extension_map is not None
+            and self.format_arg_index < len(args)
+        ):
+            per_format = self.format_extension_map.get(args[self.format_arg_index])
+            if per_format is not None:
+                expected_extensions = per_format
+
         validate_file_path(
             os.path.join(dir_part, name_part),
-            allowed_extensions=self.allowed_extensions,
+            allowed_extensions=expected_extensions,
             method_name=method_name,
+            extension_optional=True,
         )
 
 
@@ -81,7 +99,21 @@ VALIDATED_COM_METHODS: dict[str, _PathRule | _CompositePathRule] = {
     "ExportView": _CompositePathRule(
         dir_arg_index=0,
         name_arg_index=1,
-        allowed_extensions=frozenset({".png", ".jpg", ".jpeg", ".bmp", ".emf", ".wmf"}),
+        # Real supported formats per openstaadpy's ExportView FileFormat codes: 0=bmp, 1=jpg, 2=tga, 3=tif.
+        # STAAD.Pro always appends its own extension for FileFormat on top of whatever FileName is given,
+        # so a caller-supplied extension ends up doubled on disk (e.g. "foo.tif" -> "foo.tif.tif") -- this
+        # is expected/harmless. A bare filename (no extension) is also accepted here since COM itself does
+        # not require one, but has been observed to behave unreliably; recommend always supplying the
+        # extension matching FileFormat (arg 2) -- validated here to catch a mismatch (e.g. a ".jpg"
+        # filename passed with FileFormat=3/tif) before it silently produces a confusing result.
+        allowed_extensions=frozenset({".bmp", ".jpg", ".jpeg", ".tga", ".tif", ".tiff"}),
+        format_arg_index=2,
+        format_extension_map={
+            0: frozenset({".bmp"}),
+            1: frozenset({".jpg", ".jpeg"}),
+            2: frozenset({".tga"}),
+            3: frozenset({".tif", ".tiff"}),
+        },
     ),
 }
 
@@ -102,6 +134,7 @@ def validate_file_path(
     *,
     allowed_extensions: frozenset[str],
     method_name: str,
+    extension_optional: bool = False,
 ) -> None:
     """Raise :class:`ValueError` if *path* is unsafe for a COM file operation.
 
@@ -110,7 +143,8 @@ def validate_file_path(
     2. Must not be a UNC path (``\\\\...``).
     3. Must be absolute (has a drive letter on Windows).
     4. Must not contain ``..`` segments (path traversal).
-    5. Must end with one of the *allowed_extensions*.
+    5. Must end with one of the *allowed_extensions*, unless *extension_optional* and no
+       extension is present at all.
     6. Must not target a protected OS directory.
     """
     if not isinstance(path, str) or not path.strip():
@@ -139,7 +173,7 @@ def validate_file_path(
 
     # Extension check.
     _, ext = os.path.splitext(normalized)
-    if ext.lower() not in allowed_extensions:
+    if not (extension_optional and ext == "") and ext.lower() not in allowed_extensions:
         allowed = ", ".join(sorted(allowed_extensions))
         raise ValueError(f"'{method_name}' only allows files with extensions: {allowed}; got '{ext}'")
 
@@ -270,16 +304,27 @@ class _ValidatedFileMethodWrapper:
         return f"<sandbox validated COM method '{name}'>"
 
 
+# Types returned as-is by COM/openstaadpy calls that never need (and cannot usefully be)
+# wrapped in a COMProxy — everything else (raw COM dispatch objects, and openstaadpy's
+# own Python sub-API wrapper instances such as OSGeometry/OSView/OSLoad, which are plain
+# Python objects with NO `_oleobj_`) gets wrapped so their methods stay subject to the same
+# UNC/path/extension validation and internal-attribute blocking as the root object.
+_PASSTHROUGH_TYPES = (str, bytes, int, float, bool, complex, type(None))
+_PASSTHROUGH_CONTAINER_TYPES = (list, tuple, dict, set, frozenset)
+
+
 def _maybe_wrap(value: Any) -> Any:
-    """Wrap COM dispatch objects recursively; pass through primitives."""
-    # Check if it looks like a COM dispatch wrapper.
-    # For instances: check the type.  For classes used as sub-objects
-    # (e.g. staad.Geometry returning a class), check the value directly.
-    if hasattr(type(value), "_oleobj_") or (isinstance(value, type) and hasattr(value, "_oleobj_")):
-        return COMProxy(value)
-    # Also wrap plain class objects used as namespace containers (e.g. in tests
-    # or non-COM sub-objects).  This ensures recursive protection even when the
-    # underlying object is not a true COM dispatch.
+    """Wrap any non-primitive, non-callable object so nested method calls stay validated.
+
+    Classes are wrapped even though they are technically callable (constructing them), since
+    they're used here as plain namespace containers, never instantiated. Other callables (bound
+    methods, raw COM method wrappers) are left untouched — they are wrapped separately by the
+    caller via ``_SafeMethodWrapper``/``_ValidatedFileMethodWrapper``.
+    """
     if isinstance(value, type):
         return COMProxy(value)
-    return value
+    if callable(value):
+        return value
+    if isinstance(value, _PASSTHROUGH_TYPES + _PASSTHROUGH_CONTAINER_TYPES):
+        return value
+    return COMProxy(value)

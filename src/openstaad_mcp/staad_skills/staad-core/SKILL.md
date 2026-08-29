@@ -75,7 +75,7 @@ fixed base-unit value.** `staad.GetBaseUnit()` (`"English"` = inches + KIP,
 - **Exception — coordinate-valued `Add*`/`Get*` geometry functions** (`AddNode`, `GetNodeCoordinates`): always raw base-unit values, no conversion applied regardless of the current input unit setting. Convert user-given coordinates to base units yourself before calling these. (`AddBeam`/`AddPlate` take node ID integers, not coordinates, so this unit exception doesn't apply to them.)
   - **Careful:** the sibling `Create*` family (`CreateNode`, `CreateMultipleNodes`) looks like it only adds "an explicit ID" option, but it actually does NOT share this exception — it follows the standard convention (consumes current input units, converts to base), unlike `AddNode`. See staad-geometry for the live-verified proof. Don't assume `Add*` and `Create*` geometry functions share the same units behavior just because they look like thin variants of each other.
 - `staad.Output.GetOutputUnitFor*` (Force, Moment, Displacement, Stress, …) is a separate, unrelated subsystem reporting the label the **STAAD.Pro UI** displays results in — use only as a display/reporting target when presenting values to the user (see staad-results → Output Units), never to decide how to convert an input value.
-- **Compound units are built from `GetInputUnitForLength()`/`GetInputUnitForForce()` combined**, not a separate lookup: stress-type parameters (E, G, Fy, Fu) are force/length², unit weight/density is force/length³, distributed loads are force/length. E.g. under Meter+kN, a setter expecting stress consumes **kN/m²**, not MPa/GPa — passing a textbook MPa value (e.g. `E=200000` for steel) silently stores a material 1000× too soft. Convert to the compound unit yourself before calling the setter (see staad-properties → Materials).
+- **Compound units are built from `GetInputUnitForLength()`/`GetInputUnitForForce()` combined**, not a separate lookup: stress-type parameters (E, G, Fy, Fu) are force/length², unit weight/density is force/length³, distributed loads are force/length. A setter expecting stress never consumes MPa/GPa/psi directly — it consumes whatever `force_unit / length_unit²` those two getters currently report (e.g. kN/m² under Meter+kN, ksi under Inch+Kip). Passing a textbook value in a different unit (e.g. `E=200000` meant as MPa) silently stores the wrong stiffness by whatever factor separates the two units — the size and direction of that error depends on the current unit system, so don't assume a fixed multiplier. Always convert the value into the compound unit built from the current getters before calling the setter (see staad-properties → Materials).
 
 ```python
 # Standard pattern: discover current input unit, convert the user's value into
@@ -141,7 +141,7 @@ Always work on the **currently open model**. If the user says "create a model", 
 The following functions are available but **path-validated** by the sandbox:
 
 - `staad.OpenSTAADFile(filePath)` — open an existing STAAD model file
-- `staad.NewSTAADFile(filePath, envCode, unitCode)` — create a new STAAD model file
+- `staad.NewSTAADFile(filePath, lengthUnit, forceUnit)` — create a new STAAD model file. `lengthUnit`/`forceUnit` are integer unit codes (see **[UNIT_CODES.md](./assets/UNIT_CODES.md)**), NOT an environment/template code — e.g. `(4, 5)` = Meter/kN (Metric), `(1, 0)` = Feet/Kip (English). Always creates an **Analytical** model file — there is no parameter to create a Physical Modeller file.
 - `staad.CloseSTAADFile()` — close the currently open model
 
 **Path rules** (enforced automatically — violations raise an error):
@@ -156,7 +156,10 @@ The following functions are available but **path-validated** by the sandbox:
 # Open an existing model
 staad.OpenSTAADFile("C:\\Projects\\Bridge\\bridge_v2.std")
 
-# Create a new model (envCode=1 for general, unitCode depends on unit system)
+# Create a new Metric model (4=Meter, 5=KiloNewton)
+staad.NewSTAADFile("C:\\Projects\\NewModel\\frame.std", 4, 5)
+
+# Create a new English model (1=Feet, 0=Kilopound)
 staad.NewSTAADFile("C:\\Projects\\NewModel\\frame.std", 1, 0)
 
 # Close the current model

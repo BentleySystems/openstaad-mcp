@@ -37,6 +37,21 @@ class FakeCOMObj:
         def ExportView(directory, filename, fmt, flag):
             return True
 
+    class _PlainSubObjectImpl:
+        """Mimics openstaadpy's real sub-API shape: a plain Python instance with NO
+        `_oleobj_` (e.g. `OSView`/`OSGeometry`), unlike the `View`/`Geometry` fakes above.
+        """
+
+        @staticmethod
+        def ExportView(directory, filename, fmt, flag):
+            return True
+
+        @staticmethod
+        def _internal():
+            return "secret"
+
+    PlainSubObject = _PlainSubObjectImpl()
+
     @staticmethod
     def GetApplicationVersion():
         return "STAAD.Pro V25"
@@ -159,29 +174,63 @@ class TestBlockedDangerousMethods:
 
     # -- ExportView (composite path: directory + filename on sub-object) ------
 
-    def test_export_view_valid_png(self, proxy):
+    def test_export_view_valid_bmp(self, proxy):
         view = proxy.View
-        assert view.ExportView("C:\\exports", "view.png", 1, 0) is True
+        assert view.ExportView("C:\\exports", "view.bmp", 0, 0) is True
 
     def test_export_view_valid_jpg(self, proxy):
         view = proxy.View
         assert view.ExportView("C:\\exports", "view.jpg", 1, 0) is True
 
-    def test_export_view_valid_bmp(self, proxy):
-        view = proxy.View
-        assert view.ExportView("C:\\exports", "view.bmp", 1, 0) is True
-
-    def test_export_view_valid_emf(self, proxy):
-        view = proxy.View
-        assert view.ExportView("C:\\exports", "view.emf", 1, 0) is True
-
     def test_export_view_valid_jpeg(self, proxy):
         view = proxy.View
         assert view.ExportView("C:\\exports", "view.jpeg", 1, 0) is True
 
-    def test_export_view_valid_wmf(self, proxy):
+    def test_export_view_valid_tga(self, proxy):
         view = proxy.View
-        assert view.ExportView("C:\\exports", "view.wmf", 1, 0) is True
+        assert view.ExportView("C:\\exports", "view.tga", 2, 0) is True
+
+    def test_export_view_valid_tif(self, proxy):
+        view = proxy.View
+        assert view.ExportView("C:\\exports", "view.tif", 3, 0) is True
+
+    def test_export_view_valid_tiff(self, proxy):
+        view = proxy.View
+        assert view.ExportView("C:\\exports", "view.tiff", 3, 0) is True
+
+    def test_export_view_bare_filename_allowed(self, proxy):
+        # A bare filename (no extension) is the normal, correct usage — openstaadpy's
+        # ExportView strips any caller-supplied extension anyway before calling COM.
+        view = proxy.View
+        assert view.ExportView("C:\\exports", "view", 1, 0) is True
+
+    def test_export_view_extension_mismatches_format(self, proxy):
+        # A .jpg filename with FileFormat=3 (tif) must be rejected as a mismatch, not
+        # silently accepted just because .jpg is a generally-valid ExportView extension.
+        view = proxy.View
+        with pytest.raises(ValueError, match="extensions"):
+            view.ExportView("C:\\exports", "view.jpg", 3, 0)
+
+    def test_export_view_unknown_format_falls_back_to_any_allowed_extension(self, proxy):
+        # An unrecognised FileFormat code falls back to the general allowed-extensions set.
+        view = proxy.View
+        assert view.ExportView("C:\\exports", "view.tga", 99, 0) is True
+
+    def test_export_view_png_now_rejected(self, proxy):
+        """PNG was never a real ExportView format — must be rejected, not accepted."""
+        view = proxy.View
+        with pytest.raises(ValueError, match="extensions"):
+            view.ExportView("C:\\exports", "view.png", 1, 0)
+
+    def test_export_view_emf_now_rejected(self, proxy):
+        view = proxy.View
+        with pytest.raises(ValueError, match="extensions"):
+            view.ExportView("C:\\exports", "view.emf", 1, 0)
+
+    def test_export_view_wmf_now_rejected(self, proxy):
+        view = proxy.View
+        with pytest.raises(ValueError, match="extensions"):
+            view.ExportView("C:\\exports", "view.wmf", 1, 0)
 
     def test_export_view_wrong_extension(self, proxy):
         view = proxy.View
@@ -191,27 +240,44 @@ class TestBlockedDangerousMethods:
     def test_export_view_unc_dir(self, proxy):
         view = proxy.View
         with pytest.raises(ValueError, match="UNC"):
-            view.ExportView("\\\\server\\share", "view.png", 1, 0)
+            view.ExportView("\\\\server\\share", "view.bmp", 0, 0)
 
     def test_export_view_protected_dir(self, proxy):
         view = proxy.View
         with pytest.raises(ValueError, match="protected"):
-            view.ExportView("C:\\Windows", "view.png", 1, 0)
+            view.ExportView("C:\\Windows", "view.bmp", 0, 0)
 
     def test_export_view_traversal_in_dir(self, proxy):
         view = proxy.View
         with pytest.raises(ValueError, match="traversal"):
-            view.ExportView("C:\\exports\\..\\..\\Windows", "view.png", 1, 0)
+            view.ExportView("C:\\exports\\..\\..\\Windows", "view.bmp", 0, 0)
 
     def test_export_view_traversal_in_filename(self, proxy):
         view = proxy.View
         with pytest.raises(ValueError, match="traversal"):
-            view.ExportView("C:\\exports", "..\\..\\Windows\\view.png", 1, 0)
+            view.ExportView("C:\\exports", "..\\..\\Windows\\view.bmp", 0, 0)
 
     def test_export_view_null_byte_in_filename(self, proxy):
         view = proxy.View
         with pytest.raises(ValueError, match="Null bytes"):
-            view.ExportView("C:\\exports", "view.png\x00.exe", 1, 0)
+            view.ExportView("C:\\exports", "view.bmp\x00.exe", 1, 0)
+
+    # -- Regression: plain (non-COM) sub-objects must ALSO be validated -------
+
+    def test_plain_sub_object_export_view_still_validated(self, proxy):
+        """openstaadpy sub-API objects (OSView, OSGeometry, ...) are plain Python
+        instances with no `_oleobj_` — they must still be wrapped and validated,
+        not bypass the sandbox entirely.
+        """
+        plain = proxy.PlainSubObject
+        with pytest.raises(ValueError, match="extensions"):
+            plain.ExportView("C:\\exports", "view.exe", 0, 0)
+        assert plain.ExportView("C:\\exports", "view.bmp", 0, 0) is True
+
+    def test_plain_sub_object_internal_attr_blocked(self, proxy):
+        plain = proxy.PlainSubObject
+        with pytest.raises(AttributeError, match="not allowed"):
+            _ = plain._internal
 
 
 class TestValidateFilePathUnit:

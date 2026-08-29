@@ -1,6 +1,6 @@
 ﻿---
 name: staad-view
-description: "Use when controlling the STAAD.Pro user interface: camera views, show/hide elements, labels, result diagrams, annotations, screenshots, export to image, window management, saved views, display scales, or switching between modeling and post-processing modes. Covers: SetInterfaceMode, GetInterfaceMode, ShowIsometric, ShowPlan, ShowFront, ZoomExtentsMainView, ZoomAll, ShowMember, HideMember, HideEntity, HideSurface, ShowAllMembers, SetLabel (node/beam numbers), SetDiagramMode (displacement/moment/shear diagrams), SetDesignResults (utilization ratios), CopyPicture (clipboard), ExportView (save view as PNG/JPG/BMP/EMF/WMF — path-validated), SelectMembersParallelTo, SetSectionView (clipping plane), SaveView, DetachView, CreateNewViewForSelectionsEx, GetScaleCount, GetScaleValueByType, SetWindowPosition. Requires staad-core."
+description: "Use when controlling the STAAD.Pro user interface: camera views, show/hide elements, labels, result diagrams, annotations, screenshots, export to image, window management, saved views, display scales, or switching between modeling and post-processing modes. Covers: SetInterfaceMode, GetInterfaceMode, ShowIsometric, ShowPlan, ShowFront, ZoomExtentsMainView, ZoomAll, ShowMember, HideMember, HideEntity, HideSurface, ShowAllMembers, SetLabel (node/beam numbers), SetDiagramMode (displacement/moment/shear diagrams), SetDesignResults (utilization ratios), CopyPicture (clipboard), ExportView (save view as BMP/JPG/TGA/TIF — path-validated), SelectMembersParallelTo, SetSectionView (clipping plane), SaveView, DetachView, CreateNewViewForSelectionsEx, GetScaleCount, GetScaleValueByType, SetWindowPosition. Requires staad-core."
 ---
 
 # STAAD.Pro View Control
@@ -146,25 +146,25 @@ x, y = view.CopyPicture()
 `ExportView` saves the current view as an image file. It takes a **directory** and a **filename** as separate arguments. The combined path is validated by the sandbox.
 
 ```python
-# ExportView(directory, filename, formatCode, flag)
+# ExportView(directory, fileName, fileFormat, overwrite)
+# fileFormat: 0=bmp, 1=jpg, 2=tga, 3=tif — no other formats are supported
 
-# Export to PNG
-view.ExportView("C:\\exports", "front_view.png", 3, 0)
+# Export to TIF
+view.ExportView("C:\\exports", "iso_view.tif", 3, True)   # -> C:\exports\iso_view.tif.tif
 
 # Export to JPG
-view.ExportView("C:\\exports", "iso_view.jpg", 2, 0)
+view.ExportView("C:\\exports", "iso_view.jpg", 1, True)   # -> C:\exports\iso_view.jpg.jpg
 
 # Export to BMP
-view.ExportView("C:\\exports", "plan_view.bmp", 1, 0)
-
-# Export to EMF (vector)
-view.ExportView("C:\\exports", "detail.emf", 4, 0)
+view.ExportView("C:\\exports", "plan_view.bmp", 0, True)  # -> C:\exports\plan_view.bmp.bmp
 ```
+
+**Always include the matching extension in `fileName`** (`.bmp` for format 0, `.jpg`/`.jpeg` for 1, `.tga` for 2, `.tif`/`.tiff` for 3). STAAD.Pro always appends its own extension for the chosen `fileFormat` on top regardless of what's supplied, so the saved file ends up with the extension doubled (e.g. `iso_view.tif.tif`) — this is expected/harmless; report the actual doubled filename back to the user rather than the one passed in. A bare filename with no extension has been observed to work in some sessions but is unreliable — always supply the matching extension.
 
 **Path rules** (enforced on the combined `directory\filename` — violations raise an error):
 
 - The combined path **must be absolute**
-- The filename **must end with** `.png`, `.jpg`, `.jpeg`, `.bmp`, `.emf`, or `.wmf`
+- The filename must end with `.bmp`, `.jpg`, `.jpeg`, `.tga`, `.tif`, or `.tiff`, matching the `fileFormat` code used — any other extension, or a mismatched one, is rejected (a bare filename with no extension is also accepted by the sandbox, though not recommended — see above)
 - UNC paths (`\\\\server\\share\\...`) are **blocked**
 - Paths targeting protected OS directories (`Windows`, `Program Files`, `ProgramData`) are **blocked**
 - Path traversal (`..`) in either directory or filename is **blocked**
@@ -222,6 +222,10 @@ view.RefreshView()
 view.SetUnits(uType, strUnit)   # e.g. SetUnits(5, "kN")
 ```
 
+## Examples
+
+- [export-plate-stress.py](./scripts/export-plate-stress.py) — export a Von Mises plate-stress contour screenshot per load case
+
 ## Gotchas
 
 - Switch to post-processing mode (`SetInterfaceMode(5)`) before showing result diagrams; always call `staad.ShowApplication()` first
@@ -245,4 +249,4 @@ view.SetUnits(uType, strUnit)   # e.g. SetUnits(5, "kN")
   # geo.IsBeam(bid, tol) is the horizontal equivalent; neither covers arbitrary
   # non-cardinal axes, which only view.SelectMembersParallelTo supports
   ```
-- `ExportView(directory, filename, ...)` takes a **directory** and **filename** as separate arguments; the combined path must be absolute, end with a supported image extension (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.emf`, `.wmf`), and not target a protected OS directory; UNC paths and `..` traversal are rejected
+- `ExportView(directory, filename, ...)` takes a **directory** and **filename** as separate arguments; the combined path must be absolute, end with a supported image extension (`.bmp`, `.jpg`, `.jpeg`, `.tga`, `.tif`, `.tiff`), and not target a protected OS directory; UNC paths and `..` traversal are rejected. The written file always has STAAD.Pro's own extension for `fileFormat` appended again on top of the one you supplied (e.g. `"a.tif"` → `a.tif.tif` on disk)
