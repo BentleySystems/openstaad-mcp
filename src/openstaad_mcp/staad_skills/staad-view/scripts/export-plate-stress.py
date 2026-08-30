@@ -8,12 +8,16 @@
 # - View.SetInterfaceMode(...) is not required.
 # - SetDiagramMode(15, ...) (Fill Plates & Solids) is not required -- SetDiagramMode(20, ...) alone
 #   produces a fully-filled color gradient contour with a correct legend and units.
-# - If no plate/solid stress type has been picked yet (via the Diagrams > Plate/Solid Stress dialog),
-#   STAAD.Pro defaults to Max Von Mises; any type already picked manually is left untouched.
+# - SetStressType(entityType, stressType, refreshFlag) picks which stress component the contour
+#   shows and recomputes its legend range for the currently active load case. Call it AFTER
+#   SetDiagramMode(20, ...) enables the Plate Stress diagram. entityType=20 Plate, 21 Solid;
+#   stressType=8 is Max Von Mises for plates (see VIEW_CODES.md for the full tables).
 # - SetDiagramMode(20, ...) is Plate Stress; SetDiagramMode(21, ...) is Solid Stress (see VIEW_CODES.md
 #   for the full Diagram Mode Codes table).
 # - ExportView's return code and file size alone don't guarantee a real (non-blank) capture -- if a
 #   result looks suspicious, view the exported file to confirm.
+# - SetActiveWindow(1) targets the main view of THIS freshly-connected model -- use the real window id
+#   instead of 1 if the script created/opened a different window (CreateNewViewForSelectionsEx, OpenView).
 
 out = staad.Output
 load = staad.Load
@@ -30,7 +34,8 @@ else:
         load.SetLoadActive(lc)
         view.SetActiveWindow(1)
         view.ShowIsometric()
-        view.SetDiagramMode(20, True, True)  # Plate Stress (Von Mises, STAAD.Pro's default plate stress display)
+        view.SetDiagramMode(20, True, False)  # Plate Stress diagram; skip refresh, SetStressType refreshes next
+        view.SetStressType(20, 8, True)       # Max Von Mises, recompute legend for this load case
         view.ZoomExtentsMainView()
         view.RefreshView()
 

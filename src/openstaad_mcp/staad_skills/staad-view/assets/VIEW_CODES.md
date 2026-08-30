@@ -102,6 +102,71 @@
 | 23 | Stress Animation |
 | 24 | Plate reinforcement |
 
+## Stress Entity Type Codes (SetStressType)
+
+| ID | Entity |
+|----|--------|
+| 20 | Plate Stress |
+| 21 | Solid Stress |
+
+## Plate Stress Type Codes (SetStressType, entityType=20)
+
+`UI Label` is the exact text shown in the Diagrams > Plate Stress dialog's Type combo box — match
+user requests against this column, not just the `Stress Type` name (several differ, e.g. FX/FY/FXY
+show as "SX (local)"/"SY (local)"/"SXY (local)"; stressType 19 shows "MXY (local)", not "MZ";
+Max Von Mises is truncated to "Max Von Mis" with no "es").
+
+| ID | Stress Type | UI Label |
+|----|-------------|----------|
+| 1 | Max Absolute | Max Absolute |
+| 2 | Top Max | Max Top (Principal Major Stress) |
+| 3 | Top Min | Min Top (Principal Minor Stress) |
+| 4 | Top Max Shear | Tau Max Top |
+| 5 | Bottom Max | Max Bottom (Principal Major Stress) |
+| 6 | Bottom Min | Min Bottom (Principal Minor Stress) |
+| 7 | Bottom Max Shear | Tau Max Bottom |
+| 8 | Max Von Mises | Max Von Mis |
+| 9 | Von Mises Top Max | Von Mis Top |
+| 10 | Von Mises Bottom Max | Von Mis Bottom |
+| 11 | Max Tresca | Max Tresca |
+| 12 | Top Tresca | Tresca Top |
+| 13 | Bottom Tresca | Tresca Bottom |
+| 14 | FX | SX (local) |
+| 15 | FY | SY (local) |
+| 16 | FXY | SXY (local) |
+| 17 | MX | MX (local) |
+| 18 | MY | MY (local) |
+| 19 | MZ | MXY (local) |
+| 20 | QX | SQX (local) |
+| 21 | QY | SQY (local) |
+| 22 | Global | Global Moment |
+| 23 | Global Membrane Stresses | Global Direct Stress |
+| 24 | Global Shear Stresses | Global Shear Stress |
+| 25 | Base Pressure | Base Pressure |
+| 26 | Combined X Top | Top Combined SX (local) |
+| 27 | Combined Y Top | Top Combined SY (local) |
+| 28 | Combined XY Top | Top Combined SXY (local) |
+| 29 | Combined X Bottom | Bottom Combined SX (local) |
+| 30 | Combined Y Bottom | Bottom Combined SY (local) |
+| 31 | Combined XY Bottom | Bottom Combined SXY (local) |
+
+## Solid Stress Type Codes (SetStressType, entityType=21)
+
+`UI Label` is the exact text shown in the Diagrams > Solid Stress dialog's Type combo box.
+
+| ID | Stress Type | UI Label |
+|----|-------------|----------|
+| 1 | SXX | SXX |
+| 2 | SYY | SYY |
+| 3 | SZZ | SZZ |
+| 4 | SXY | SXY |
+| 5 | SYZ | SYZ |
+| 6 | SXZ | SZX |
+| 7 | S11 | S1 |
+| 8 | S22 | S2 |
+| 9 | S33 | S3 |
+| 10 | Sigma Effective (Von Mises) | Sige/Von Mises |
+
 ## Unit Type Codes (SetUnits)
 
 | ID | Unit Category |

@@ -1,6 +1,6 @@
 ﻿---
 name: staad-view
-description: "Use when controlling the STAAD.Pro user interface: camera views, show/hide elements, labels, result diagrams, annotations, screenshots, export to image, window management, saved views, display scales, or switching between modeling and post-processing modes. Covers: SetInterfaceMode, GetInterfaceMode, ShowIsometric, ShowPlan, ShowFront, ZoomExtentsMainView, ZoomAll, ShowMember, HideMember, HideEntity, HideSurface, ShowAllMembers, SetLabel (node/beam numbers), SetDiagramMode (displacement/moment/shear diagrams), SetDesignResults (utilization ratios), CopyPicture (clipboard), ExportView (save view as BMP/JPG/TGA/TIF — path-validated), SelectMembersParallelTo, SetSectionView (clipping plane), SaveView, DetachView, CreateNewViewForSelectionsEx, GetScaleCount, GetScaleValueByType, SetWindowPosition. Requires staad-core."
+description: "Use when controlling the STAAD.Pro user interface: camera views, show/hide elements, labels, result diagrams, annotations, screenshots, export to image, window management, saved views, display scales, or switching between modeling and post-processing modes. Covers: SetInterfaceMode, GetInterfaceMode, ShowIsometric, ShowPlan, ShowFront, ZoomExtentsMainView, ZoomAll, ShowMember, HideMember, HideEntity, HideSurface, ShowAllMembers, SetLabel (node/beam numbers), SetDiagramMode (displacement/moment/shear diagrams), SetStressType (plate/solid stress contour type), SetDesignResults (utilization ratios), CopyPicture (clipboard), ExportView (save view as BMP/JPG/TGA/TIF — path-validated), SelectMembersParallelTo, SetSectionView (clipping plane), SaveView, DetachView, CreateNewViewForSelectionsEx, GetScaleCount, GetScaleValueByType, SetWindowPosition. Requires staad-core."
 ---
 
 # STAAD.Pro View Control
@@ -113,6 +113,29 @@ Common `which` values (full table in the Reference section — VIEW_CODES.md):
 view.SetDiagramMode(which, show=True, refresh=True)
 ```
 
+### Plate/Solid Stress Type
+
+`SetStressType` picks which stress component the Plate Stress (`which=20`) or Solid Stress
+(`which=21`) contour shows, and recomputes its legend range for the currently active load case
+(`Load.SetLoadActive`). Enable the diagram first via `SetDiagramMode`, then call `SetStressType`:
+
+```python
+view.SetActiveWindow(1)                       # REQUIRED before any diagram/export call — see Gotchas
+view.ShowIsometric()
+view.SetDiagramMode(20, True, False)         # enable Plate Stress diagram; skip refresh, next call refreshes
+view.SetStressType(20, 8, True)              # entityType=20 Plate, stressType=8 Max Von Mises
+```
+
+`entityType`: `20`=Plate Stress, `21`=Solid Stress.
+
+**Before calling `SetStressType`, read [VIEW_CODES.md](./assets/VIEW_CODES.md) for the full `stressType`
+tables (31 plate values, 10 solid values) and use the exact integer code from it — never guess or
+trial-and-error multiple values.** VIEW_CODES.md also lists each code's exact `UI Label` (the literal
+text in the Diagrams > Plate/Solid Stress dialog's Type combo box) — several differ from the
+descriptive name (e.g. FX/FY/FXY show as "SX (local)"/"SY (local)"/"SXY (local)"; stressType 19 shows
+"MXY (local)", not "MZ"); match a user's request against `UI Label`, not just the descriptive name.
+Common plate values for quick reference: `1`=Max Absolute, `8`=Max Von Mises.
+
 ## Annotations
 
 ```python
@@ -136,30 +159,35 @@ view.SetSectionView(plane, minVal, maxVal)  # plane: 0=XY, 1=YZ, 2=XZ
 
 ## Screenshots
 
+**Always call `view.SetActiveWindow(id)` immediately before `CopyPicture`/`ExportView`** — a STAAD.Pro session commonly has multiple windows open (e.g. `<Untitled 1>` main 3D view plus `Nodes`/`Beams` spreadsheet windows; check with `view.GetWindowCount()`/`GetWindowTitle(id)`). Without it, the capture can silently come from whichever window was last active — a spreadsheet, or a stale view left over from earlier in the session — with NO error, just a wrong or blank-looking image. `id=1` is the right choice for the common case (freshly opened model, main view untouched) — but `ExportView`/`CopyPicture` intentionally never assume this for you, so a script that created or opened a DIFFERENT window (`CreateNewViewForSelectionsEx`, `OpenView`, a saved view) must pass that window's own id, not `1`.
+
 ```python
 # Copy to clipboard
+view.SetActiveWindow(1)   # 1 = main view for a freshly opened model; use the real id if targeting another window
 x, y = view.CopyPicture()
 ```
 
 ## Export View to File
 
-`ExportView` saves the current view as an image file. It takes a **directory** and a **filename** as separate arguments. The combined path is validated by the sandbox.
+`ExportView` saves the current view as an image file. It takes a **directory** and a **filename** as separate arguments. The combined path is validated by the sandbox. **Call `view.SetActiveWindow(id)` first** (see Screenshots above) — this is the single most common cause of a wrong/stale capture.
 
 ```python
 # ExportView(directory, fileName, fileFormat, overwrite)
 # fileFormat: 0=bmp, 1=jpg, 2=tga, 3=tif — no other formats are supported
 
+view.SetActiveWindow(1)   # main view for a freshly opened model
+
 # Export to TIF
-view.ExportView("C:\\exports", "iso_view.tif", 3, True)   # -> C:\exports\iso_view.tif.tif
+view.ExportView("C:\\exports", "iso_view.tif", 3, True)
 
 # Export to JPG
-view.ExportView("C:\\exports", "iso_view.jpg", 1, True)   # -> C:\exports\iso_view.jpg.jpg
+view.ExportView("C:\\exports", "iso_view.jpg", 1, True)
 
 # Export to BMP
-view.ExportView("C:\\exports", "plan_view.bmp", 0, True)  # -> C:\exports\plan_view.bmp.bmp
+view.ExportView("C:\\exports", "plan_view.bmp", 0, True)
 ```
 
-**Always include the matching extension in `fileName`** (`.bmp` for format 0, `.jpg`/`.jpeg` for 1, `.tga` for 2, `.tif`/`.tiff` for 3). STAAD.Pro always appends its own extension for the chosen `fileFormat` on top regardless of what's supplied, so the saved file ends up with the extension doubled (e.g. `iso_view.tif.tif`) — this is expected/harmless; report the actual doubled filename back to the user rather than the one passed in. A bare filename with no extension has been observed to work in some sessions but is unreliable — always supply the matching extension.
+**Always include the matching extension in `fileName`** (`.bmp` for format 0, `.jpg`/`.jpeg` for 1, `.tga` for 2, `.tif`/`.tiff` for 3). STAAD.Pro's own `MakeFilePath` appends the `fileFormat` extension on top of whatever `fileName` is given — on some builds this doubles the extension (e.g. `iso_view.tif.tif`), on others (where a native fix has landed) it does not. **Never assume which happened** — after calling `ExportView`, list the target directory to see the real filename on disk before reporting a path back to the user or reading the file back.
 
 **Path rules** (enforced on the combined `directory\filename` — violations raise an error):
 
@@ -228,6 +256,9 @@ view.SetUnits(uType, strUnit)   # e.g. SetUnits(5, "kN")
 
 ## Gotchas
 
+- **`which`/`entityType`/`stressType` and every other enum-style parameter in this skill are ALWAYS integers, never strings.** Use the exact documented code from its table (Result Diagrams, Plate/Solid Stress Type, Label Codes, etc. above, or VIEW_CODES.md) — do not trial-and-error/probe multiple values hoping one works, and do not pass the enum's name as a string. If a table looks truncated or incomplete in context, re-read the specific section/asset rather than guessing.
+- **`view.SetActiveWindow(id)` is REQUIRED before `CopyPicture`/`ExportView`/any diagram screenshot workflow** — a session can have multiple windows open (main 3D view plus spreadsheet windows like `Nodes`/`Beams`, plus any extra windows from `CreateNewViewForSelectionsEx`/`OpenView`); skipping this call has been reproduced live to silently capture the wrong (or a stale, leftover-from-earlier-in-the-session) window with no error at all — not a rare edge case, verify with `view.GetWindowCount()`/`GetWindowTitle(id)` if in doubt. `id=1` is the right default ONLY for the common case of a freshly opened model's main view — if the script itself just created or opened a different window (e.g. via `CreateNewViewForSelectionsEx`/`OpenView`/`SaveView`+`OpenView` for a saved view), target THAT window's actual id instead of hardcoding `1`.
+- `ExportView`/`CopyPicture` intentionally do NOT force window 1 internally — they operate on whatever window is currently active, which is what makes multi-window workflows (export several saved views in one script, or a view built from a specific selection) possible. Always call `SetActiveWindow(id)` explicitly for the window you mean immediately before the capture call, every single time, even if you just switched windows moments earlier in the same script.
 - Switch to post-processing mode (`SetInterfaceMode(5)`) before showing result diagrams; always call `staad.ShowApplication()` first
 - Do not try to read back the interface mode after setting it — the value is unreliable; trust that `SetInterfaceMode` applies correctly. `GetInterfaceMode()` on its own (not right after a `SetInterfaceMode` call) is reliable — verified live, correctly returned `0` on a freshly opened model in modeling mode
 - `GetBeamsInView(beamList)` does **not** populate the passed list — verified live, the list is unchanged after the call and the return value is just the count (identical to `GetNoOfBeamsInView()`). Use `geo.GetBeamList()` for actual beam IDs.
@@ -249,4 +280,4 @@ view.SetUnits(uType, strUnit)   # e.g. SetUnits(5, "kN")
   # geo.IsBeam(bid, tol) is the horizontal equivalent; neither covers arbitrary
   # non-cardinal axes, which only view.SelectMembersParallelTo supports
   ```
-- `ExportView(directory, filename, ...)` takes a **directory** and **filename** as separate arguments; the combined path must be absolute, end with a supported image extension (`.bmp`, `.jpg`, `.jpeg`, `.tga`, `.tif`, `.tiff`), and not target a protected OS directory; UNC paths and `..` traversal are rejected. The written file always has STAAD.Pro's own extension for `fileFormat` appended again on top of the one you supplied (e.g. `"a.tif"` → `a.tif.tif` on disk)
+- `ExportView(directory, filename, ...)` takes a **directory** and **filename** as separate arguments; the combined path must be absolute, end with a supported image extension (`.bmp`, `.jpg`, `.jpeg`, `.tga`, `.tif`, `.tiff`), and not target a protected OS directory; UNC paths and `..` traversal are rejected. Whether the written file's extension ends up doubled (e.g. `"a.tif"` → `a.tif.tif` on disk) depends on the STAAD.Pro build — always verify the real filename on disk rather than assuming either way (see Export View to File above)
