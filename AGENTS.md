@@ -23,7 +23,7 @@ pytest -m integration -v              # Integration tests (Windows + STAAD runni
 | `server.py` | MCP tool definitions (`discover_api`, `read_skills`, `execute_code`, `get_status`) |
 | `connection.py` | Multi-instance management via Windows ROT scan, STA-thread COM dispatch |
 | `sandbox/executor.py` | AST-validated sandboxed `exec()` with stdout/stderr capture |
-| `sandbox/com_proxy.py` | COM object proxy — blocks internal attrs, validates file paths |
+| `sandbox/com_proxy.py` | COM object proxy — blocks internal attrs, deny-by-default validation of every COM argument |
 | `sandbox/ast.py` | AST validation, format-string bypass detection, last-expr rewriting |
 | `sandbox/const.py` | Allowlists for builtins, exceptions, and module attributes |
 | `sandbox/path_validator.py` | Blocks writes to protected dirs, detects UNC paths (NTLM relay prevention) |
@@ -50,7 +50,15 @@ pytest -m integration -v              # Integration tests (Windows + STAAD runni
 - AST validation runs before any `exec()` — never bypass it
 - `ALLOWED_BUILTINS` and `ALLOWED_MODULE_ATTRS` in `sandbox/const.py` are allowlists, not blocklists
 - `COMProxy` must block all internal COM attributes (`_oleobj_`, `_ApplyTypes_`, etc.)
-- File path validation must reject UNC paths and writes to `Windows/`, `Program Files/`, `ProgramData/`
+- COM argument validation is **deny-by-default**: every string argument of every COM call goes
+  through `_scan_string_args`, which rejects UNC paths, `..` traversal, null bytes, `%VAR%`
+  expansion and 8.3 short names, and fully validates anything shaped like a filesystem root.
+  `COM_METHOD_RULES` is the stricter named tier (argument position, extension allowlist, or a
+  `_DenyRule` for methods with no sandbox use case) — never make it the *only* tier again.
+  `tests/sandbox/test_com_api_path_coverage.py` keeps that registry in sync with openstaadpy;
+  when it fails, add a rule rather than widening `REVIEWED_NON_PATH_PARAMS` without review.
+- Writes to `Windows/`, `Program Files/`, `ProgramData/` and other protected directories must
+  stay rejected, including via trailing-dot/space and short-name aliases
 - File inputs passed to the sandbox use fresh native lists/dicts for agent compatibility. Sandbox mutations must remain local to that execution and must never alter the source file or persist across executions.
 - HTTP mode requires `SecFetchMiddleware` and supports optional bearer token auth
 - Never expose stack traces to end users — sanitize error messages
