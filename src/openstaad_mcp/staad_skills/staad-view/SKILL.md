@@ -27,9 +27,13 @@ view.ShowLeft()
 view.ShowRight()
 view.ShowBottom()
 view.ZoomExtentsMainView()
-view.ZoomAll()
 view.RefreshView()
 ```
+
+**Never call `view.ZoomAll()` after `ShowPlan`/`ShowFront`/`ShowBack`/`ShowLeft`/`ShowRight`/`ShowBottom`**
+(verified live) — it silently resets the camera back to isometric, discarding the view you just set.
+Use `view.ZoomExtentsMainView()` instead, which zooms to fit without changing the camera angle.
+Only use `ZoomAll()` when an isometric view is actually the intended result.
 
 ## Rotation
 
