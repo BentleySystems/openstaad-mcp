@@ -19,6 +19,14 @@ from openstaad_mcp.sandbox.const import ALLOWED_MODULE_ATTRS, BLOCKED_ATTRS, BLO
 
 _FORMAT_DUNDER_RE = re.compile(r"\{[^}]*\.__[a-zA-Z_][a-zA-Z0-9_]*__")
 
+# Syntax errors caused by source that simply stops, rather than by malformed source.
+_INCOMPLETE_SOURCE_MARKERS = ("was never closed", "unterminated", "unexpected eof")
+
+_TRUNCATION_HINT = (
+    "the code appears cut off rather than malformed, so the 'code' argument was most likely "
+    "truncated in transit \u2014 re-send the script as several smaller execute_code calls"
+)
+
 
 @dataclass
 class ValidationError:
@@ -189,11 +197,14 @@ def validate_code(source: str) -> ValidationResult:
     try:
         tree = ast.parse(source, filename="<sandbox>", mode="exec")
     except SyntaxError as exc:
+        message = f"syntax error: {exc.msg}"
+        if any(marker in (exc.msg or "").lower() for marker in _INCOMPLETE_SOURCE_MARKERS):
+            message = f"{message} \u2014 {_TRUNCATION_HINT}"
         result.errors.append(
             ValidationError(
                 line=exc.lineno or 0,
                 col=exc.offset or 0,
-                message=f"syntax error: {exc.msg}",
+                message=message,
             )
         )
         return result

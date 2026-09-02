@@ -16,6 +16,7 @@ description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python san
 - Sub-modules: `geo = staad.Geometry`, `prop = staad.Property`, `sup = staad.Support`, `load = staad.Load`, `cmd = staad.Command`, `out = staad.Output`, `design = staad.Design`
 - If `output_data_path` is provided, write the `result` variable to that file path instead of returning it in the context (use for large/tabular data). The `execute_code` return value will contain a summary of the `result` content instead (e.g. number of rows, columns and a sample of rows).
 - Both `input_data_path` and `output_data_path` must be on the user LOCAL filesystem and inside MCP roots or configured `allowed_dirs`. On Claude Desktop, users can configure allowed directories in the extension settings and Claude can use the filesystem `copy_file_to_claude` tool to move files to Claude's filesystem.
+- `get_status` returns the currently configured `allowed_dirs` — the MCP server must be relaunched for a change to allowed directories to take effect, so re-call `get_status` after the user reconfigures them rather than trusting an `allowed_dirs` value from earlier in the conversation.
 
 ### Discovery
 

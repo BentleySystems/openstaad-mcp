@@ -80,6 +80,53 @@ def executor():
     return Executor()
 
 
+_LONG_SCRIPT_LINES = 2000
+
+
+def _long_script(line_count: int) -> str:
+    """Build a syntactically valid script far longer than any realistic user script."""
+    lines = ["total = 0.0"]
+    lines += [f"total += staad.Geometry.GetNodeCoordinates({i})[0]" for i in range(line_count)]
+    lines.append("result = total")
+    return "\n".join(lines)
+
+
+class TestScriptLength:
+    """The `code` argument has no length limit; truncation happens before it reaches the server."""
+
+    def test_very_long_script_executes(self, staad, executor):
+        script = _long_script(_LONG_SCRIPT_LINES)
+        assert len(script) > 90_000
+
+        r = executor.execute(script, staad)
+
+        assert r.success, r.error
+        assert r.result == pytest.approx(_LONG_SCRIPT_LINES)
+
+    def test_script_truncated_mid_call_reports_truncation(self, staad, executor):
+        """Reproduces the reported failure: the payload is cut inside an open call."""
+        script = _long_script(_LONG_SCRIPT_LINES)
+        cut_at = script.index("\n", len(script) // 2) + 1
+        truncated = script[:cut_at] + "total += staad.Geometry.GetNodeCoordinates(4"
+
+        r = executor.execute(truncated, staad)
+
+        assert not r.success
+        assert "was never closed" in r.error
+        assert "truncated in transit" in r.error
+
+    def test_script_truncated_mid_string_reports_truncation(self, staad, executor):
+        script = _long_script(_LONG_SCRIPT_LINES)
+        cut_at = script.index("\n", len(script) // 2) + 1
+        truncated = script[:cut_at] + 'label = "node '
+
+        r = executor.execute(truncated, staad)
+
+        assert not r.success
+        assert "unterminated string literal" in r.error
+        assert "truncated in transit" in r.error
+
+
 class TestResultCapture:
     """Test that results are captured correctly."""
 

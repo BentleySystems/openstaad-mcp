@@ -361,6 +361,21 @@ class TestBlockedCode:
         assert not r.is_valid
         assert "syntax error" in r.errors[0].message.lower()
 
+    def test_unclosed_bracket_hints_at_truncation(self):
+        r = validate_code("staad.Geometry.AddNode(1, 0.0, 0.0,")
+        assert not r.is_valid
+        assert "truncated in transit" in r.errors[0].message
+
+    def test_unterminated_string_hints_at_truncation(self):
+        r = validate_code('name = "bridge')
+        assert not r.is_valid
+        assert "truncated in transit" in r.errors[0].message
+
+    def test_ordinary_syntax_error_has_no_truncation_hint(self):
+        r = validate_code("x = = 1")
+        assert not r.is_valid
+        assert "truncated in transit" not in r.errors[0].message
+
     def test_empty_code(self):
         r = validate_code("")
         assert r.is_valid  # empty code is valid (no-op)

@@ -146,18 +146,25 @@ def _register_tools(
             openWorldHint=False,  # Only internal data
         )
     )
-    def get_status(instance: str | None = None) -> dict[str, Any]:
+    async def get_status(ctx: Context, instance: str | None = None) -> dict[str, Any]:
         """Check the connection to a STAAD.Pro instance.
 
         Pass ``instance`` (alias from ``list_instances``) to target a
         specific instance.  Omit it when only one instance is running.
 
-        Returns connection state, STAAD version, and model path.
+        Returns connection state, STAAD version, model path, and the
+        directories ``execute_code`` may currently read/write
+        (``allowed_dirs``) — call this again after the user reconfigures
+        allowed directories, since the MCP server must be relaunched for
+        that change to take effect and a stale in-context list will
+        otherwise look correct.
         """
+        allowed_dirs = await get_allowed_dirs(ctx, args_allowed_dirs)
+
         try:
             target = _resolve_target(instance)
         except ValueError as e:
-            return {"connected": False, "error": str(e)}
+            return {"connected": False, "error": str(e), "allowed_dirs": [str(d) for d in allowed_dirs]}
 
         def _read_status(staad: Any) -> dict[str, Any]:
             version = staad.GetApplicationVersion()
@@ -182,11 +189,14 @@ def _register_tools(
             return result
 
         try:
-            return connect_and_run(_read_status, target.file_path, timeout=10.0)
+            result = connect_and_run(_read_status, target.file_path, timeout=10.0)
         except TimeoutError:
-            return {"connected": False, "error": "Connection timed out"}
+            return {"connected": False, "error": "Connection timed out", "allowed_dirs": [str(d) for d in allowed_dirs]}
         except Exception as e:
-            return {"connected": False, "error": str(e)}
+            return {"connected": False, "error": str(e), "allowed_dirs": [str(d) for d in allowed_dirs]}
+
+        result["allowed_dirs"] = [str(d) for d in allowed_dirs]
+        return result
 
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -306,6 +316,16 @@ def _register_tools(
                 "error": str(e),
                 "duration_seconds": 0.0,
             }
+
+        # Record what actually arrived, so a truncated payload can be pinned on the caller
+        # rather than on the sandbox.
+        if "truncated in transit" in (result.get("error") or ""):
+            logger.warning(
+                "execute_code received %d bytes of code ending with %r",
+                len(code),
+                code[-60:],
+            )
+            result["error"] += f" (received {len(code)} bytes, ending with {code[-60:]!r})"
 
         # ── Output file handling (server-side, outside sandbox) ──────
         if output_data_path is not None and result.get("success"):

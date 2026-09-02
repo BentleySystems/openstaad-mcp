@@ -387,8 +387,9 @@ table_name   = prop.GetStandardSectionTableName(section_property_id)
 section_name = prop.GetStandardSectionName(section_property_id)
 folder       = prop.GetStandardProfileDBFolder()          # currently configured profile DB folder
 default_folder = prop.GetDefaultStandardProfileDBFolder() # factory-default profile DB folder
-prop.SetStandardProfileDBFolder(folder_path)
-
+```
+`prop.SetStandardProfileDBFolder(...)` is **blocked in the sandbox** — it repoints STAAD.Pro at a different profile database, which configures the application rather than the model. Change it in the STAAD.Pro UI instead.
+```python
 ref_no       = prop.GetBeamSectionPropertyRefNo(beam_id)      # section property reference number for a beam
 country      = prop.GetSectionPropertyCountry(sec_ref_no)
 width, depth, ax, ay, az, ix, iy, iz, tf, tw = prop.GetSectionPropertyValues(prof_type)      # Assign Profile types only (0=Angle,1=DoubleAngle,2=Beam,3=Column,4=Channel)
