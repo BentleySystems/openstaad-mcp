@@ -1,6 +1,6 @@
 ﻿---
 name: staad-properties
-description: "Use when assigning section profiles to beams, plate thickness, materials, creating prismatic or tapered sections, or defining member specs (releases, truss, tension, compression, cable, inactive, offset). Covers: CreateBeamPropertyFromTable (country codes), CreateAngle/Channel/Tube/Pipe/TeePropertyFromTable, CreateBeamPropertyFromTableEx, CreatePrismaticRectangle/Circle/Tee/GeneralProperty, CreateTaperedIProperty/TaperedTubeProperty, CreatePlateThicknessProperty (list of 4 floats), AssignBeamProperty, AssignPlateThickness, CreateIsotropicMaterial/Steel/Concrete/Aluminum/Timber, GetIsotropicMaterialProperties, GetOrthotropic2D/3DMaterialProperties, AssignMaterialToMember/Plate/Solid, CreateMemberReleaseSpec, CreateMemberPartialReleaseSpec, CreateMemberTrussSpec, CreateMemberTensionSpec, CreateMemberCompressionSpec, CreateMemberInactiveSpec, CreateMemberOffsetSpec, CreateMemberFireProofingSpec, CreateElementPlaneStressSpec, CreateElementOffsetSpec, CreateElementIgnoreInplaneRotnSpec, CreateElementNodeReleaseSpec, AssignBetaAngle, GetBeamProperty, GetSectionPropertyList, GetBeamSectionPropertyTypeNo, CreateUPTTable (user provided tables), AddUPTPropertyWIDEFLANGE/CHANNEL/ANGLE/DOUBLEANGLE/TEE/PIPE/TUBE/ISECTION/PRISMATIC/GENERAL, CreatePropertyFromUserTable, CreateMemberAttribute, AssignMemberAttribute, GetMemberListByAttribute, GetElementListByAttribute, deleting/removing properties and specs (DeleteProperty, DeleteMemberSpec, DeleteMemberReleaseSpec, RemovePropertyFromBeam/Plate, RemoveMemberOffsetSpecFromBeam, RemoveMaterialFromBeam/Plate/Solid, DeleteMaterial, RemoveElementPlaneStressSpecFromPlate, RemoveUPTTable, DeleteMemberAttribute); documents which Property functions raise OsErrorBase exceptions versus which return a silent bool/int that must be checked. Requires staad-core."
+description: "Use when assigning section profiles to beams, plate thickness, materials, creating prismatic or tapered sections, or defining member specs (releases, truss, tension, compression, cable, inactive, offset). Covers: CreateBeamPropertyFromTable (country codes), CreateAngle/Channel/Tube/Pipe/TeePropertyFromTable, CreateBeamPropertyFromTableEx, CreatePrismaticRectangle/Circle/Tee/GeneralProperty, CreateTaperedIProperty/TaperedTubeProperty, CreatePlateThicknessProperty (list of 4 floats), AssignBeamProperty, AssignPlateThickness, CreateIsotropicMaterial/Steel/Concrete/Aluminum/Timber, GetIsotropicMaterialProperties, GetOrthotropic2D/3DMaterialProperties, AssignMaterialToMember/Plate/Solid, CreateMemberReleaseSpec, CreateMemberPartialReleaseSpec, CreateMemberTrussSpec, CreateMemberTensionSpec, CreateMemberCompressionSpec, CreateMemberInactiveSpec, CreateMemberOffsetSpec, CreateMemberFireProofingSpec, CreateElementPlaneStressSpec, CreateElementOffsetSpec, CreateElementIgnoreInplaneRotnSpec, CreateElementNodeReleaseSpec, AssignBetaAngle, GetBeamProperty, GetSectionPropertyList, GetBeamSectionPropertyTypeNo, CreateUPTTable (user provided tables), AddUPTPropertyWIDEFLANGE/CHANNEL/ANGLE/DOUBLEANGLE/TEE/PIPE/TUBE/ISECTION/PRISMATIC/GENERAL, CreatePropertyFromUserTable, CreateMemberAttribute, AssignMemberAttribute, GetMemberListByAttribute, GetElementListByAttribute, deleting/removing properties and specs (DeleteProperty, DeleteMemberSpec, DeleteMemberReleaseSpec, RemovePropertyFromBeam/Plate, RemoveMemberOffsetSpecFromBeam, RemoveMaterialFromBeam/Plate/Solid, DeleteMaterial, RemoveElementPlaneStressSpecFromPlate, RemoveUPTTable, DeleteMemberAttribute), control/dependent joint (rigid link) relations (AddControlDependentRelation, DeleteAllControlDependentRelations); documents which Property functions raise OsErrorBase exceptions versus which return a silent bool/int that must be checked. Requires staad-core."
 ---
 
 # STAAD.Pro Properties & Materials
@@ -252,6 +252,7 @@ Partial release (fractional stiffness instead of a full release) and querying an
 partial_id = prop.CreateMemberPartialReleaseSpec(location, dofRelease, factor)  # dofRelease: [FX,FY,FZ] 0/1; factor: 0.0-1.0 per DOF
 prop.AssignMemberSpecToBeam(beam_ids, partial_id)
 dofs, springs = prop.GetMemberReleaseSpecEx(beam_id, location)  # location: 0=start, 1=end
+releases, springs = prop.GetMemberReleaseSpec(beam_id, location)  # older non-Ex form, same location convention
 ```
 
 ### Element (Plate) Specs
@@ -306,16 +307,16 @@ Arbitrary string tags on members/elements, independent of any physical property:
 prop.CreateMemberAttribute(attributeName, value)
 prop.AssignMemberAttribute(attributeName, value, member_ids)  # int or list
 prop.DeleteMemberAttribute(attributeName, value)
-# CreateElementAttribute/AssignElementAttribute/DeleteElementAttribute follow the same pattern for plates/solids
 ```
 
-Querying attributes — two independent approaches:
+Querying attributes — two independent approaches. There is no member/element-scoped
+`Create*Attribute`/`Assign*Attribute`/`Delete*Attribute` family for plates/solids — only the
+member variants above exist; elements only get a read-only lookup:
 ```python
 # By name+value pair (find everything tagged with a specific attribute/value)
 count     = prop.GetMemberCountByAttribute("MEMBTYPE", "BRACE")
 member_ids = prop.GetMemberListByAttribute("MEMBTYPE", "BRACE")
-count     = prop.GetElementCountByAttribute("MEMBTYPE", "BRACE")
-element_ids = prop.GetElementListByAttribute("MEMBTYPE", "BRACE")
+element_ids = prop.GetElementListByAttribute("MEMBTYPE", "BRACE")   # no GetElementCountByAttribute counterpart exists — len() the returned list instead
 prop.RemoveAttribute("MEMBTYPE", "BRACE", member_ids)  # int or list
 
 # By member/beam ID (find every attribute tagged on one member)
@@ -478,7 +479,7 @@ stress_z, stress_y = prop.GetUptGeneralStressLocationPoints(table_reference_id, 
 - `CreatePlateThicknessProperty` takes a **list of 4 floats**, one value per corner — not a single scalar
 - `AssignBeamProperty` returns a plain `bool` and **never raises** — a failed assignment looks identical to a no-op unless you check the return value and confirm with `GetBeamSectionName(bid)`. The same applies to `AssignMemberSpecToBeam`, `RemovePropertyFromBeam`, `RemoveMaterialFromBeam`, the `RemoveMember*SpecFromBeam`/`RemoveElement*SpecFromPlate` family, `AddControlDependentRelation`, and most `AddUPTProperty*` functions
 - Always retrieve actual IDs via `GetBeamList()` / `GetPlateList()` before assigning — never assume IDs start at 1
-- `GetMemberDesignSectionName(bid)` raises an error when results are unavailable — use `GetSectionPropertyName` for pre-analysis lookup
+- `GetMemberDesignSectionName(bid)` (on `staad.Output`, not `staad.Property`) raises an error when results are unavailable — use `prop.GetSectionPropertyName` for pre-analysis lookup
 - Built-in material names: `"STEEL"`, `"CONCRETE"`, `"ALUMINUM"` — case-sensitive
 - `CreateElementPlaneStressSpec()`/`CreateElementIgnoreInplaneRotnSpec()` can return spec ID `0` on success — don't treat `0` as a failure code for these (unlike most other `Create*` functions where `0` means failure)
 - After `CreateElementOffsetSpec` + `AssignElementSpecToPlate`, `GetElementOffsetSpecCount()` correctly reflects the new spec, but `GetElementLocalOffset()`/`GetElementOffSetSpec()` were observed still returning `(0.0, 0.0, 0.0)` in testing — verify offset specs via `GetElementOffsetSpecCount()` rather than assuming the per-node getters immediately reflect an assignment
