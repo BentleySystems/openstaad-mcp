@@ -85,18 +85,26 @@ foot_id = sup.CreateElasticFooting(length, width, direction, subgrade)
 
 ### Compression/Tension-Only Springs
 
-Standalone spring supports (not tied to a mat/footing) that only resist compression or only resist tension. `kFX`/`kFY`/`kFZ` are direction flags — pass a value greater than 0 to enable the spring in that translational direction:
+Marks an **existing** support spring at a node as tension-only or compression-only — per STAAD.Pro's `SPRING TENSION`/`COMPRESSION` command (TR.27.5), this only *marks* a spring that's already there, it does not create one. The node must already have a real spring in that DOF first (via `CreateSupportFixedBut` with `ReleaseSpec=-1` and a real `SpringSpec` value).
+
+**Use `SetSupportSpringBehavior`, NOT `CreateTensionOnlySpring`/`CreateCompressionOnlySpring`** (see Gotchas — the latter are broken and must not be used):
 
 ```python
-comp_id = sup.CreateCompressionOnlySpring(kFX=1, kFY=0, kFZ=1)   # spring active in X and Z
-tens_id = sup.CreateTensionOnlySpring(kFX=0, kFY=1, kFZ=0)       # spring active in Y
+fb_id = sup.CreateSupportFixedBut(ReleaseSpec=[0, -1, 0, 0, 0, 0], SpringSpec=[0, 1000.0, 0, 0, 0, 0])
+sup.AssignSupportToEntityList(fb_id, [9])   # real spring in FY at node 9, established first
+
+sup.SetSupportSpringBehavior(0, [9], [0, 1, 0])   # 0=tension, 1=compression; springFlags=[FX,FY,FZ] enable
 ```
-Both return a support reference number ID — assign with `AssignSupportToEntityList(supportId, [nodeId, ...])`, which reports `type` 14 for compression-only and 15 for tension-only springs. Inspect an assigned spring with `GetSupportInformationEx(nodeNo)`.
+`compressionOrTensionFlag`: `0` = tension-only, `1` = compression-only (live-verified against STAAD's production `StaadWriter.cs`, which calls this exact function — never `CreateTensionOnlySpring`/`CreateCompressionOnlySpring`). `springFlags` is a 3-element `[FX,FY,FZ]` enable array, matching the directions that already have a real spring. Raises `[-7504] Spring not defined at node.` **only if the node has no spring in ANY direction** — this check is NOT per-direction: if the node has a real spring in FY but you pass `springFlags=[1,0,0]` (FX, which has no spring), the call succeeds silently and creates the same broken, unanalyzable state as `CreateTensionOnlySpring` (confirmed live). Always verify each flagged direction individually against `GetSupportInformationEx(nodeNo)`'s springs array before calling — do not rely on the function to catch a direction-specific mismatch. When the flagged direction does have a real spring, it modifies the existing support **in place** (same support ID, stiffness preserved) — confirmed live: `GetSupportInformationEx(nodeNo)` afterward is unchanged from before the call, and analysis succeeds.
 
 ### Assigning Supports
 
 - `sup.AssignSupportToNode(nodeID, supportID)` — assigns to a **SINGLE node**
 - Use a `for` loop to assign to multiple nodes
+- Before assigning, call `GetSupportInformationEx(nodeNo)` to see what support (if any) is
+  already on the node. Assigning always **replaces** it with no error or warning. Report what
+  was there before and what it becomes after — do not skip this step, and do not block the
+  assignment just because a prior support exists.
 
 ### Workflow
 
@@ -146,6 +154,7 @@ sup.RemoveElasticFooting(footId)         # delete elastic footing definition
 ## Example
 
 See [assign-fixed-supports.py](./scripts/assign-fixed-supports.py) for a complete working example.
+See [check-tension-compression-spring.py](./scripts/check-tension-compression-spring.py) for verifying a Tension/Compression-Only spring assignment actually produced a usable spring before running analysis.
 
 ## Gotchas
 
@@ -153,6 +162,12 @@ See [assign-fixed-supports.py](./scripts/assign-fixed-supports.py) for a complet
 - Support methods (`CreateSupportFixed`, `CreateSupportPinned`, `CreateSupportFixedBut`, `AssignSupportToNode`, `GetSupportNodes`, `GetSupportType`, `GetSupportInformation`, `DeleteSupport`) **raise on failure** instead of returning a negative code — call them directly; `execute_code` reports any uncaught error
 - When nodes were added in-memory in the same script, call `SaveModel(True)` before assigning supports — do NOT use `UpdateStructure()` (it discards unsaved geometry)
 - For `CreateSupportFixedBut`: use `-1` for spring DOFs (not `1`); `1` = released, `0` = fixed, `-1` = spring
-- **Compression-only supports (`springType=1`) are only compatible with plain linear static analysis** — using them with P-Delta, Nonlinear, Buckling, or Cable analysis causes an engine error. The engine uses spring deactivation iterations that cannot coexist with those solver modes.
-- The same tension/compression-only incompatibility applies to `CreateCompressionOnlySpring`/`CreateTensionOnlySpring` — use plain linear static analysis only.
-- `CreateCompressionOnlySpring`/`CreateTensionOnlySpring` supports must be assigned with `AssignSupportToEntityList` — confirmed live: `AssignSupportToNode` fails with `"Unable to assign support to node(s)"` for these two support types even on a node with no existing support, while `AssignSupportToEntityList(supportId, [nodeId])` succeeds.
+- **Compression-only springs are only compatible with plain linear static analysis** — P-Delta, Nonlinear, Buckling, and Cable analysis all error out, because the engine's spring deactivation iterations cannot coexist with those solver modes. Applies to ElasticMat/PlateMat `springType=1` and to `SetSupportSpringBehavior`-marked springs alike.
+- **DO NOT use `CreateTensionOnlySpring`/`CreateCompressionOnlySpring` — their signature is `(kFX, kFY, kFZ)`, direction enable flags only, with NO stiffness parameter at all** — so the support they create structurally cannot carry a spring stiffness value; it's not a silent data-loss bug, there's nowhere to put one. Confirmed live this is independent of any pre-existing spring being overwritten: reassigning the exact same already-created support ID (no new `Create...` call) to an unrelated node with NO prior support at all (nothing to destroy) reproduces the identical zero-stiffness result — ruling out "it works but assignment destroys a real spring that was already there." It also always creates a **new** support definition and assigns it via `AssignSupportToEntityList`, which replaces whatever was on the target node — it does not modify an existing spring in place, unlike the real STAAD.Pro `SPRING TENSION`/`COMPRESSION` command it's meant to represent. Any model built with these two functions will fail analysis with `ERROR: SPRING TENSION/COMPRESSION SPECIFIED AT A JOINT DIRECTION THAT DOES [NOT HAVE A SPRING]` (status `4`).
+- **Use `SetSupportSpringBehavior(compressionOrTensionFlag, supportNodes, springFlags)` instead** — confirmed live and matches STAAD.Pro's own production import/export code (`StaadWriter.cs`), which calls only this function, never `CreateTensionOnlySpring`/`CreateCompressionOnlySpring`:
+  - It validates upfront, but only at the node level, not per-direction: raises `[-7504] Spring not defined at node.` only if the node has NO spring in any direction. If the node has a real spring in FY but you flag FX (which has none), it succeeds silently and creates the same broken, unanalyzable state as the two functions above — confirmed live. Always check each flagged direction individually against `GetSupportInformationEx(nodeNo)` before calling.
+  - When the flagged direction does have a real spring, it modifies the existing support **in place** — confirmed live: `GetSupportInformationEx(nodeNo)` is unchanged (same support ID, same stiffness) before and after the call, and the resulting model analyzes successfully.
+  - Always establish the real spring first via `CreateSupportFixedBut` (`ReleaseSpec=-1`, real `SpringSpec` value), assign it, THEN call `SetSupportSpringBehavior` — see [check-tension-compression-spring.py](./scripts/check-tension-compression-spring.py).
+- **Marking a node via `SetSupportSpringBehavior` (or the broken functions above) adds it to a separate, persistent, model-level `SPRING TENSION`/`COMPRESSION` joint list that `RemoveSupportFromNode` does NOT clear** — confirmed live: after marking a node and later calling `RemoveSupportFromNode` on it, analysis fails on the *entire model* with the same `"...DOES [NOT HAVE A SPRING]"` error, even though `GetSupportNodes()` shows the node as unsupported. There is no known function in this API to clear that list once a node has been added to it. If you need to "undo" a tension/compression-only marking, leave a real spring on the node (do not fully remove its support) — removing it entirely leaves the model permanently broken for analysis.
+- **Assigning any support to a node that already has one replaces it silently** — confirmed live: assigning a new support to a node with an existing Fixed-But support replaced it with no error, no warning, and no trace of the discarded support. This is general OpenSTAAD behavior — be aware of it whenever reassigning a node that may already be supported.
+

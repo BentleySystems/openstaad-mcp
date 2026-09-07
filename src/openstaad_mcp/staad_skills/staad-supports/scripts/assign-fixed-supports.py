@@ -14,6 +14,12 @@ for nid in node_list:
         base_nodes.append(nid)
 print(f'Base nodes found: {base_nodes}')
 
+# Assigning to a node that already has a support silently overwrites it — warn first
+existing = set(sup.GetSupportNodes())
+already_supported = [nid for nid in base_nodes if nid in existing]
+if already_supported:
+    print(f'WARNING: nodes already have a support and will be overwritten: {already_supported}')
+
 # Create fixed support once — reuse the ID for all assignments
 fix_id = sup.CreateSupportFixed()
 print(f'Fixed support ID: {fix_id}')
