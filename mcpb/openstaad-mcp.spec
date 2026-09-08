@@ -8,6 +8,7 @@ Both bundle the Python runtime, all dependencies, openstaadpy, and bundled
 STAAD skills content.
 """
 
+import datetime
 import importlib.util
 import os
 import tomllib
@@ -89,7 +90,8 @@ def _build_version_info(raw_version):
                             StringStruct("InternalName", "openstaad-mcp"),
                             StringStruct(
                                 "LegalCopyright",
-                                "Copyright (c) Bentley Systems, Incorporated. All rights reserved.",
+                                f"Copyright (c) {datetime.date.today().year} Bentley Systems, Incorporated. "
+                                "All rights reserved.",
                             ),
                             StringStruct("OriginalFilename", "openstaad-mcp.exe"),
                             StringStruct("ProductName", "OpenSTAAD MCP Server"),
