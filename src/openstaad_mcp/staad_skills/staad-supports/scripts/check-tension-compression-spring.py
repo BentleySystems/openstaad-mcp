@@ -18,7 +18,7 @@
 sup = staad.Support
 
 node = 9          # target node
-compression_or_tension_flag = 0   # 0=tension-only, 1=compression-only
+compression_or_tension_flag = 1   # 0=compression-only, 1=tension-only (per openstaadpy source docstring)
 spring_flags = [0, 1, 0]          # [FX,FY,FZ] enable — each flagged direction must already have a real spring
 
 # Step 1: establish a REAL spring in the target direction(s).

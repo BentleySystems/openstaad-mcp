@@ -14,11 +14,20 @@ for nid in node_list:
         base_nodes.append(nid)
 print(f'Base nodes found: {base_nodes}')
 
-# Assigning to a node that already has a support silently overwrites it — warn first
+# Assigning to a node that already has a support silently overwrites it — check GetSupportNodes()
+# membership FIRST, since GetSupportInformationEx raises "[-1] General error." on a node with no
+# support at all; only call it (guarded in try/except) for nodes already confirmed supported.
 existing = set(sup.GetSupportNodes())
 already_supported = [nid for nid in base_nodes if nid in existing]
 if already_supported:
-    print(f'WARNING: nodes already have a support and will be overwritten: {already_supported}')
+    for nid in already_supported:
+        try:
+            support_no, support_type, releases, springs = sup.GetSupportInformationEx(nid)
+            print(f'WARNING: node {nid} already has support (id={support_no}, type={support_type}) '
+                  f'and will be overwritten.')
+        except Exception as e:
+            print(f'WARNING: node {nid} already has a support and will be overwritten '
+                  f'(could not read details: {e}).')
 
 # Create fixed support once — reuse the ID for all assignments
 fix_id = sup.CreateSupportFixed()
