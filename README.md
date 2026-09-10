@@ -1,122 +1,126 @@
 # OpenSTAAD MCP · PTC-V1
 
-通过 **Codex 桌面端 / Codex CLI**（及兼容 MCP 客户端），让 GPT 直接操控与读取本机的 Bentley STAAD.Pro 结构模型。
+**English** | [简体中文](README.zh-CN.md)
 
-本项目基于 [Bentley OpenSTAAD MCP](https://github.com/BentleySystems/openstaad-mcp) 深度扩展，引入本地 **Programmatic Tool Calling (PTC)** 机制：GPT 只需提交一段 Python 代码，即可在本机靠近 STAAD.Pro COM 接口的环境下连续执行多步查询、数据筛选与统计汇总，最终仅向客户端返回精炼摘要或导出 CSV/XLSX 报表。
+Empower LLMs (OpenAI Codex Desktop, Codex CLI, Claude Code, Cursor, Windsurf, Claude Desktop, etc.) to directly inspect, query, and manipulate local Bentley STAAD.Pro structural models via the Model Context Protocol (MCP).
 
-> **仓库与分支**：[wenlong888442/openstaad-mcp · PTC-V1](https://github.com/wenlong888442/openstaad-mcp/tree/PTC-V1)  
-> **核心组件**：本分支包含专有 PTC 查询引擎 `src/openstaad_mcp/ptc/` 及一键安装脚本 `scripts/install-codex.ps1`。如从上游官方仓库下载，将不包含 PTC 功能。
+This project extends the official [Bentley OpenSTAAD MCP](https://github.com/BentleySystems/openstaad-mcp) by introducing a local **Programmatic Tool Calling (PTC)** execution layer. Instead of flooding LLM context windows with thousands of raw nodes, member properties, or force records through repetitive chat turns, the model submits a single Python block. The script executes locally on your Windows workstation right alongside STAAD.Pro's COM interface, performs high-speed filtering, unit conversions, and aggregations, and returns only concise summaries or exports rich Excel/CSV reports.
 
----
-
-## 目录
-
-- [核心特性与优势](#核心特性与优势)
-- [环境要求](#环境要求)
-- [快速安装与配置 (Codex)](#快速安装与配置-codex)
-  - [1. 获取分支源码](#1-获取分支源码)
-  - [2. 运行自动化安装脚本](#2-运行自动化安装脚本)
-  - [3. 配置 Codex 客户端](#3-配置-codex-客户端)
-  - [4. 验证服务与连接](#4-验证服务与连接)
-- [客户端接入说明](#客户端接入说明)
-  - [标准 STDIO 模式 (推荐)](#标准-stdio-模式-推荐)
-  - [可选 HTTP 模式](#可选-http-模式)
-- [可用 MCP 工具](#可用-mcp-工具)
-  - [MCP 顶层工具](#mcp-顶层工具)
-  - [PTC 查询命名空间 (31 个方法)](#ptc-查询命名空间-31-个方法)
-- [PTC 代码示例](#ptc-代码示例)
-  - [示例 1：模型基础信息与规模统计](#示例-1模型基础信息与规模统计)
-  - [示例 2：筛选水平受力临界构件的设计利用率](#示例-2筛选水平受力临界构件的设计利用率)
-  - [示例 3：多工况杆端内力包络分析](#示例-3多工况杆端内力包络分析)
-- [CSV / XLSX 文件工作流](#csv--xlsx-文件工作流)
-- [安全、隐私与执行边界](#安全隐私与执行边界)
-- [命令行参数参考](#命令行参数参考)
-- [常见问题与排查 (FAQ)](#常见问题与排查-faq)
-- [开发与测试验证](#开发与测试验证)
-- [项目结构与开源许可](#项目结构与开源许可)
+> **Repository & Branch**: [wenlong888442/openstaad-mcp · PTC-V1](https://github.com/wenlong888442/openstaad-mcp/tree/PTC-V1)  
+> **Key Modules**: This branch contains the dedicated PTC engine (`src/openstaad_mcp/ptc/`) and the automated installer (`scripts/install-codex.ps1`). Upstream packages do not include these PTC capabilities.
 
 ---
 
-## 核心特性与优势
+## Table of Contents
 
-传统 MCP 交互中，大语言模型对每个查询都需要进行一次网络往返，且动辄返回成千上万个节点或内力数据，极易撑爆上下文窗口（Context Window）并消耗大量 Token。**PTC-V1** 通过在服务侧本地执行查询程序，彻底解决了该痛点：
-
-- **31 个只读 PTC 领域查询**：全面覆盖几何节点、杆件构件、板单元、实体、截面属性、材料常数、分组、荷载工况与组合、支座约束、有限元分析结果与钢结构规范设计结果。
-- **单次交互完成复合分析**：通过 `execute_ptc` 调用沙箱内注册的 `tools.*`，中间海量数据在本机内存中完成筛选、排序和统计，仅回传必要的结果摘要。
-- **大容量文件读写与报表导出**：支持在受控安全目录内读取 CSV/XLSX 作为 `input_data`，或将复杂分析结果直接导出为多工作表 Excel 报表。
-- **多 STAAD 实例精准路由**：自动扫描 Windows 运行对象表 (ROT)，识别多开的 STAAD.Pro 窗口及各自模型路径，按实例别名指定操作对象。
-- **双模并存，能力不减**：
-  - **PTC 模式 (`execute_ptc`)**：严格只读，专注于大规模数据的高效查询与聚合分析。
-  - **原生代码模式 (`execute_code`)**：保留完整建模、荷载施加、约束调整和启动计算求解的原生 OpenSTAAD 能力。
-- **自托管标准协议**：完全基于标准 Model Context Protocol (MCP)，无需 Anthropic 云端容器或特定云厂商闭源 API，无附加 API 密钥要求。
+- [Why PTC? (Core Advantages)](#why-ptc-core-advantages)
+- [System Requirements](#system-requirements)
+- [Quick Start: Codex + Local PTC](#quick-start-codex--local-ptc)
+  - [1. Clone Branch](#1-clone-branch)
+  - [2. Run Automated Installer](#2-run-automated-installer)
+  - [3. Configure Codex Client](#3-configure-codex-client)
+  - [4. Verify Connection & Model Query](#4-verify-connection--model-query)
+- [Client Integration Guide](#client-integration-guide)
+  - [Standard STDIO Mode (Recommended)](#standard-stdio-mode-recommended)
+  - [Optional HTTP Transport](#optional-http-transport)
+- [Available MCP Tools](#available-mcp-tools)
+  - [Top-Level MCP Tools](#top-level-mcp-tools)
+  - [PTC Query Namespaces (31 Methods)](#ptc-query-namespaces-31-methods)
+- [PTC Python Examples](#ptc-python-examples)
+  - [Example 1: Model Scale & Base Units Summary](#example-1-model-scale--base-units-summary)
+  - [Example 2: Filter Critical Horizontal Members by Steel Design Ratio](#example-2-filter-critical-horizontal-members-by-steel-design-ratio)
+  - [Example 3: Multi-Load-Case Force Envelopes](#example-3-multi-load-case-force-envelopes)
+- [CSV / XLSX File Workflows](#csv--xlsx-file-workflows)
+- [Security, Privacy & Execution Boundaries](#security-privacy--execution-boundaries)
+- [Command Line Options](#command-line-options)
+- [Frequently Asked Questions (FAQ)](#frequently-asked-questions-faq)
+- [Development & Verification](#development--verification)
+- [Project Layout & Attribution](#project-layout--attribution)
 
 ---
 
-## 环境要求
+## Why PTC? (Core Advantages)
 
-| 项目 | 要求 | 说明 |
+In traditional LLM tool-calling architectures, querying a structural engineering model requires multiple round trips. Querying 5,000 members and their end forces can generate megabytes of JSON text, easily overflowing the model's context window, blowing up token costs, and introducing hallucination risks during serialization.
+
+**PTC-V1** solves this by providing a local, programmatic execution sandbox:
+
+- **31 Read-Only PTC Queries**: Complete domain coverage across geometry nodes, members, plates, solids, groups, cross-sections, materials, load cases & combinations, supports, FEA analysis results, and steel code check results.
+- **Single-Turn Compound Queries**: Call registered `tools.*` functions in a single `execute_ptc` execution. Filter, aggregate, and envelope data locally in memory, returning only key insights to the client.
+- **Server-Side File I/O & Reports**: Ingest large datasets via `input_data_path` without context overhead, or export multi-sheet `.xlsx` / `.csv` reports directly to allowed directories.
+- **Multi-Instance Routing**: Automatically discovers running STAAD.Pro instances via the Windows Running Object Table (ROT), identifying open `.std` paths and routing commands to designated instance aliases (e.g. `staadPro1`).
+- **Dual Execution Modes**:
+  - **PTC Mode (`execute_ptc`)**: Strictly read-only, hardened execution sandbox tailored for data querying, filtering, and aggregation.
+  - **Native Code Mode (`execute_code`)**: Full OpenSTAAD COM access via `staad.*` for parametric modeling, load modifications, and launching solvers.
+- **Self-Hosted & Zero Cloud Overhead**: Standard MCP compliance. No Anthropic cloud execution containers, no OpenAI platform API keys needed on the server side.
+
+---
+
+## System Requirements
+
+| Component | Requirement | Details |
 | --- | --- | --- |
-| **操作系统** | Windows 11 / Windows 10 (64 位) | OpenSTAAD 依赖 Windows COM 组件，必须运行在本机 Windows 环境 |
-| **STAAD.Pro** | 2025 或更新版本 | 查询时 STAAD.Pro 需处于运行状态并已打开 `.std` 模型文件 |
-| **Python** | **3.11 或更新版本 (64 位)** | **必须为 64 位 Python**（与 STAAD.Pro 进程架构匹配），已配置在 PATH 中或提供完整路径 |
-| **客户端** | Codex 桌面端 / Codex CLI | 或任意兼容本地 STDIO / HTTP MCP 的客户端 (如 Claude Code, Cursor 等) |
-| **网络** | 首次安装时需联网 | 用于安装 Python 依赖及下载 GitHub Release 上的 Bentley `openstaadpy-26.0.0.62` wheel |
+| **Operating System** | Windows 11 / Windows 10 (64-bit) | STAAD.Pro OpenSTAAD relies on Windows COM; the server must run natively on Windows. |
+| **STAAD.Pro** | 2025 or newer | Must be running with a saved `.std` structural model open during queries. |
+| **Python** | **3.11 or newer (64-bit)** | **Must be 64-bit Python** to match STAAD.Pro's 64-bit COM server process. Available on PATH or via explicit path. |
+| **MCP Client** | Codex Desktop, Codex CLI, or any MCP client | Standard STDIO or local HTTP transport. |
+| **Network** | Internet access for initial setup | Required for downloading Python dependencies and Bentley's official `openstaadpy-26.0.0.62` wheel from GitHub Releases. |
 
 > [!IMPORTANT]
-> 安装脚本负责部署 **OpenSTAAD MCP 服务及其专属 Python 虚拟环境**；STAAD.Pro、Python 解释器与 Codex 客户端需事先就绪。
+> The automated installer configures the **OpenSTAAD MCP server and its isolated Python environment**. STAAD.Pro, Python 3.11+ (64-bit), and the MCP client must be pre-installed on the machine.
 
 ---
 
-## 快速安装与配置 (Codex)
+## Quick Start: Codex + Local PTC
 
-### 1. 获取分支源码
+### 1. Clone Branch
 
-在 Windows PowerShell 中克隆 `PTC-V1` 分支：
+Open Windows PowerShell and clone the `PTC-V1` branch:
 
 ```powershell
 git clone --branch PTC-V1 --single-branch https://github.com/wenlong888442/openstaad-mcp.git openstaad-mcp-PTC
 cd openstaad-mcp-PTC
 
-# 验证关键文件是否存在
+# Verify key files are present
 Test-Path .\scripts\install-codex.ps1
 Test-Path .\src\openstaad_mcp\ptc\adapter.py
 ```
 
-两个检测输出均应为 `True`。若从网页端下载，请通过分支页面的 **Code → Download ZIP** 下载解压。
+Both tests should print `True`. Alternatively, download the ZIP archive from the GitHub branch page.
 
-### 2. 运行自动化安装脚本
+### 2. Run Automated Installer
 
-在项目根目录下执行安装脚本：
+Run the setup script in PowerShell:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-codex.ps1
 ```
 
-> **执行说明**：`-ExecutionPolicy Bypass` 仅对当前执行进程有效。脚本执行完毕后将完成：
-> 1. 在项目目录内自动创建专属虚拟环境 `.venv-codex`，并校验 Python 版本（3.11+ 且为 64 位）。
-> 2. 以可编辑模式 (`pip install -e .`) 部署项目及依赖，校验依赖一致性。
-> 3. 验证命令行工具、PTC 31 个查询模块及文件访问安全边界。
-> 4. 在 `.venv-codex\openstaad-codex.toml` 生成包含机器绝对路径的配置片段。
+> **Note**: `-ExecutionPolicy Bypass` only applies to this single PowerShell process. The script will:
+> 1. Create or reuse a dedicated virtual environment `.venv-codex` and verify 64-bit Python 3.11+.
+> 2. Install dependencies in editable mode (`pip install -e .`) and verify package consistency.
+> 3. Validate CLI entry points, the 31 PTC queries, and file access boundaries.
+> 4. Generate `.venv-codex\openstaad-codex.toml` containing absolute paths for your machine.
 
-- 如需指定特定的 64 位 Python 解释器或安装开发调试依赖：
+- To specify an explicit 64-bit Python interpreter or install development dependencies:
   ```powershell
   .\scripts\install-codex.ps1 -Python 'C:\Python311\python.exe' -Dev
   ```
-- 如需额外允许模型与报表所在目录的 CSV/XLSX 读写权限：
+- To whitelist additional directories for CSV/XLSX file read/write operations:
   ```powershell
   .\scripts\install-codex.ps1 -AllowedDirectories 'D:\STAAD\Models', 'D:\STAAD\Reports'
   ```
 
-安装成功后终端会提示 `PTC queries: 31`，并给出生成的配置文件位置。
+Upon success, the script outputs `PTC queries: 31` along with the path to the generated configuration snippet.
 
-### 3. 配置 Codex 客户端
+### 3. Configure Codex Client
 
-打开生成的 `.venv-codex\openstaad-codex.toml`，将对应配置合并到 Codex 配置文件中：
+Open the generated `.venv-codex\openstaad-codex.toml` and merge the table into your Codex configuration:
 
-- **用户全局配置**：`%USERPROFILE%\.codex\config.toml`（或 `$env:CODEX_HOME\config.toml`）。
-- **项目局部配置**：当前项目根目录下的 `.codex\config.toml`（仅对受信任工作区生效）。
+- **User Configuration**: `%USERPROFILE%\.codex\config.toml` (or `$env:CODEX_HOME\config.toml`).
+- **Project Configuration**: `.codex\config.toml` in the project root (trusted projects only).
 
-**配置内容示例**（完整模板参见 [examples/codex/config.toml](examples/codex/config.toml)）：
+**Configuration Snippet** (see [examples/codex/config.toml](examples/codex/config.toml) for reference):
 
 ```toml
 [mcp_servers.openstaad-ptc]
@@ -128,47 +132,47 @@ tool_timeout_sec = 180
 ```
 
 > [!TIP]
-> **使用 Codex CLI 时**，也可直接在项目根目录下运行一条命令完成注册：
+> **Using Codex CLI?** You can register the server with a single command from the project root:
 > ```powershell
 > codex mcp add openstaad-ptc -- "$PWD\.venv-codex\Scripts\python.exe" -m openstaad_mcp.main --allowed-dirs "$PWD"
 > codex mcp list
 > ```
 
-配置保存后，重启 Codex 客户端或在设置中重启 MCP 服务器。
+Restart Codex or restart MCP servers in client settings after saving.
 
-### 4. 验证服务与连接
+### 4. Verify Connection & Model Query
 
-1. **基础验证**：在 Codex 中让其调用 `discover_ptc`。该工具无需开启 STAAD.Pro 即可返回 31 个只读查询方法的 schema 定义。
-2. **联动测试**：
-   - 启动 STAAD.Pro 并打开任一测试结构模型（`.std` 文件）。
-   - 在 Codex 对话框中发送如下提示词：
-   > 请使用 openstaad-ptc 工具：先列出运行中的 STAAD 实例及模型路径。确认连接后，统计当前模型的节点总数、杆件总数和基础长度/力单位，返回简洁摘要。
+1. **Schema Check**: Ask Codex to call `discover_ptc`. This verifies all 31 query definitions without needing STAAD.Pro running.
+2. **Live Model Test**:
+   - Start STAAD.Pro and open a saved test structure (`.std` file).
+   - In Codex, submit the following prompt:
+   > Use openstaad-ptc: First list running STAAD instances and verify the model path. Once verified, query the base units, total node count, and total member count, returning a concise summary.
 
-若存在多个打开的模型，在调用时明确传入 `list_instances` 返回的实例别名（如 `instance="staadPro1"`）。
+When multiple models are open, explicitly specify the instance alias returned by `list_instances` (e.g. `instance="staadPro1"`).
 
 ---
 
-## 客户端接入说明
+## Client Integration Guide
 
-| 接入场景 | 推荐方式 | 接入说明 |
+| Client Environment | Recommended Mode | Configuration Notes |
 | --- | --- | --- |
-| **本机 Codex 桌面端 / CLI** | **STDIO (推荐)** | 由客户端本地直接启动 `.venv-codex` 中的 Python 进程，无需占用端口 |
-| **通用本地 MCP 客户端** | STDIO / 本机 HTTP | 支持 Claude Code, Cursor, Windsurf, Claude Desktop 等标准 MCP 客户端 |
-| **ChatGPT 网页端 / 云端** | 暂不支持直接连接 | STAAD.Pro 依托 Windows 局域/单机 COM 机制，云端服务无法穿透访问本机桌面应用 |
+| **Local Codex Desktop / CLI** | **STDIO (Recommended)** | Client launches `.venv-codex` Python directly. No open ports, maximum security. |
+| **Generic Local MCP Clients** | STDIO / Local HTTP | Compatible with Claude Code, Cursor, Windsurf, Claude Desktop, etc. |
+| **ChatGPT Web / Cloud LLMs** | Not directly supported | STAAD.Pro operates via Windows desktop COM; cloud platforms cannot access local desktop processes directly. |
 
-### 标准 STDIO 模式 (推荐)
+### Standard STDIO Mode (Recommended)
 
-STDIO 是本机集成的标准方式，生命周期由客户端完全托管，零网络端口暴露，安全性最高。
+STDIO is the cleanest local setup. The MCP client manages the server lifecycle, with zero network exposure.
 
-### 可选 HTTP 模式
+### Optional HTTP Transport
 
-当需要长期作为独立后台服务运行，或供局域网内受信任客户端连接时：
+When running persistently in the background or serving trusted local network clients:
 
 ```powershell
 .\.venv-codex\Scripts\openstaad-mcp.exe --transport http --allowed-dirs "$PWD"
 ```
 
-默认监听地址为 `http://127.0.0.1:18120/mcp`。控制台将输出启动生成的 Bearer Token。在客户端配置：
+Default endpoint: `http://127.0.0.1:18120/mcp`. The terminal will display an auto-generated Bearer Token. Configure in your client:
 
 ```toml
 [mcp_servers.openstaad-ptc]
@@ -178,54 +182,54 @@ startup_timeout_sec = 30
 tool_timeout_sec = 180
 ```
 
-服务内置 `SecFetchMiddleware`，默认仅绑定回环地址并对 Host 及浏览器跨源请求进行严格校验。
+Built-in `SecFetchMiddleware` enforces host validation and blocks cross-origin browser requests.
 
 ---
 
-## 可用 MCP 工具
+## Available MCP Tools
 
-### MCP 顶层工具
+### Top-Level MCP Tools
 
-客户端在 MCP 协议层可见 7 个顶层核心工具：
+The server exposes 7 top-level tools through MCP:
 
-| 工具名称 | 权限属性 | 功能简述 |
+| Tool Name | Access Mode | Description |
 | --- | --- | --- |
-| `discover_ptc` | 只读 | 查询全部 31 个 PTC 接口或指定命名空间的详细参数 Schema 与文档说明 |
-| `execute_ptc` | 只读沙箱 | 接收并运行包含 `tools.*` 调用的 Python 复合查询脚本，返回分析结果或报表摘要 |
-| `list_instances` | 只读 | 扫描 Windows ROT，枚举运行中的 STAAD 进程实例名、版本及当前打开的文件路径 |
-| `get_status` | 只读 | 查看目标实例的连接就绪状态、版本兼容性、模型路径及计算分析状态 |
-| `discover_api` | 只读 | 检索原生 OpenSTAAD API 知识库与技能指导列表 |
-| `read_skills` | 只读 | 按需查阅特定 OpenSTAAD API 技能手册与参考文档 |
-| `execute_code` | 读写执行 | 在受控沙箱中直接通过 `staad` 原生对象操作 OpenSTAAD，支持修改模型与运行求解 |
+| `discover_ptc` | Read-only | List all 31 PTC queries or retrieve full parameter schema and descriptions for a namespace. |
+| `execute_ptc` | Read-only sandbox | Execute synchronized Python scripts calling `tools.*`. Returns structured results or file summary. |
+| `list_instances` | Read-only | Enumerate active STAAD.Pro instances, version numbers, and open `.std` file paths. |
+| `get_status` | Read-only | Retrieve connection state, STAAD version, active model path, and solver analysis status. |
+| `discover_api` | Read-only | Search OpenSTAAD API skills and documentation catalog. |
+| `read_skills` | Read-only | Read detailed API reference documents for specified OpenSTAAD skills. |
+| `execute_code` | Read/Write sandbox | Execute Python code with direct `staad` object access to modify geometry, loads, and run analysis. |
 
-### PTC 查询命名空间 (31 个方法)
+### PTC Query Namespaces (31 Methods)
 
-在 `execute_ptc` 脚本内部，可通过 `tools.<命名空间>.<方法>` 访问 31 个高能效只读接口：
+Within `execute_ptc`, scripts interact with 31 high-performance queries under `tools.<namespace>.<method>`:
 
-| 命名空间 | 覆盖范围与关键方法 |
+| Namespace | Methods & Capabilities |
 | --- | --- |
-| **`geometry`** | 基础单位 (`get_base_units`)、节点/杆件/板/实体数量与坐标详情、节点连接拓扑、实体分组 (`get_groups`) 等 |
-| **`properties`** | 截面几何尺寸与特性 (`get_member_properties`)、材料常数、板单元厚度分布、杆端自由度释放 (`get_member_releases`) 等 |
-| **`loads`** | 主荷载工况、荷载组合与分项系数、参考荷载定义 (`get_load_cases`) 等 |
-| **`supports`** | 支座节点定义、约束类型（固定/铰接）、各方向释放及弹性弹簧刚度 (`get_supports`) 等 |
-| **`analysis`** | 分析结果可用性、力与位移输出单位、杆端内力 (六分量)、杆件包络极值、节点位移、支座反力、板应力等 |
-| **`design`** | 钢结构设计利用率（应力比）、控制工况、设计规范条文、临界截面及详细计算结果 (`get_utilization`) 等 |
+| **`geometry`** | `get_base_units`, node counts & coordinates (`get_nodes`), member counts & geometry (`get_members`), plates, solids, groups (`get_groups`), member connectivity. |
+| **`properties`** | Section profiles & dimensions (`get_member_properties`), materials, plate thicknesses, member end releases (`get_member_releases`). |
+| **`loads`** | Primary load cases, load combinations with factors, reference load definitions (`get_load_cases`). |
+| **`supports`** | Support node definitions, restraint conditions (fixed/pinned/springs), degrees of freedom releases (`get_supports`). |
+| **`analysis`** | Analysis availability check (`are_results_available`), force/displacement units, 6-component end forces (`get_member_forces`), force envelopes, node displacements, reactions, plate stresses. |
+| **`design`** | Steel design utilization ratios (`get_utilization`), governing load cases, design codes, critical sections, and full design calculation output. |
 
-> 详细参数类型、字段说明与工程解释详见：  
-> 📖 [PTC 详细使用说明 (PTC.zh-CN.md)](docs/PTC.zh-CN.md)  
-> 📖 [OpenStaadPython 扩展接口映射 (PTC-extensions.zh-CN.md)](docs/PTC-extensions.zh-CN.md)
+> Complete parameter schemas and engineering notes:  
+> 📖 [PTC Technical Specification (PTC.zh-CN.md)](docs/PTC.zh-CN.md)  
+> 📖 [OpenStaadPython Extension Mapping (PTC-extensions.zh-CN.md)](docs/PTC-extensions.zh-CN.md)
 
 ---
 
-## PTC 代码示例
+## PTC Python Examples
 
-以下代码块均作为 `execute_ptc` 工具的 `code` 字符串参数传入。  
-沙箱环境已预置 `tools`、`input_data`、`math`、`json`，无需也无法直接调用底层未经审计的 `staad` COM 指针。
+All scripts below are passed as the `code` parameter string to `execute_ptc`.  
+The sandbox provides `tools`, `input_data`, `math`, and `json`. Direct access to raw COM objects (`staad`) is disallowed in PTC mode.
 
-### 示例 1：模型基础信息与规模统计
+### Example 1: Model Scale & Base Units Summary
 
 ```python
-# 获取全局单位制度及几何规模
+# Query base unit system and structure scale
 units = tools.geometry.get_base_units()
 node_count = tools.geometry.get_node_count()
 member_count = tools.geometry.get_member_count()
@@ -239,17 +243,17 @@ result = {
 }
 ```
 
-### 示例 2：筛选水平受力临界构件的设计利用率
+### Example 2: Filter Critical Horizontal Members by Steel Design Ratio
 
 ```python
-# 1. 批量读取所有杆件，根据 Y 轴竖向规则自动判定水平杆件
+# 1. Fetch all members with up-axis geometry check
 members = tools.geometry.get_members(up_axis="Y")
 horizontal_ids = [m["id"] for m in members if m["is_horizontal"]]
 
-# 2. 仅针对水平杆件查询最新的钢结构设计利用率（应力比）
+# 2. Query latest steel design utilization ratios (stress ratios)
 ratios = tools.design.get_utilization(horizontal_ids)
 
-# 3. 本地筛选超过 0.9 的临界杆件，避免将数千条数据全部回传
+# 3. Filter critical members exceeding 0.9 threshold locally
 critical = [r for r in ratios if r.get("available") and r.get("ratio", 0) > 0.9]
 unavailable = [r["member_id"] for r in ratios if not r.get("available")]
 
@@ -262,14 +266,14 @@ result = {
 ```
 
 > [!NOTE]
-> 若模型为 `SET Z UP` 坐标体系，请传入 `up_axis="Z"`。利用率直接取自 STAAD 计算内核生成的最新设计参数块。
+> For models defined with `SET Z UP`, pass `up_axis="Z"`. Ratios are extracted directly from the solver's steel design parameter block.
 
-### 示例 3：多工况杆端内力包络分析
+### Example 3: Multi-Load-Case Force Envelopes
 
 ```python
-# 查询指定荷载工况下指定构件的杆端六分量内力
+# Query local 6-component forces across selected members and load cases
 member_ids = [101, 102, 103]
-load_cases = [1, 2, 101]  # 工况与组合编号
+load_cases = [1, 2, 101]
 
 forces = tools.analysis.get_member_forces(
     member_ids=member_ids,
@@ -277,7 +281,7 @@ forces = tools.analysis.get_member_forces(
     coordinate_system="local",
 )
 
-# 本地快速找出每根构件的最大弯矩 MZ
+# Locally compute maximum bending moment MZ for each member
 envelopes = {}
 for f in forces:
     mid = f["member_id"]
@@ -288,120 +292,119 @@ for f in forces:
 result = envelopes
 ```
 
-更多完整工程案例可参考：
-- 杆端内力详查：[examples/ptc/member_forces.py](examples/ptc/member_forces.py)
-- 跨工况内力包络：[examples/ptc/member_envelope.py](examples/ptc/member_envelope.py)
-- 板单元应力报表：[examples/ptc/plate_report.py](examples/ptc/plate_report.py)
-- 钢构件设计详情：[examples/ptc/design_details.py](examples/ptc/design_details.py)
+Full engineering example scripts:
+- Member Forces: [examples/ptc/member_forces.py](examples/ptc/member_forces.py)
+- Load Case Envelopes: [examples/ptc/member_envelope.py](examples/ptc/member_envelope.py)
+- Plate Stress Reports: [examples/ptc/plate_report.py](examples/ptc/plate_report.py)
+- Steel Design Inspection: [examples/ptc/design_details.py](examples/ptc/design_details.py)
 
 ---
 
-## CSV / XLSX 文件工作流
+## CSV / XLSX File Workflows
 
-`execute_ptc` 与 `execute_code` 均支持**服务端数据文件直通机制**：
+Both `execute_ptc` and `execute_code` support server-side bulk data streaming:
 
-| 控制参数 | 类型 | 行为说明 |
+| Parameter | Type | Behavior |
 | --- | --- | --- |
-| `input_data_path` | 字符串 | 从指定路径读取 CSV 或 XLSX 文件，解析并注入沙箱变量 `input_data` |
-| `output_data_path` | 字符串 | 将脚本的 `result` 导出保存为 CSV 或 XLSX 文件，仅向客户端返回文件行数与大小摘要 |
-| `overwrite` | 布尔值 | 默认 `false`；设为 `true` 时允许覆盖已存在的输出文件 |
+| `input_data_path` | String | Parses a `.csv` or `.xlsx` file on the server and injects contents into sandbox `input_data`. |
+| `output_data_path` | String | Writes the script's `result` directly to a `.csv` or `.xlsx` file, returning only row/byte summaries to the client. |
+| `overwrite` | Boolean | Default `false`. Set `true` to allow replacing existing destination files. |
 
-### 导出示例 (输出为 CSV)
+### Exporting CSV Data
 
 ```python
-# 构造表格行列表：首行为表头
 members = tools.geometry.get_members()
 result = [["member_id", "length", "is_horizontal"]] + [[m["id"], m["length"], m["is_horizontal"]] for m in members]
 ```
 
-### 多工作表导出 (输出为 XLSX)
+### Multi-Sheet Excel Export
 
-将 `result` 设置为形如 `{ "SheetName": { "columns": [...], "rows": [...] } }` 的字典格式，即可一次性导出结构规整的多 Sheet Excel 工程报表。
+Set `result` to `{ "SheetName": { "columns": [...], "rows": [...] } }` to generate formatted multi-tab engineering spreadsheets.
 
-> **安全规则**：
-> - 读写路径必须落在 `--allowed-dirs` 允许目录或客户端 MCP roots 边界内。
-> - 严禁读写系统敏感目录（如 `Windows/`, `Program Files/`）或 UNC 共享网络路径。
-> - 单个数据文件硬性限制：最大 50 MB、行数不超过 100,000 行、列数不超过 500 列。
-
----
-
-## 安全、隐私与执行边界
-
-1. **执行边界分明**：PTC 查询（`tools.*`）全量为只读设计；模型的几何修改、荷载施加与分析运行仅能通过 `execute_code` 执行。
-2. **本地数据隔离**：STAAD 原始数据全部保留在本机内存中进行运算处理，仅通过最后明确指定的 `result`、`stdout` 以及导出文件向大模型返回摘要。
-3. **AST 静态安全沙箱**：执行前通过 Python AST 解析器进行静态语法与属性检查，阻断内置危险模块（`os`, `sys`, `subprocess` 等）、禁止访问私有 COM 属性（如 `_oleobj_`）。
-4. **并发与线程安全**：Windows COM API 要求 STA (Single-Threaded Apartment) 运行机制。服务通过专用的 STA 线程池调度所有 COM 调用，默认 COM 挂起超时为 120 秒。
-5. **内联回传阈值**：内联 JSON 结果上限为 64 KB (65,536 字节)；超过此规模应在 Python 内部进行数据聚合或使用 `output_data_path` 导出为文件。
+> **Security Guardrails**:
+> - Paths must reside within `--allowed-dirs` or client MCP roots.
+> - Writes to system directories (`Windows/`, `Program Files/`) and UNC paths are strictly blocked.
+> - Safeguards: 50 MB max file size, 100,000 max rows, 500 max columns.
 
 ---
 
-## 命令行参数参考
+## Security, Privacy & Execution Boundaries
+
+1. **Strict Separation of Concerns**: All `tools.*` queries are strictly read-only. Model alterations or solver executions require explicit use of `execute_code`.
+2. **Local Data Processing**: Raw model geometry and calculation databases remain within host memory. Only deliberate summaries (`result`), standard output (`stdout`), and exported files are returned.
+3. **Static AST Analysis**: Every Python snippet undergoes AST validation prior to execution. Dangerous modules (`os`, `sys`, `subprocess`) and private COM internals (`_oleobj_`) are blocked.
+4. **STA Thread Concurrency**: Windows COM requires Single-Threaded Apartment (STA) execution. All COM interactions run on a dedicated STA worker thread with a default 120s timeout.
+5. **Inline Result Safeguard**: Inline JSON return data is capped at 64 KB (65,536 bytes). Datasets exceeding this threshold should be summarized or exported via `output_data_path`.
+
+---
+
+## Command Line Options
 
 ```powershell
 openstaad-mcp [OPTIONS]
 ```
 
-| 参数选项 | 默认值 | 说明 |
+| Flag | Default | Description |
 | --- | --- | --- |
-| `--transport {stdio,http}` | `stdio` | MCP 通信传输方式 |
-| `--allowed-dirs DIR [...]` | 无限制 (需明确设置) | 允许读写 CSV/XLSX 的目录白名单 |
-| `--log-level {DEBUG,INFO,WARNING,ERROR}` | `INFO` | 输出至 stderr 的日志级别 |
-| `--port PORT` | `18120` | HTTP 传输模式监听的 TCP 端口 |
-| `--token TOKEN` | 随机生成或环境变量 | HTTP 认证 Bearer Token，支持 `OPENSTAAD_MCP_TOKEN` |
+| `--transport {stdio,http}` | `stdio` | MCP transport protocol. |
+| `--allowed-dirs DIR [...]` | Unset | Whitelist of directories permitted for CSV/XLSX file I/O. |
+| `--log-level {DEBUG,INFO,WARNING,ERROR}` | `INFO` | Stderr logging verbosity. |
+| `--port PORT` | `18120` | TCP port for HTTP transport mode. |
+| `--token TOKEN` | Random or env | Bearer token for HTTP authentication (`OPENSTAAD_MCP_TOKEN`). |
 
 ---
 
-## 常见问题与排查 (FAQ)
+## Frequently Asked Questions (FAQ)
 
-### 安装与运行环境
+### Setup & Environment
 
-| 常见问题 | 原因分析与排查方案 |
+| Issue | Cause & Resolution |
 | --- | --- |
-| **下载后找不到安装脚本或 `ptc/` 目录** | 请确认克隆的是本仓库的 `PTC-V1` 分支；上游官方仓库尚未合并本分支改动。 |
-| **`python` 命令未识别或版本低于 3.11** | 请安装 64 位 Python 3.11+ 并添加至 PATH，或通过 `-Python 'C:\Path\python.exe'` 指定。 |
-| **PowerShell 提示禁止运行脚本** | 使用推荐的临时授权指令：`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-codex.ps1`。 |
-| **依赖安装报 WinError 32 文件被占用** | 客户端正在运行该虚拟环境中的 Python 进程。请先关闭 Codex 或重启 MCP 进程后重新运行安装。 |
-| **pip 无法下载 `openstaadpy` wheel** | 检查机器对 GitHub Releases 的网络连接；依赖固定为 Bentley 官方发布的 `openstaadpy-26.0.0.62`。 |
+| **Missing `ptc/` directory or install script** | Verify you cloned the `PTC-V1` branch; the upstream Bentley repository does not yet have this branch's changes. |
+| **`python` not found or version < 3.11** | Install 64-bit Python 3.11+ and add it to PATH, or pass `-Python 'C:\Path\python.exe'` to the script. |
+| **PowerShell script execution blocked** | Use the recommended bypass invocation: `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-codex.ps1`. |
+| **WinError 32: File in use during installation** | An active MCP client has locked `.venv-codex` binaries. Close Codex or stop the MCP server, then re-run the installer. |
+| **pip cannot download `openstaadpy` wheel** | Check internet access to GitHub Releases; the dependency is pinned to Bentley's official `openstaadpy-26.0.0.62` wheel. |
 
-### 客户端连接与工具发现
+### Connection & Discovery
 
-| 常见问题 | 原因分析与排查方案 |
+| Issue | Cause & Resolution |
 | --- | --- |
-| **Codex 中只显示原版的 5 个工具，缺少 PTC** | 检查 Codex 配置中 `command` 是否精确指向 `.venv-codex\Scripts\python.exe`，更新后完全重启 Codex。 |
-| **Codex 提示配置文件解析失败** | 检查 TOML 文件是否存在重复的 `[mcp_servers.openstaad-ptc]` 表头；Windows 路径请使用单引号或转义双引号 `\\`。 |
-| **提示找不到 STAAD 实例** | 确保 STAAD.Pro 已经启动、在同一 Windows 用户会话下运行，并且已经打开了一个已保存的模型文件。 |
-| **多模型打开时操作了错误的结构** | 先调用 `list_instances` 查看模型路径与实例别名，在调用 `execute_ptc` 或 `execute_code` 时显式传入 `instance="staadPro1"`。 |
+| **Only 5 tools shown in Codex, missing PTC** | Verify that `command` in Codex's config points to `.venv-codex\Scripts\python.exe`, then restart Codex. |
+| **TOML parsing error in Codex** | Ensure there are no duplicate `[mcp_servers.openstaad-ptc]` sections. Use single quotes for Windows file paths. |
+| **Cannot detect active STAAD.Pro instance** | Ensure STAAD.Pro is running in the same Windows desktop session with a saved `.std` file open. |
+| **Multiple models open, wrong model queried** | Call `list_instances` to inspect paths, then pass `instance="staadPro1"` explicitly in tool arguments. |
 
-### 查询执行与结果
+### Query Execution & Results
 
-| 常见问题 | 原因分析与排查方案 |
+| Issue | Cause & Resolution |
 | --- | --- |
-| **钢结构设计利用率返回空或不可用** | 确认该模型在 STAAD 中已定义钢结构设计参数块并成功运行分析；未进行设计的杆件无法读取有效应力比。 |
-| **提示返回结果过大 (Exceeds 65536 bytes)** | 避免打印大量调试中间数据；在 Python 中筛选核心指标，或指定 `output_data_path` 导出报表。 |
-| **文件导出提示路径越界被拒绝** | 检查目标路径是否已被包含在启动参数 `--allowed-dirs` 中，且不属于系统敏感保留目录。 |
-| **工具调用超时 (Timeout)** | 复杂模型单次查询建议分批传入 ID 或缩小工况范围；客户端等待时间可通过 `tool_timeout_sec = 180` 调大。 |
+| **Steel design utilization unavailable / empty** | Verify the model contains steel design parameters and has been analyzed in STAAD.Pro before querying ratios. |
+| **Result exceeds 65,536 bytes limit** | Avoid printing massive intermediate lists; filter key values in Python or specify `output_data_path` to export files. |
+| **Path containment error on file export** | Ensure the target path is inside `--allowed-dirs` and not in protected system folders. |
+| **Tool call timeout** | Chunk large member ID queries or increase `tool_timeout_sec = 180` in client configuration. |
 
 ---
 
-## 开发与测试验证
+## Development & Verification
 
-针对开发者与二次维护人员：
+For developers extending or testing this server:
 
 ```powershell
-# 1. 安装开发与调试依赖
+# 1. Install development dependencies
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-codex.ps1 -Dev
 
-# 2. 执行全量单元测试 (纯 Mock 环境，无需开启 STAAD.Pro)
+# 2. Run unit tests (Mock environment, no STAAD.Pro required)
 .\.venv-codex\Scripts\python.exe -m pytest -o cache_dir="$env:TEMP\pytest_cache" -m "not integration" -q
 
-# 3. 代码规范与格式检查
+# 3. Linter & formatting checks
 .\.venv-codex\Scripts\ruff.exe check .
 .\.venv-codex\Scripts\ruff.exe format --check .
 ```
 
-### 真实 STAAD.Pro 联动测试 (可选)
+### Live STAAD.Pro Integration Tests (Optional)
 
-在本机 STAAD.Pro 中打开一个专用的测试模型后，指定其绝对路径执行集成测试：
+With a test model open in STAAD.Pro on Windows:
 
 ```powershell
 $env:OPENSTAAD_PTC_TEST_MODEL = 'D:\STAAD\Models\ptc-test.std'
@@ -410,28 +413,28 @@ $env:OPENSTAAD_PTC_TEST_MODEL = 'D:\STAAD\Models\ptc-test.std'
 
 ---
 
-## 项目结构与开源许可
+## Project Layout & Attribution
 
 ```text
 openstaad-mcp/
 ├── scripts/
-│   └── install-codex.ps1         # Windows 本地自动化部署与 Codex 配置生成脚本
+│   └── install-codex.ps1         # Windows setup & Codex configuration generator
 ├── examples/
-│   ├── codex/config.toml         # 标准可移植 Codex 配置范例
-│   └── ptc/                      # 典型工程场景下的 PTC 查询脚本示例
+│   ├── codex/config.toml         # Portable Codex configuration template
+│   └── ptc/                      # Production-ready PTC Python query examples
 ├── docs/
-│   ├── PTC.zh-CN.md              # PTC 核心接口与工程语义规范
-│   └── PTC-extensions.zh-CN.md   # OpenStaadPython 扩展接口映射详情
+│   ├── PTC.zh-CN.md              # PTC technical specifications & engineering semantics
+│   └── PTC-extensions.zh-CN.md   # OpenStaadPython method mapping guide
 ├── src/openstaad_mcp/
-│   ├── ptc/                      # PTC 引擎：命名空间、注册表、参数校验与运行上下文
-│   ├── sandbox/                  # 代码沙箱：AST 语法校验、COM 属性代理与路径白名单
-│   ├── file_io/                  # 安全 CSV/XLSX 读写器与数据验证
-│   ├── server.py                 # MCP 协议处理与顶层工具定义
-│   └── main.py                   # 服务入口与命令行配置解析
+│   ├── ptc/                      # PTC engine: namespaces, registry, schema validation
+│   ├── sandbox/                  # AST validation, COM proxies, and path security
+│   ├── file_io/                  # Secure CSV/XLSX streaming and validation
+│   ├── server.py                 # FastMCP protocol setup and top-level tools
+│   └── main.py                   # Entry point and CLI arguments
 └── tests/
-    └── ptc/                      # PTC 单元与集成测试用例
+    └── ptc/                      # PTC test suite
 ```
 
-- **上游基础**：本项目基于 Bentley Systems 官方开源的 [OpenSTAAD MCP](https://github.com/BentleySystems/openstaad-mcp)，底层采用 Bentley 发布的 `openstaadpy` 库。
-- **分支定位**：本 `PTC-V1` 分支扩展及 Codex 适配由社区维护，不代表 Bentley Systems 或 OpenAI 的官方发布。
-- **协议说明**：本项目遵循 [MIT 许可证](LICENSE.md)，欢迎提交 Issue 与 Pull Request 共同完善。
+- **Upstream Foundation**: Built on the open-source [Bentley OpenSTAAD MCP](https://github.com/BentleySystems/openstaad-mcp) using Bentley's `openstaadpy` library.
+- **Disclaimer**: This `PTC-V1` branch is a community extension and is not an official release by Bentley Systems or OpenAI.
+- **License**: Released under the [MIT License](LICENSE.md). Contributions via issues and pull requests are welcome!
