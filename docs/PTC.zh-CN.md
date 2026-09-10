@@ -10,26 +10,25 @@
 
 ## 启动
 
-Windows PowerShell，在项目目录执行：
+推荐通过 Codex 桌面端或 CLI 使用，完整下载、安装和接入流程见
+[README](../README.md)。Windows PowerShell，在包含 PTC 文件的项目目录执行：
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\openstaad-mcp.exe --help
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-codex.ps1 -Dev
+.\.venv-codex\Scripts\openstaad-mcp.exe --help
 ```
 
-以下是客户端通用的 stdio 配置示例。请将路径替换为实际克隆目录。
-配置文件仅供参考，本次改造不会自动修改任何客户端配置。
+安装脚本在 `.venv-codex\openstaad-codex.toml` 生成带实际路径的配置片段，
+不会自动修改个人客户端配置。将该片段合并到 Codex 的 `config.toml`，
+已有同名服务器表时更新该表，不要重复添加。以下为 TOML 示例：
 
-```json
-{
-  "mcpServers": {
-    "openstaad-ptc": {
-      "command": "D:\\GPT\\openstaad-mcp-PTC\\.venv\\Scripts\\openstaad-mcp.exe",
-      "args": ["--allowed-dirs", "D:\\GPT\\openstaad-mcp-PTC"]
-    }
-  }
-}
+```toml
+[mcp_servers.openstaad-ptc]
+command = 'C:\Projects\openstaad-mcp-PTC\.venv-codex\Scripts\python.exe'
+args = ['-m', 'openstaad_mcp.main', '--allowed-dirs', 'C:\Projects\openstaad-mcp-PTC']
+cwd = 'C:\Projects\openstaad-mcp-PTC'
+startup_timeout_sec = 30
+tool_timeout_sec = 180
 ```
 
 STAAD.Pro 应已打开独立模型。服务保留原来的 stdio/HTTP、实例发现、认证及版本警告机制。
@@ -158,24 +157,25 @@ MCP execute_ptc
 ## 验证
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -m "not integration" -q
-.\.venv\Scripts\ruff.exe check .
-.\.venv\Scripts\ruff.exe format --check .
+.\.venv-codex\Scripts\python.exe -m pytest -m "not integration" -q
+.\.venv-codex\Scripts\ruff.exe check .
+.\.venv-codex\Scripts\ruff.exe format --check .
 ```
 
 可选覆盖率检查：安装 `pytest-cov` 后执行：
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/ptc -m "not integration" --cov=openstaad_mcp.ptc --cov-branch --cov-report=term-missing
+.\.venv-codex\Scripts\python.exe -m pytest tests/ptc -m "not integration" --cov=openstaad_mcp.ptc --cov-branch --cov-report=term-missing
 ```
 
 真实模型验收需要 STAAD.Pro 中打开独立、已保存的测试模型。指定完整路径以避免选错模型：
 
 ```powershell
 $env:OPENSTAAD_PTC_TEST_MODEL = 'D:\models\ptc-test.std'
-.\.venv\Scripts\python.exe -m pytest tests/ptc/test_server.py -m integration -v
+.\.venv-codex\Scripts\python.exe -m pytest tests/ptc/test_server.py -m integration -v
 ```
 
 真实集成测试只读检查杆件计数与枚举一致，不修改模型。
-本次开发环境检查未发现运行中的 STAAD 实例，真实 COM 返回值与设计结果仍需在目标 STAAD 版本中验收。
+安装验证中的服务启动、工具发现和实例枚举不等同于模型结果验收；
+真实 COM 返回值与设计结果仍需在目标 STAAD 版本及指定测试模型中核验。
 Mock 测试通过不代表已完成真实结构模型验证。
