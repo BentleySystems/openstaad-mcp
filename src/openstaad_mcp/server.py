@@ -33,6 +33,8 @@ from openstaad_mcp.file_io.helpers import (
     write_output_file,
 )
 from openstaad_mcp.file_io.path_validator import FileIOError
+from openstaad_mcp.ptc.adapter import build_registry
+from openstaad_mcp.ptc.runtime import PTCRuntime
 from openstaad_mcp.sandbox.executor import Executor
 from openstaad_mcp.skills import SkillsManager
 from openstaad_mcp.version import check_version_warning
@@ -51,6 +53,18 @@ def _register_tools(
     args_allowed_dirs: list[Path],
 ) -> None:
     """Register MCP tools on *mcp*, closing over the *InstanceRegistry*."""
+    ptc_runtime = PTCRuntime(exc)
+    ptc_catalog = build_registry()
+
+    @mcp.tool(annotations=ToolAnnotations(title="Discover PTC query tools", readOnlyHint=True, openWorldHint=False))
+    def discover_ptc(namespace: str | None = None) -> list[dict[str, Any]]:
+        """List registered tools.* Python calls, parameter schemas and return-field guidance.
+
+        No STAAD connection is needed. Optionally filter by geometry, properties,
+        loads, supports, analysis or design. Use execute_ptc to compose these
+        synchronous queries; intermediate data stays in the local runtime.
+        """
+        return ptc_catalog.discover(namespace)
 
     def _resolve_target(instance: str | None) -> StaadInstance:
         """Return the target StaadInstance or raise ValueError."""
@@ -253,6 +267,57 @@ def _register_tools(
         overwrite: bool, optional
             Allow overwriting an existing output file.
         """
+        return await _execute_request(ctx, code, instance, input_data_path, output_data_path, overwrite)
+
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Execute programmatic OpenSTAAD queries",
+            readOnlyHint=False,  # Queries are read-only; optional file export writes to disk.
+            destructiveHint=True,  # overwrite=True can replace an allowed output file.
+            idempotentHint=False,
+            openWorldHint=False,
+        )
+    )
+    async def execute_ptc(
+        ctx: Context,
+        code: str,
+        instance: str | None = None,
+        input_data_path: str | None = None,
+        output_data_path: str | None = None,
+        overwrite: bool = False,
+    ) -> dict[str, Any]:
+        """Compose read-only OpenSTAAD queries in one local sandboxed Python program.
+
+        Call discover_ptc for tool schemas. Available globals: tools, input_data,
+        math and json. Use tools.geometry.get_members(), tools.analysis.*,
+        tools.design.get_utilization(), etc. Native dict/list results stay local
+        until an explicit result assignment or the last expression is returned.
+        staad, imports, async and raw COM access are not exposed in this mode.
+
+        Limits: 1000 tool calls, 10000 IDs per list, 100000 result rows per batch,
+        65536 bytes for an inline result. stdout is also returned: do not print
+        intermediate datasets. Use output_data_path to export large final results
+        as CSV/XLSX (same table shapes and allowed-directory rules as execute_code).
+        Input data is a fresh copy per execution. No cross-call handles or cache.
+        Specify an instance alias when multiple STAAD models are open.
+
+        Design utilization is from the last steel design parameter block; it is
+        not derived from member forces or restricted to an analysis load case.
+        Geometry uses base length units, with Y up by default (pass up_axis='Z'
+        for Z-up models). Use analysis.get_units() for output units.
+        """
+        return await _execute_request(ctx, code, instance, input_data_path, output_data_path, overwrite, ptc=True)
+
+    async def _execute_request(
+        ctx: Context,
+        code: str,
+        instance: str | None,
+        input_data_path: str | None,
+        output_data_path: str | None,
+        overwrite: bool,
+        *,
+        ptc: bool = False,
+    ) -> dict[str, Any]:
         try:
             target = _resolve_target(instance)
         except ValueError as e:
@@ -284,6 +349,8 @@ def _register_tools(
 
         # ── Execute code in sandbox ──────────────────────────────────
         def _run(staad: Any) -> dict[str, Any]:
+            if ptc:
+                return ptc_runtime.execute(code, staad, input_data=input_data, export=output_data_path is not None)
             return exc.execute(code, staad, input_data=input_data).to_dict()
 
         try:
@@ -347,6 +414,9 @@ def create_mcp_server(allowed_dirs: list[Path], fastmcp_kwargs: dict | None = No
             "instructions. Use `list_instances` to see running STAAD instances, "
             "`execute_code` to run code against a live STAAD.Pro model, and "
             "`get_status` to check connection. "
+            "For programmatic read-only workflows, use `discover_ptc` to inspect "
+            "the tools.* catalog, then `execute_ptc` to query, filter and aggregate "
+            "locally in one Python program. Only return the final summary. "
             "When a `warning` field appears in any tool response, report it to the user."
         ),
         lifespan=mcp_lifespan,
