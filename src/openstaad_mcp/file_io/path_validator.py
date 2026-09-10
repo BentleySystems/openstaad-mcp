@@ -49,7 +49,7 @@ def parse_roots_to_dirs(roots: list) -> list[Path]:
     dirs: list[Path] = []
     for root in roots:
         uri: str = root.uri if hasattr(root, "uri") else str(root)
-        parsed = urlparse(uri)
+        parsed = urlparse(str(uri))
         if parsed.scheme != "file":
             continue
         # RFC 8089: file:///C:/path → parsed.path = "/C:/path"
