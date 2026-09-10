@@ -1,5 +1,22 @@
 # OpenSTAAD MCP Server
 
+## PTC-V1: local Programmatic Tool Calling
+
+This branch adds `discover_ptc` and `execute_ptc`: compose registered, read-only
+`tools.geometry`, `tools.properties`, `tools.loads`, `tools.supports`,
+`tools.analysis` and `tools.design` queries in one sandboxed Python program.
+Intermediate data stays local; return a final summary or export CSV/XLSX.
+Existing `execute_code` and MCP transports remain available.
+
+The catalog now contains 31 queries, including plate/solid geometry, groups,
+material and release details, load combinations, intermediate member forces,
+force extrema, plate stresses and detailed steel design results.
+See the [OpenStaadPython-inspired extension map](docs/PTC-extensions.zh-CN.md).
+
+See the [Chinese setup, API and validation guide](docs/PTC.zh-CN.md) and
+[runnable sandbox examples](examples/ptc). Use this clone's local executable
+for PTC; the upstream release/install commands below install Bentley's original server.
+
 A Model Context Protocol (MCP) server for Bentley [STAAD.Pro](https://www.bentley.com/software/staad/) that **enables AI agents** like Claude Desktop, Gemini, or VSCode Copilot **to interact with your STAAD.Pro models** and perform various time-consuming tasks like load cases definition, data extraction, repetitive property setting and more.
 
 This MCP server was introduced as part of Bentley's [Infrastructure AI Co-Innovation Initiative](https://www.bentley.com/software/infrastructure-ai-co-innovation-initiative/) to help our users and accounts discover opportunities and innovate faster, while connecting Bentley's unique engineering tool capabilities to their emerging agentic workflows.
