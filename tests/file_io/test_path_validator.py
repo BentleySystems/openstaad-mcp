@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from openstaad_mcp.file_io.path_validator import FileIOError, validate_io_path
+from openstaad_mcp.file_io.path_validator import FileIOError, parse_roots_to_dirs, validate_io_path
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -211,3 +211,107 @@ class TestFileIOError:
         assert err.code == "TEST_CODE"
         assert err.message == "some detail"
         assert "TEST_CODE" in str(err)
+
+
+# ---------------------------------------------------------------------------
+# parse_roots_to_dirs
+# ---------------------------------------------------------------------------
+
+
+class _RootWithStrUri:
+    """Minimal MCP Root stub whose .uri is a plain Python str."""
+
+    def __init__(self, uri: str) -> None:
+        self.uri = uri
+
+
+class _FileUrlLike:
+    """Mimics a Pydantic FileUrl / AnyUrl object: has __str__ but NO .decode().
+
+    This is the shape returned by newer versions of the ``mcp`` Python library
+    when a Claude Code client sends workspace roots.  The bug was that
+    ``urlparse`` received this object directly and tried to call ``.decode()``
+    on it (bytes branch), raising AttributeError.
+    """
+
+    def __init__(self, uri: str) -> None:
+        self._uri = uri
+
+    def __str__(self) -> str:
+        return self._uri
+
+    # Deliberately NO .decode() — that's the point of this test fixture.
+
+
+class _RootWithFileUrlUri:
+    """MCP Root whose .uri is a FileUrl-like object (not a plain str)."""
+
+    def __init__(self, uri: str) -> None:
+        self.uri = _FileUrlLike(uri)
+
+
+class TestParseRootsToDirs:
+    """parse_roots_to_dirs must handle every URI shape a real MCP client can send."""
+
+    def test_empty_list_returns_empty(self):
+        assert parse_roots_to_dirs([]) == []
+
+    def test_plain_str_uri_posix(self):
+        root = _RootWithStrUri("file:///home/user/models")
+        result = parse_roots_to_dirs([root])
+        assert result == [Path("/home/user/models")]
+
+    def test_plain_str_uri_windows(self):
+        """RFC 8089 Windows path: file:///C:/Users/... → C:/Users/..."""
+        root = _RootWithStrUri("file:///C:/Users/user/models")
+        result = parse_roots_to_dirs([root])
+        assert len(result) == 1
+        assert str(result[0]).startswith("C:")
+
+    def test_fileurl_object_uri_does_not_raise(self, tmp_path: Path):
+        """Regression: FileUrl objects must not trigger AttributeError from urlparse.
+
+        Older code passed root.uri directly to urlparse().  urlparse treats any
+        non-str input as bytes and calls .decode() on it — FileUrl has no
+        .decode(), so it raised AttributeError.  The fix is str(uri) before
+        urlparse.  This test would fail against the unfixed implementation.
+        """
+        root = _RootWithFileUrlUri(f"file:///{tmp_path.as_posix()}")
+        # Must not raise — this was the bug triggered by Claude Code clients.
+        result = parse_roots_to_dirs([root])
+        assert len(result) == 1
+
+    def test_fileurl_object_uri_resolves_correctly(self, tmp_path: Path):
+        """FileUrl-typed URI must produce the same Path as a plain-str URI."""
+        uri = f"file:///{tmp_path.as_posix()}"
+        plain = parse_roots_to_dirs([_RootWithStrUri(uri)])
+        typed = parse_roots_to_dirs([_RootWithFileUrlUri(uri)])
+        assert plain == typed
+
+    def test_non_file_scheme_skipped(self):
+        root = _RootWithStrUri("https://example.com/models")
+        assert parse_roots_to_dirs([root]) == []
+
+    def test_mixed_schemes_only_file_included(self, tmp_path: Path):
+        roots = [
+            _RootWithStrUri("https://example.com/ignored"),
+            _RootWithStrUri(f"file:///{tmp_path.as_posix()}"),
+        ]
+        result = parse_roots_to_dirs(roots)
+        assert len(result) == 1
+
+    def test_root_without_uri_attribute_uses_str(self, tmp_path: Path):
+        """Roots that have no .uri fall back to str(root)."""
+
+        class _BareRoot:
+            def __str__(self) -> str:
+                return f"file:///{tmp_path.as_posix()}"
+
+        result = parse_roots_to_dirs([_BareRoot()])
+        assert len(result) == 1
+
+    def test_percent_encoded_path_decoded(self):
+        """Spaces and special chars in paths must be unquoted."""
+        root = _RootWithStrUri("file:///home/user/my%20models")
+        result = parse_roots_to_dirs([root])
+        assert "my models" in str(result[0])
