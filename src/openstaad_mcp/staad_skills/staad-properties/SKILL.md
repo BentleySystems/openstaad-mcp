@@ -1,6 +1,6 @@
 ﻿---
 name: staad-properties
-description: "Use when assigning section profiles to beams, plate thickness, materials, creating prismatic or tapered sections, or defining member specs (releases, truss, tension, compression, cable, inactive, offset). Covers: CreateBeamPropertyFromTable (country codes), CreateAngle/Channel/Tube/Pipe/TeePropertyFromTable, CreateBeamPropertyFromTableEx, CreatePrismaticRectangle/Circle/Tee/GeneralProperty, CreateTaperedIProperty/TaperedTubeProperty, CreatePlateThicknessProperty (list of 4 floats), AssignBeamProperty, AssignPlateThickness, CreateIsotropicMaterial/Steel/Concrete/Aluminum/Timber, GetIsotropicMaterialProperties, GetOrthotropic2D/3DMaterialProperties, AssignMaterialToMember/Plate/Solid, CreateMemberReleaseSpec, CreateMemberPartialReleaseSpec, CreateMemberTrussSpec, CreateMemberTensionSpec, CreateMemberCompressionSpec, CreateMemberInactiveSpec, CreateMemberOffsetSpec, CreateMemberFireProofingSpec, CreateElementPlaneStressSpec, CreateElementOffsetSpec, CreateElementIgnoreInplaneRotnSpec, CreateElementNodeReleaseSpec, AssignBetaAngle, GetBeamProperty, GetSectionPropertyList, GetBeamSectionPropertyTypeNo, CreateUPTTable (user provided tables), AddUPTPropertyWIDEFLANGE/CHANNEL/ANGLE/DOUBLEANGLE/TEE/PIPE/TUBE/ISECTION/PRISMATIC/GENERAL, CreatePropertyFromUserTable, CreateMemberAttribute, AssignMemberAttribute, GetMemberListByAttribute, GetElementListByAttribute, deleting/removing properties and specs (DeleteProperty, DeleteMemberSpec, DeleteMemberReleaseSpec, RemovePropertyFromBeam/Plate, RemoveMemberOffsetSpecFromBeam, RemoveMaterialFromBeam/Plate/Solid, DeleteMaterial, RemoveElementPlaneStressSpecFromPlate, RemoveUPTTable, DeleteMemberAttribute), control/dependent joint (rigid link) relations (AddControlDependentRelation, DeleteAllControlDependentRelations); documents which Property functions raise OsErrorBase exceptions versus which return a silent bool/int that must be checked. Requires staad-core."
+description: "Use when assigning section profiles to beams, plate thickness, materials, creating prismatic or tapered sections, or defining member specs (releases, truss, tension, compression, cable, inactive, offset). Covers: CreateBeamPropertyFromTable (country codes), CreateAngle/Channel/Tube/Pipe/TeePropertyFromTable, CreateBeamPropertyFromTableEx, CreatePrismaticRectangle/Circle/Tee/GeneralProperty, CreateTaperedIProperty/TaperedTubeProperty, CreatePlateThicknessProperty (list of 4 floats), AssignBeamProperty, AssignPlateThickness, CreateIsotropicMaterial/Steel/Concrete/Aluminum/Timber, GetMaterialPropertyCount, GetIsotropicMaterialProperties, GetOrthotropic2D/3DMaterialProperties, AssignMaterialToMember/Plate/Solid, CreateMemberReleaseSpec, CreateMemberPartialReleaseSpec, CreateMemberTrussSpec, CreateMemberTensionSpec, CreateMemberCompressionSpec, CreateMemberInactiveSpec, CreateMemberOffsetSpec, CreateMemberFireProofingSpec, CreateElementPlaneStressSpec, CreateElementOffsetSpec, CreateElementIgnoreInplaneRotnSpec, CreateElementNodeReleaseSpec, AssignBetaAngle, GetBeamProperty, GetSectionPropertyList, GetBeamSectionPropertyTypeNo, CreateUPTTable (user provided tables), AddUPTPropertyWIDEFLANGE/CHANNEL/ANGLE/DOUBLEANGLE/TEE/PIPE/TUBE/ISECTION/PRISMATIC/GENERAL, CreatePropertyFromUserTable, CreateMemberAttribute, AssignMemberAttribute, GetMemberListByAttribute, GetElementListByAttribute, deleting/removing properties and specs (DeleteProperty, DeleteMemberSpec, DeleteMemberReleaseSpec, RemovePropertyFromBeam/Plate, RemoveMemberOffsetSpecFromBeam, RemoveMaterialFromBeam/Plate/Solid, DeleteMaterial, RemoveElementPlaneStressSpecFromPlate, RemoveUPTTable, DeleteMemberAttribute), control/dependent joint (rigid link) relations (AddControlDependentRelation, DeleteAllControlDependentRelations); documents which Property functions raise OsErrorBase exceptions versus which return a silent bool/int that must be checked. Requires staad-core."
 ---
 
 # STAAD.Pro Properties & Materials
@@ -139,8 +139,8 @@ prop.CreateIsotropicMaterialPropertiesEx(name, E, poisson, G, density, alpha, da
 # Convenience
 prop.CreateIsotropicMaterialSteel(name, E, poisson, G, density, alpha, damping, fu, fy, rt, ry, is_physical)
 prop.CreateIsotropicMaterialConcrete(name, E, poisson, G, density, alpha, damping, fc, physical)
-prop.CreateIsotropicMaterialAluminum(name, E, poisson, G, density, alpha, damping)
-prop.CreateIsotropicMaterialTimber(name, E, poisson, G, density, alpha, damping)
+prop.CreateIsotropicMaterialAluminum(name, E, poisson, G, density, alpha, damping, physical_flag)
+prop.CreateIsotropicMaterialTimber(name, E, poisson, G, density, alpha, damping, physical_flag)
 
 # Assign
 prop.AssignMaterialToMember("STEEL", member_ids)
@@ -161,12 +161,26 @@ prop.RemoveMaterialFromSolid(solid_ids)      # list
 prop.DeleteMaterial("Q235")
 ```
 
-**Isotropic material catalog (indexed by material number, not name)** — use this to enumerate all materials in the model rather than looking each one up by name. This index is a **catalog/table position** (e.g. 1=STEEL, 2=CONCRETE, ... depends on the model), **not a beam/member ID** — calling `GetIsotropicMaterialProperties(beam_id)` does not raise or error, it just silently returns the unrelated catalog entry at that index. Use `GetBeamMaterialName(beam_id)` to query a member's actual material:
+**Isotropic material catalog (indexed by material number, not name)** — use `GetMaterialPropertyCount()`
+to get the count for the enumeration loop below. It returns the size of the **FULL material list** (every
+type combined: isotropic + 2D orthotropic + 3D orthotropic), zero-based, and it is the ONLY count that
+matches the index space accepted by `GetIsotropicMaterialProperties`, `GetIsotropicMaterialPropertiesEx`,
+`GetIsotropicMaterialPropertiesAssigned`, `GetOrthotropic2DMaterialProperties` and
+`GetOrthotropic3DMaterialProperties`. `GetIsotropicMaterialCount()` / `GetOrthotropic2DMaterialCount()` /
+`GetOrthotropic3DMaterialCount()` only count materials of THAT one type — useful to know how many of a
+type exist, but do NOT bound this index; looping `range(GetIsotropicMaterialCount())` silently reads the
+wrong (or a different-type) catalog entry once the model has more than one material type. This index is
+also a **catalog/table position**, **not a beam/member ID** — calling
+`GetIsotropicMaterialProperties(beam_id)` does not raise or error, it just silently returns the unrelated
+catalog entry at that index. Use `GetBeamMaterialName(beam_id)` to query a member's actual material:
 ```python
-count = prop.GetIsotropicMaterialCount()
-for i in range(1, count + 1):
-    # preferred — adds strength values; GetIsotropicMaterialProperties(i) also available for just the base 7-tuple
-    name, E, poisson, G, density, alpha, damp, fy, fu, ry, rt, fcu = prop.GetIsotropicMaterialPropertiesEx(i)
+material_count = prop.GetMaterialPropertyCount()   # zero-based, FULL material list (all types)
+for i in range(material_count):
+    try:
+        # preferred — adds strength values; GetIsotropicMaterialProperties(i) also available for just the base 7-tuple
+        name, E, poisson, G, density, alpha, damp, fy, fu, ry, rt, fcu = prop.GetIsotropicMaterialPropertiesEx(i)
+    except Exception:
+        continue  # material i is not isotropic (could be 2D/3D orthotropic instead)
     # ...Assigned variant also leads with the name and ends with a bool
     name, E, poisson, G, density, alpha, damp, is_assigned = prop.GetIsotropicMaterialPropertiesAssigned(i)
 
@@ -182,13 +196,22 @@ mat_type = prop.GetTypeForIsotropicMaterial("STEEL")     # e.g. steel/concrete/a
 prop.SetTypeToIsotropicMaterial("STEEL", mat_type)
 ```
 
-**Orthotropic materials** (2D for plates, 3D for solids) — same 6-value tuple shape as isotropic, no material name:
+**Orthotropic materials** (2D for plates, 3D for solids) — same 6-value tuple shape as isotropic, no
+material name. `material_no` is zero-based over the same FULL material list as above (see
+`GetMaterialPropertyCount()`) — NOT bounded by `GetOrthotropic2DMaterialCount()` /
+`GetOrthotropic3DMaterialCount()`, which only count materials of that one orthotropic type:
 ```python
-count = prop.GetOrthotropic2DMaterialCount()
-E, poisson, G, density, alpha, damp = prop.GetOrthotropic2DMaterialProperties(material_no)
+material_count = prop.GetMaterialPropertyCount()
+for material_no in range(material_count):
+    try:
+        E, poisson, G, density, alpha, damp = prop.GetOrthotropic2DMaterialProperties(material_no)
+    except Exception:
+        continue  # material_no is not 2D orthotropic
 
-count = prop.GetOrthotropic3DMaterialCount()
-E, poisson, G, density, alpha, damp = prop.GetOrthotropic3DMaterialProperties(material_no)
+    try:
+        E, poisson, G, density, alpha, damp = prop.GetOrthotropic3DMaterialProperties(material_no)
+    except Exception:
+        continue  # material_no is not 3D orthotropic
 ```
 
 ### Beta Angle (Local Axis Rotation)
@@ -412,7 +435,7 @@ prop.RemoveAllElementNodeReleaseSpec()
 prop.RemoveAllElementOffsetSpec()
 prop.RemoveElementIgnoreInplaneRotnSpecFromPlate(plate_id)
 
-prop.SetMaterialName(material_name)   # sets material name for the member context set by preceding beam/plate/solid selection
+prop.SetMaterialName(material_name)   # sets the DEFAULT material for the next section-property creation call (e.g. CreateBeamPropertyFromTable*) — does NOT assign to an already-selected/existing beam/plate/solid; use AssignMaterialToMember/Plate/Solid for that
 prop.GetPropertyUniqueID(property_number)
 prop.SetPropertyUniqueID(property_number, unique_id_str)
 
@@ -487,7 +510,8 @@ stress_z, stress_y = prop.GetUptGeneralStressLocationPoints(table_reference_id, 
 - `GetBeamSectionName(bid)`, `GetBeamSectionDisplayName(bid)`, `GetBeamMaterialName(bid)`, `GetPlateMaterialName(pid)`, `GetSolidMaterialName(sid)` and `GetElementMaterialName(eid)` all **raise** when the underlying call yields an empty string — none of them return `""`. Wrap them in `try/except Exception` when scanning a model that may contain unassigned entities
 - `GetMaterialProperty(name)` is the one getter that **fails silently**: an unknown material yields `(0.0, 0.0, 0.0, 0.0, 0.0)` rather than an exception. Prefer `GetMaterialPropertyEx(name)`, which raises
 - `GetMaterialPropertyEx(name)` returns **10** values `(E, poisson, density, alpha, damping, fy, fu, ry, rt, fcu)` — there is **no shear modulus** in this tuple, unlike `GetIsotropicMaterialPropertiesEx(i)` which returns 12 values starting with the material name and including `G`
-- `GetTypeForIsotropicMaterial`/`SetTypeToIsotropicMaterial` take the material **name**, not the catalog index used by `GetIsotropicMaterialProperties*`
+- `GetTypeForIsotropicMaterial`/`SetTypeToIsotropicMaterial` take the material **name**, not the catalog index used by `GetIsotropicMaterialProperties*`. Type codes: `1=steel, 2=concrete, 3=aluminum, 4=timber`
+- `SetMaterialName(material_name)` does **not** assign a material to a beam/plate/solid selected via `SelectBeam`/etc. — it only sets a default consumed by the NEXT `CreateBeamPropertyFromTable`-family call. Use `AssignMaterialToMember`/`AssignMaterialToPlate`/`AssignMaterialToSolid` to assign a material to existing elements
 - `GetIsotropicMaterialPropertiesAssigned(i)` returns **8** values leading with the material name and ending with a `bool` — `(name, E, poisson, G, density, alpha, damping, is_assigned)`
 - **`AssignBeamProperty` (via `CreateBeamPropertyFromTable`/etc.) silently drops the beam's existing material assignment** — it does not raise or warn. The member is left with no material, which only surfaces later as an analysis error (`ELASTIC MODULUS (E) NOT ENTERED FOR MEMBER/ELEMENT/SOLID NO. n`). Always call `prop.AssignMaterialToMember("STEEL", beam_ids)` again immediately after reassigning a section
 - `GetIsotropicMaterialProperties(i)`/`GetIsotropicMaterialPropertiesEx(i)` take a **material catalog index**, not a beam/member ID — passing a member ID silently returns a plausible-looking but unrelated material entry instead of erroring. Use `GetBeamMaterialName(beam_id)` to look up a member's material by ID
