@@ -48,8 +48,8 @@ def parse_roots_to_dirs(roots: list) -> list[Path]:
     """
     dirs: list[Path] = []
     for root in roots:
-        uri: str = str(root.uri) if hasattr(root, "uri") else str(root)
-        parsed = urlparse(uri)
+        uri: str = root.uri if hasattr(root, "uri") else str(root)
+        parsed = urlparse(str(uri))  # str() normalises Pydantic FileUrl / AnyUrl types
         if parsed.scheme != "file":
             continue
         # RFC 8089: file:///C:/path → parsed.path = "/C:/path"
