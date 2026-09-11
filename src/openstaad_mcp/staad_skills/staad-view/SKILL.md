@@ -121,13 +121,24 @@ view.SetDiagramMode(which, show=True, refresh=True)
 
 `SetStressType` picks which stress component the Plate Stress (`which=20`) or Solid Stress
 (`which=21`) contour shows, and recomputes its legend range for the currently active load case
-(`Load.SetLoadActive`). Enable the diagram first via `SetDiagramMode`, then call `SetStressType`:
+(`Load.SetLoadActive`). **Call `SetStressType` BEFORE `SetDiagramMode(..., showFlag=True, ...)`** — a
+stress type must already be set for the diagram to turn on at all (matches the Diagrams>Plate/Solid
+Stress dialog, which also requires a type to be picked before the contour can be shown); calling it
+afterwards only changes the type of an already-shown diagram, it does not fix a diagram that failed
+to turn on:
 
 ```python
 view.SetActiveWindow(1)                       # REQUIRED before any diagram/export call — see Gotchas
 view.ShowIsometric()
-view.SetDiagramMode(20, True, False)         # enable Plate Stress diagram; skip refresh, next call refreshes
-view.SetStressType(20, 8, True)              # entityType=20 Plate, stressType=8 Max Von Mises
+view.SetStressType(20, 8, False)              # entityType=20 Plate, stressType=8 Max Von Mises; skip refresh
+view.SetDiagramMode(20, True, True)           # enable Plate Stress diagram now that a type is set
+```
+
+Once the diagram is already showing, switching to a different `stressType` (or a different active load
+case) only needs another `SetStressType` call — do **not** re-call `SetDiagramMode`, it's already on:
+
+```python
+view.SetStressType(20, 1, True)               # switch to Max Absolute on the already-shown diagram
 ```
 
 `entityType`: `20`=Plate Stress, `21`=Solid Stress.

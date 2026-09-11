@@ -9,9 +9,10 @@
 # - SetDiagramMode(15, ...) (Fill Plates & Solids) is not required -- SetDiagramMode(20, ...) alone
 #   produces a fully-filled color gradient contour with a correct legend and units.
 # - SetStressType(entityType, stressType, refreshFlag) picks which stress component the contour
-#   shows and recomputes its legend range for the currently active load case. Call it AFTER
-#   SetDiagramMode(20, ...) enables the Plate Stress diagram. entityType=20 Plate, 21 Solid;
-#   stressType=8 is Max Von Mises for plates (see VIEW_CODES.md for the full tables).
+#   shows and recomputes its legend range for the currently active load case. Call it BEFORE
+#   SetDiagramMode(20, ...) -- a stress type must already be set for the diagram to turn on at all
+#   (matches the Diagrams>Plate/Solid Stress dialog). entityType=20 Plate, 21 Solid; stressType=8
+#   is Max Von Mises for plates (see VIEW_CODES.md for the full tables).
 # - SetDiagramMode(20, ...) is Plate Stress; SetDiagramMode(21, ...) is Solid Stress (see VIEW_CODES.md
 #   for the full Diagram Mode Codes table).
 # - ExportView's return code and file size alone don't guarantee a real (non-blank) capture -- if a
@@ -34,8 +35,8 @@ else:
         load.SetLoadActive(lc)
         view.SetActiveWindow(1)
         view.ShowIsometric()
-        view.SetDiagramMode(20, True, False)  # Plate Stress diagram; skip refresh, SetStressType refreshes next
-        view.SetStressType(20, 8, True)       # Max Von Mises, recompute legend for this load case
+        view.SetStressType(20, 8, False)      # Max Von Mises; skip refresh, SetDiagramMode refreshes next
+        view.SetDiagramMode(20, True, True)    # enable Plate Stress diagram now that a type is set
         view.ZoomExtentsMainView()
         view.RefreshView()
 
