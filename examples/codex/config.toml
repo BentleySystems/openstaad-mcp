@@ -1,0 +1,9 @@
+# Replace the paths with your actual local checkout path.
+# Merge this table into your Codex config.toml; do not replace the whole file.
+# If the table already exists, update it instead of adding a duplicate.
+[mcp_servers.openstaad-ptc]
+command = 'C:\Projects\openstaad-mcp-PTC\.venv-codex\Scripts\python.exe'
+args = ['-m', 'openstaad_mcp.main', '--allowed-dirs', 'C:\Projects\openstaad-mcp-PTC']
+cwd = 'C:\Projects\openstaad-mcp-PTC'
+startup_timeout_sec = 30
+tool_timeout_sec = 180
