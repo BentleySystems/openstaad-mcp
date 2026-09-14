@@ -200,12 +200,23 @@ load.DeleteDirectAnalysisDefinition()   # deletes the whole definition
 ```
 
 ### Response Spectrum Load
-Adds a response-spectrum load item to the active load case. `rsaCode` and `rsaCombination` are **ints** (not strings — a string raises a COM Type mismatch) — full code tables in the Reference section (LOAD_CODES.md, "Response Spectrum Codes"), which also lists the per-code `set1Names`/`set1Vals` keywords:
+Adds a response-spectrum load item to the active load case. `rsaCode` and `rsaCombination` are **ints** (not strings — a string raises a COM Type mismatch) — full code tables in the Reference section (LOAD_CODES.md, "Response Spectrum Codes"), which also lists the per-code `set1Names`/`set1Vals` keywords. `set2Names`/`set2Vals` (spectrum generation) and `dataPairs` (period/acceleration pairs) are mutually exclusive — pass `[]` for whichever is unused.
+
+Every one of the 10 `rsaCode` values has been live-verified end-to-end (call succeeds, `AnalyzeEx` reaches
+status 3 — warnings only, no errors) with a minimal working parameter set. **Which parameters go in
+`set1Names` vs `set2Names` vs `dataPairs` varies by code and is NOT guessable from the keyword list alone**
+— putting a hazard/site parameter in the wrong set silently fails to store it (confirmed live via
+`GetResponseSpectrumLoad` read-back), and `AnalyzeEx` only surfaces the problem later with a generic error.
+See LOAD_CODES.md "Response Spectrum Codes — Verified Minimal Working Examples" for the full per-code
+verified `set1`/`set2`/`dataPairs` split. Two representative examples:
 ```python
 load.AddResponseSpectrumLoad(rsaCode, rsaCombination, set1Names, set1Vals, set2Names, set2Vals, dataPairs)
-# set2Names/set2Vals (spectrum generation) and dataPairs (period/acceleration pairs) are mutually exclusive — pass [] for whichever is unused
-load.AddResponseSpectrumLoad(8, 0, ["X", "ACC"], [1.0, 32.2], [], [], [])   # confirmed live: IBC 2015, SRSS, X-direction
+load.AddResponseSpectrumLoad(6, 2, ["X", "ACC"], [1.0, 1.0], ["SS", "S1", "FA", "FV"], [1.5, 0.6, 1.0, 1.0], [])
+# IBC 2006, CQC — hazard params SS/S1/FA/FV go in set2Names, NOT set1Names
+load.AddResponseSpectrumLoad(0, 0, ["X", "ACC"], [1.0, 1.0], [], [], [0.1, 0.5, 0.5, 0.3, 1.0, 0.1])
+# Generic/Custom — no set2; needs a real dataPairs period/acceleration table instead
 ```
+See [response-spectrum.py](./scripts/response-spectrum.py) for the full working script.
 
 Manage/inspect existing response spectrum load items by load case number and load ID (`loadId` is 1-based, per-load-case):
 ```python
@@ -474,6 +485,7 @@ beam_to_area = load.GetInfluenceArea(xMin, xMax, yMin, yMax, zMin, zMax, directi
 - [hydrostatic-tank.py](./scripts/hydrostatic-tank.py) — assign hydrostatic pressure to a plate tank
 - [load-lists-and-reference-loads.py](./scripts/load-lists-and-reference-loads.py) — group load cases into a load list, build a reference load
 - [enclosed-zone.py](./scripts/enclosed-zone.py) — define an enclosed zone on a floor boundary and apply a zone load (shows the required `Geometry.IdentifyFloorBoundariesFromNodes` → `GetFloorBoundaryNodesByIndex` boundary-ordering step)
+- [response-spectrum.py](./scripts/response-spectrum.py) — add a response spectrum load (rsaCode/rsaCombination as ints, e.g. IBC 2006 + CQC) and verify it back via `GetResponseSpectrumLoad`
 
 ## Gotchas
 

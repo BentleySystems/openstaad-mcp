@@ -138,6 +138,35 @@
 
 For rsaCode 14 (GB 50011 2010), the `INT` (fortification intensity) parameter takes: 0=Intensity 6, 1=Intensity 7, 2=Intensity 7A, 3=Intensity 8, 4=Intensity 8A, 5=Intensity 9.
 
+### Response Spectrum Codes — Verified Minimal Working Examples
+
+Every `rsaCode` below was live-tested end-to-end: `AddResponseSpectrumLoad` call succeeds AND the resulting
+load reaches `AnalyzeEx` status 3 (warnings only, no errors) — not just "the call didn't raise". Which
+keywords go in `set1Names` vs `set2Names` vs `dataPairs` is NOT predictable from the keyword list alone
+(e.g. `SOI` is set1 for rsaCode 11 but set2 for rsaCode 1/2) — use the exact split below rather than guessing.
+`rsaCombination` does not affect which parameters are required — any value from the table above works with
+the same `set1`/`set2`/`dataPairs` split.
+
+| rsaCode | Seismic Code | `rsaCombination` tested | `set1Names`/`set1Vals` | `set2Names`/`set2Vals` | `dataPairs` |
+|---------|--------------|--------------------------|------------------------|-------------------------|-------------|
+| 0 | Generic or Custom | 0 (SRSS) | `["X","ACC"]`, `[1.0,1.0]` | — | `[0.1,0.5, 0.5,0.3, 1.0,0.1]` (period,accel pairs, flat list) |
+| 1 | IS:1893 Part 1 2002 | 0 (SRSS) | `["X","ACC"]`, `[1.0,1.0]` | — | `[0.1,0.5, 0.5,0.3, 1.0,0.1]` |
+| 2 | IS:1893 2016 | 0 (SRSS) | `["X","ACC","DAM"]`, `[1.0,1.0,0.05]` | `["SOI"]`, `[1.0]` | — |
+| 4 | ENV 1998-1:1994 | 0 (SRSS) | `["ELA","X","ACC","DAM"]`, `[1.0,1.0,1.0,0.05]` | `["SOI","ALP","Q"]`, `[1.0,0.2,1.5]` | — |
+| 5 | EN 1998-1:2004 | 0 (SRSS) | `["ELA","RS1","X","ACC","DAM"]`, `[1.0,1.0,1.0,1.0,0.05]` | `["SOI","ALP","Q"]`, `[1.0,0.2,1.5]` | — |
+| 6/7/8 | IBC 2006/2012/2015 | 2 (CQC), 0 (SRSS) | `["X","ACC"]`, `[1.0,1.0]` | `["SS","S1","FA","FV"]`, `[1.5,0.6,1.0,1.0]` | — |
+| 10 | SNiP II-7-81 | 0 (SRSS) | `["A","X","KWX","KX1","ACC","DAM","SOI"]`, `[1.0,1.0,1.0,1.0,1.0,0.05,1.0]` | — | — |
+| 11 | SP 14.13330.2011 | 0 (SRSS) | `["ECC","A","X","ACC","DAM","LOG","SOI"]`, `[1.0,0.2,1.0,1.0,0.05,1.0,1.0]` | — | — |
+| 12/13 | Canadian NRC-2005/2010 | 0 (SRSS) | `["TOR","X","ACC","DAM"]`, `[0.0,1.0,1.0,0.05]` | — | `[0.1,0.5, 0.5,0.3, 1.0,0.1]` |
+| 14 | GB 50011 2010 | 0 (SRSS) | `["X","ALP","DAM"]`, `[1.0,1.0,0.05]` | `["INT","FRE","GRO","SCL"]`, `[1.0,0.0,1.0,1.0]` | — |
+
+`rsaCombination` was `0` (SRSS) in every test above except where CQC was specifically being verified (rsaCode
+6, `rsaCombination=2` — see staad-loading SKILL.md). Combination method does not affect which parameters are
+required. IS:1893 Part 1 2002 (rsaCode 1) and Canadian NRC-2005 (rsaCode 12) have no native STAAD.Pro
+export-writer implementation to cross-check against (confirmed via native source inspection) — their minimal
+examples above were derived by direct trial against `AnalyzeEx`, not from a reference implementation, unlike
+the other 8 codes.
+
 ## Seismic Definition Parameter Keywords (ModifySeismicDefinitionParams)
 
 `varParamName` is code-specific — the active seismic definition's code determines which keywords apply:
