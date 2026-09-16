@@ -99,12 +99,13 @@
 | Value | Seismic Code | Value | Seismic Code |
 |-------|--------------|-------|---------------|
 | 0 | Generic or Custom | 8 | IBC 2015 |
-| 1 | IS:1893 Part 1 2002 | 10 | SNiP II-7-81 |
-| 2 | IS:1893 2016 | 11 | SP 14.13330.2011 |
+| 1 | IS:1893 Part 1 2002 | 9 | IBC 2018 |
+| 2 | IS:1893 2016 | 10 | SNiP II-7-81 |
+| 3 | IS:1893 Part 4 2015 | 11 | SP 14.13330.2011 |
 | 4 | ENV 1998-1:1994 | 12 | Canadian NRC-2005 |
 | 5 | EN 1998-1:2004 | 13 | Canadian NRC-2010 |
 | 6 | IBC 2006 | 14 | GB 50011 2010 |
-| 7 | IBC 2012 | | |
+| 7 | IBC 2012 | 15 | Canadian NRC-2020 |
 
 ### rsaCombination (modal combination rule)
 
@@ -125,16 +126,19 @@
 | 0 | Generic or Custom | DEC, ECC, X, Y, Z, ACC, DIS, SCA, DAM, CDA, MDA, LIN, LOG, MIS, ZPA, FF1, FF2, DOM, SIG, SAV, IMR, STA |
 | 1 | IS:1893 Part 1 2002 | TOR, DEC, ECC, X, Y, Z, ACC, DIS, SCA, DAM, CDA, MDA, MIS, ZPA, IGN, DOM, SIG, SAV, IMR, STA, SOI, CHE, RF |
 | 2 | IS:1893 2016 | TOR, DEC, ECC, X, Y, Z, ACC, DIS, SCA, DAM, CDA, MDA, LIN, LOG, MIS, ZPA, IGN, DOM, SIG, SAV, IMR, STA, SOI, CHE, RF |
+| 3 | IS:1893 Part 4 2015 | TOR, DEC, ECC, X, Y, Z, ACC, DIS, SCA, DAM, CDA, MDA, LIN, LOG, MIS, ZPA, IGN, DOM, SIG, SAV, IMR, STA, SOI, CHE, RF |
 | 4 | ENV 1998-1:1994 | ELA, DES, X, Y, Z, ACC, DAM, CDA, MDA, LIN, LOG, MIS, ZPA, DOM, SIG, SAV, IMR, STA, SOI, ALP, Q |
 | 5 | EN 1998-1:2004 | ELA, DES, RS1, RS2, X, Y, Z, ACC, DAM, CDA, MDA, LIN, LOG, MIS, ZPA, DOM, SIG, SAV, IMR, STA, SOI, ALP, Q |
 | 6 | IBC 2006 | X, Y, Z, ACC, DAM, CDA, MDA, LIN, LOG, MISC, ZPA, DOM, SIG, SAV, IMR, STA, ZIP, LAT, LON, SS, S1, SCA, FA, FV, TL |
 | 7 | IBC 2012 | X, Y, Z, ACC, DAM, CDA, MDA, LIN, LOG, MISC, ZPA, DOM, SIG, SAV, IMR, STA, ZIP, LAT, LON, SS, S1, SCA, FA, FV, TL |
 | 8 | IBC 2015 | X, Y, Z, ACC, DAM, CDA, MDA, LIN, LOG, MISC, ZPA, DOM, SIG, SAV, IMR, STA, ZIP, LAT, LON, SS, S1, SCA, FA, FV, TL |
+| 9 | IBC 2018 | X, Y, Z, ACC, DAM, CDA, MDA, LIN, LOG, MISC, ZPA, DOM, SIG, SAV, IMR, STA, ZIP, LAT, LON, SS, S1, SCA, FA, FV, TL |
 | 10 | SNiP II-7-81 | A, X, KWX, KX1, Y, KWY, KY1, Z, KWZ, KZ1, ACC, SCA, DAM, CDA, MDA, LIN, LOG, MIS, ZPA, DOM, SIG, SOI, SAV |
 | 11 | SP 14.13330.2011 | ECC, A, X, Y, Z, ACC, SCA, DAM, LOG, MIS, ZPA, DOM, SIG, SOI |
 | 12 | Canadian NRC-2005 | TOR, DEC, ECC, X, Y, Z, ACC, DIS, SCA, DAM, CDA, MDA, LIN, LOG, MIS, ZPA, DOM, SIG, SAV, IMR, STA |
 | 13 | Canadian NRC-2010 | TOR, DEC, ECC, X, Y, Z, ACC, DIS, SCA, DAM, CDA, MDA, LIN, LOG, MIS, ZPA, DOM, SIG, SAV, IMR, STA |
 | 14 | GB 50011 2010 | X, Y, Z, ALP, DAM, CDA, MDA, LIN, LOG, MISS, ZPA, DOM, SIG, INT, FRE, FOR, RAR, GRO, SCL |
+| 15 | Canadian NRC-2020 | TOR, DEC, ECC, X, Y, Z, ACC, DIS, SCA, DAM, CDA, MDA, LIN, LOG, MIS, ZPA, DOM, SIG, SAV, IMR, STA (set2Names: SA1, SA2, SA3, SA4, SA5, SA6) |
 
 For rsaCode 14 (GB 50011 2010), the `INT` (fortification intensity) parameter takes: 0=Intensity 6, 1=Intensity 7, 2=Intensity 7A, 3=Intensity 8, 4=Intensity 8A, 5=Intensity 9.
 
@@ -159,6 +163,7 @@ the same `set1`/`set2`/`dataPairs` split.
 | 11 | SP 14.13330.2011 | 0 (SRSS) | `["ECC","A","X","ACC","DAM","LOG","SOI"]`, `[1.0,0.2,1.0,1.0,0.05,1.0,1.0]` | — | — |
 | 12/13 | Canadian NRC-2005/2010 | 0 (SRSS) | `["TOR","X","ACC","DAM"]`, `[0.0,1.0,1.0,0.05]` | — | `[0.1,0.5, 0.5,0.3, 1.0,0.1]` |
 | 14 | GB 50011 2010 | 0 (SRSS) | `["X","ALP","DAM"]`, `[1.0,1.0,0.05]` | `["INT","FRE","GRO","SCL"]`, `[1.0,0.0,1.0,1.0]` | — |
+| 15 | Canadian NRC-2020 | not yet tested | untested — likely same `set1Names` shape as 12/13 plus `SA1..SA6` in `set2Names` (see table above) | untested | untested |
 
 `rsaCombination` was `0` (SRSS) in every test above except where CQC was specifically being verified (rsaCode
 6, `rsaCombination=2` — see staad-loading SKILL.md). Combination method does not affect which parameters are
@@ -166,6 +171,60 @@ required. IS:1893 Part 1 2002 (rsaCode 1) and Canadian NRC-2005 (rsaCode 12) hav
 export-writer implementation to cross-check against (confirmed via native source inspection) — their minimal
 examples above were derived by direct trial against `AnalyzeEx`, not from a reference implementation, unlike
 the other 8 codes.
+
+## Seismic Definition Type Codes (AddSeismicDefinition)
+
+`varType` — verified against `openstaadpy`'s `OSLoad.AddSeismicDefinition` docstring. `varAccidental` is a
+flag, not a float: `1` to consider accidental torsion, `0` to ignore it. See staad-loading SKILL.md "Seismic
+Loads" for usage notes and gotchas.
+
+| Value | Seismic Code | Value | Seismic Code |
+|-------|--------------|-------|---------------|
+| 0 | UBC 1985 | 13 | Indian: IS 1893(Part4) 2015 |
+| 1 | UBC 1994 | 14 | IBC 2006 |
+| 2 | UBC 1997 | 15 | IBC 2012 |
+| 3 | Indian: IS 1893-1984 | 16 | IBC 2015 |
+| 4 | Indian: IS 1893-2002/2005 | 17 | IBC 2018 |
+| 5 | IBC 2000 | 18 | Canadian: NRC-2005 |
+| 6 | IBC 2003 | 19 | Canadian: NRC-2010 |
+| 7 | Colombian: NSR 98 | 20 | Canadian: NRC-1995 |
+| 8 | Japanese (AIJ) | 21 | Colombian: NSR 2010 |
+| 9 | Algerian: RPA | 22 | Chinese: GB50011-2001 |
+| 10 | Mex: CFE-1993 | 23 | Chinese: GB50011-2010 |
+| 11 | Mex: NTC-1987 | 24 | Turkish |
+| 12 | Indian: IS 1893-2016 | | |
+
+## Seismic Type Codes (AddSeismicDefMemberWeight)
+
+`varSeismicType` — a **different, alphabetical** numbering from the `AddSeismicDefinition` table above:
+
+| Value | Seismic Code | Value | Seismic Code |
+|-------|--------------|-------|---------------|
+| 0 | AUTO DETECT | 13 | IBC 2012 ASCE 7-10 |
+| 1 | Algerian: RPA | 14 | IBC 2015 ASCE 7-10 |
+| 2 | Canadian: NRC-1995 | 15 | IBC 2018 ASCE 7-16 |
+| 3 | Canadian: NRC-2005 | 16 | Indian: IS 1893-1984 |
+| 4 | Canadian: NRC-2010 | 17 | Indian: IS 1893-2002/2005 |
+| 5 | Canadian: NRC-2020 | 18 | Indian: IS 1893-2016 |
+| 6 | Chinese: GB50011-2001 | 19 | Indian: IS 1893(Part4) 2015 |
+| 7 | Chinese: GB50011-2010 | 20 | Japanese (AIJ) |
+| 8 | Colombian: NSR 95 | 21 | Mex: CFE-1993 |
+| 9 | Colombian: NSR 2010 | 22 | Mex: NTC-1987 |
+| 10 | IBC 2000 | 23 | Turkish |
+| 11 | IBC 2003 ASCE 7-02 | 24 | UBC 1985 |
+| 12 | IBC 2006/2009 ASCE 7-05 | 25 | UBC 1994 |
+| | | 26 | UBC 1997 |
+
+`0` = AUTO DETECT — matches the type to the currently active seismic definition automatically; prefer this
+over guessing a specific number.
+
+## Seismic Type Codes (AddSeismicDefWallArea)
+
+`nTypeNo` for this function only accepts one value — Wall Area is Indian IS 1893-2016 specific:
+
+| Value | Seismic Code |
+|-------|--------------|
+| 15 | Indian: IS 1893-2016 |
 
 ## Seismic Definition Parameter Keywords (ModifySeismicDefinitionParams)
 
@@ -196,6 +255,21 @@ the other 8 codes.
 | UBC 1997 | ZONE, I, RWX, RWZ, STYPE, CT, PX, PZ, NA, NV |
 
 Example: `load.ModifySeismicDefinitionParams("ZONE", 0.2)`
+
+### Mandatory Parameters by Seismic Code — Verified Minimal Working Sets
+
+The table above lists every keyword a code ACCEPTS, but not which ones are REQUIRED before `AnalyzeEx` will
+run without a generic `"ABOVE LINE CONTAINS ERRONEOUS DATA"` error — that is NOT predictable from the keyword
+list alone (same lesson as the Response Spectrum table above). Only rows marked **Verified** below were
+actually live-tested end-to-end (`AnalyzeEx` reaching status 3, warnings only) with exactly this parameter
+set and nothing more; everything else lists ALL accepted keywords from the table above as an unverified
+starting point — set all of them if you haven't independently confirmed a smaller subset works.
+
+| Seismic Code | Status | Mandatory Parameters |
+|--------------|--------|------------------------|
+| UBC 1997 | **Verified** (2026-09-15) | `ZONE, I, RWX, RWZ, STYPE, NA, NV` (`CT`, `PX`, `PZ` are optional) |
+| IBC 2015 | **Verified** (2026-09-15) | `SS, S1, I, RX, RZ, SCLASS` (using the SS/S1 hazard method — `ZIP` or `LAT`+`LONG` are alternate ways to supply hazard data instead of `SS`/`S1`; `CTX`, `CTZ`, `PX`, `PZ`, `FA`, `FV`, `TL` appear optional) — likely applies to IBC 2006/2012/2018 too since they share the same parameter set, but only IBC 2015 was actually tested |
+| All other codes in the table above | Unverified | Treat every keyword listed for that code as potentially mandatory until tested — do not assume any subset works |
 
 ## Wind ASCE 7 Parameters (AddWindDefinitionASCE7Parameters)
 

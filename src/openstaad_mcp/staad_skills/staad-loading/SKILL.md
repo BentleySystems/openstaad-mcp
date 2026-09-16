@@ -1,6 +1,6 @@
 ﻿---
 name: staad-loading
-description: "Use when defining load cases, applying self-weight, nodal loads, member loads (uniform, concentrated, trapezoidal, linear varying), plate pressure, floor loads, temperature loads, wind loads, seismic loads, load combinations, load lists, reference loads, notional loads, repeat loads, response spectrum loads, enclosed zone loads, direct analysis parameters, or querying load data. Covers: CreateNewPrimaryLoad, CreateNewPrimaryLoadEx (typed), SetLoadActive (required before adding items), AddSelfWeightInXYZ, AddNodalLoad, AddMemberUniformForce (directions 1-9), AddMemberConcForce, AddMemberTrapezoidal, AddMemberLinearVari, AddElementPressure (uniform), AddElementTrapPressureEx (variable/hydrostatic), AddMemberFloorLoad, AddTemperatureLoad, AddWindLoad, AddWindDefinitionASCE7Parameters, AddSeismicLoad, AddSeismicDefFloorWeight/MemberWeight/ElementWeight/WallArea, ModifySeismicDefinitionParams, AddNotionalLoad, AddAutoCombinationRepeat, AddResponseSpectrumLoad, GetResponseSpectrumLoadCount/List/ParamCount, GetResponseSpectrumDataArraySize, GetResponseSpectrumLoad, UpdateResponseSpectrumLoad, DeleteResponseSpectrumLoad, DefineEnclosedZone, AddOpeningInEnclosedZone, IgnoreMembersForPanelFormationInEnclosedZone, IgnoreMembersForLoadTransferInEnclosedZone, AddEnclosedZoneLoad, GetEnclosedZoneCount/Names, GetEnclosedZoneBoundaryNodesCount, GetEnclosedZoneBoundaryNodeList, GetEnclosedZoneOpeningCount/NodeList, GetCountOfMembersIgnoredForPanelFormation/LoadTransferInEnclosedZone, DeleteEnclosedZone, AddDirectAnalysisDefinitionParameter, CreateLoadList, CreateNewLoadCombination, AddLoadAndFactorToCombination, GetLoadAndFactorForCombination, GetNoOfLoadAndFactorPairsForCombination, GetNodalLoads, GetUDLLoads, GetTrapLoads, GetConcForces, GetConcMoments, GetLinearVaryingLoads, GetElementPressureLoads, GetElementConcLoads, GetReferenceLoadByIndex, GetMemberLoadInfo, GetNodalLoadInfo, GetElementLoadInfo, MergeLoadsOnBeam, SplitLoadsOnBeam, load envelopes, querying loads, deleting/removing loads (DeleteWindDefinition, DeleteLoadList, DeleteReferenceLoadCases, DeleteLoadEnvelop, RemoveLoadCasesFromEnvelop, DeletePrimaryLoadCases, RemoveAttribute, DeleteDirectAnalysisDefinition). Requires staad-core."
+description: "Use when defining load cases, applying self-weight, nodal loads, member loads (uniform, concentrated, trapezoidal, linear varying), plate pressure, floor loads, temperature loads, wind loads, seismic loads, load combinations, load envelopes, load lists, reference loads, notional loads, repeat loads, response spectrum loads, enclosed zone loads, direct analysis parameters, or querying load data. Covers: CreateNewPrimaryLoad, CreateNewPrimaryLoadEx/Ex2 (typed), SetLoadActive (required before adding items), SetLoadType, AddSelfWeightInXYZ(ToGeometry), AddNodalLoad, AddSupportDisplacement, AddMemberUniformForce/Moment (directions 1-9), AddMemberConcForce/Moment, AddMemberTrapezoidal, AddMemberLinearVari, AddMemberAreaLoad, AddMemberFixedEnd, AddStrainLoad, AddElementPressure (uniform), AddElementTrapPressureEx (variable/hydrostatic), AddElementHydrostaticPressure, AddMemberFloorLoad/Ex, AddTemperatureLoad, AddWindDefinition, AddWindIntensity, AddWindExposure, AddWindLoad, AddWindDefinitionASCE7Parameters, ComputeWallWindPressureProfile(ASCE72016), DeleteWindDefinition, AddSeismicDefinition, AddSeismicLoad, AddSeismicDefSelfWeight, AddSeismicDefJointWeight, AddSeismicDefFloorWeight/MemberWeight/ElementWeight/WallArea, ModifySeismicDefinitionParams, AddNotionalLoad, GetNotionalLoadCount/ByIndex, GetNoLoadFactorDirectionInNotionalLoad, AddRepeatLoad, AddAutoCombinationRepeat, GetRepeatLoadCount/ByIndex, GetNoLoadFactorInRepeatLoad, AddResponseSpectrumLoad, GetResponseSpectrumLoadCount/List/ParamCount, GetResponseSpectrumDataArraySize, GetResponseSpectrumLoad, UpdateResponseSpectrumLoad, DeleteResponseSpectrumLoad, DefineEnclosedZone, AddOpeningInEnclosedZone, IgnoreMembersForPanelFormationInEnclosedZone, IgnoreMembersForLoadTransferInEnclosedZone, AddEnclosedZoneLoad, GetEnclosedZoneCount/Names, GetEnclosedZoneBoundaryNodesCount, GetEnclosedZoneBoundaryNodeList, GetEnclosedZoneOpeningCount/NodeList, GetCountOfMembersIgnoredForPanelFormation/LoadTransferInEnclosedZone, DeleteEnclosedZone, AddDirectAnalysisDefinitionParameter, CreateLoadList, GetLoadListCount, GetLoadCountInLoadList, GetLoadsInLoadList, DeleteLoadList, CreateNewLoadCombination, AddLoadAndFactorToCombination, AddAutoLoadCombinations, GetLoadAndFactorForCombination, GetNoOfLoadAndFactorPairsForCombination, GetLoadCombinationCaseCount, GetLoadCombinationCaseNumbers, CreateNewReferenceLoad, SetReferenceLoadActive, AddReferenceLoad, GetReferenceLoadCount, GetReferenceLoadCaseCount, GetReferenceLoadCaseNumbers, GetNoOfSetsInReferenceLoad, GetReferenceLoadByIndex, GetReferenceLoadType, GetReferenceLoadCaseTitle, ClearReferenceLoadCase, DeleteReferenceLoadCases, CreateLoadEnvelop, AddLoadCasesToEnvelop, RemoveLoadCasesFromEnvelop, DeleteLoadEnvelop, GetEnvelopeCount, GetEnvelopeIDs, GetLoadEnvelopeDetails, GetLoadListfromLoadEnvelope, GetPrimaryLoadCaseNumbers/Count, GetLoadCaseTitle, GetLoadType, GetActiveLoad, IsCombinationCase, IsDynamicLoadIncluded, GetNodalLoads, GetUDLLoads, GetUNIMoments, GetTrapLoads, GetConcForces, GetConcMoments, GetLinearVaryingLoads, GetElementPressureLoads, GetElementConcLoads, GetLoadItemsCount, GetLoadItemType, GetLoadTypeCount, GetListSizeForLoadType, GetAssignmentListForLoadType, GetMemberLoadInfo, GetNodalLoadInfo, GetElementLoadInfo, ClearPrimaryLoadCase, MergeLoadsOnBeam, SplitLoadsOnBeam, BeginLoadMerging, EndLoadMerging, GetAttribute, RemoveAttribute, SetASDLoadAttribute, SetLSDLoadAttribute, GetBeamCountAtFloor, GetInfluenceArea, load envelopes, querying loads, deleting/removing loads (DeleteWindDefinition, DeleteLoadList, DeleteReferenceLoadCases, DeleteLoadEnvelop, RemoveLoadCasesFromEnvelop, DeletePrimaryLoadCases, RemoveAttribute, DeleteDirectAnalysisDefinition). Requires staad-core."
 ---
 
 # STAAD.Pro Loading
@@ -148,18 +148,24 @@ load.AddWindLoad(typeNo, direction, fraction, openStructure, YMIN, YMAX, ZMIN, Z
 
 ### Seismic Loads
 
-| type | Code    |     | direction | Axis |
-| ---- | ------- | --- | --------- | ---- |
-| 0    | IBC     |     | 1         | X    |
-| 5    | IS 1893 |     | 2         | Y    |
-|      |         |     | 3         | Z    |
+`AddSeismicDefinition(type, accidental)` — `type` is a 0-24 code index (0=UBC 1985, 2=UBC 1997, 5=IBC 2000,
+19=Canadian NRC-2010, etc.) — see LOAD_CODES.md "Seismic Definition Type Codes (AddSeismicDefinition)" for the
+full table. `accidental` is a `0`/`1` flag (consider accidental torsion), not a scale factor.
+
+`AddSeismicLoad(direction, factor)`'s `direction` is **0=X, 1=Y, 2=Z** (zero-indexed global axis) — live-verified: `3` raises `OsInvalidLoadDirection: [-8001] Invalid load direction` immediately, and `1` (Y) fails at analysis time with `"THE LATERAL SEISMIC LOAD HAS BEEN APPLIED ALONG GLOBAL Y DIRECTION"` on a Y-up model (Y is vertical there, not a valid lateral direction) — pick `0`/`2` for a Y-up model, `0`/`1` for a Z-up model.
+
+For UBC/IBC-style codes (`AddSeismicDefinition` types that generate a `DEFINE UBC/IBC LOAD` block), **every mandatory parameter must be set via `ModifySeismicDefinitionParams` before analysis** — for UBC 1997 that's `ZONE, I, RWX, RWZ, STYPE, NA, NV` (all required; `CT`/`PX`/`PZ` are optional). Leaving any of these unset produced a generic `"ABOVE LINE CONTAINS ERRONEOUS DATA"` analysis error with no indication of which parameter was missing.
 
 ```python
-load.AddSeismicDefinition(type, accidental)
-load.AddSeismicDefSelfWeight(weightFactor)
-load.AddSeismicDefJointWeight(weight, nodeList)
-load.AddSeismicLoad(direction, factor)
+load.AddSeismicDefinition(2, 0)   # type 2 = UBC 1997; accidental: 0 or 1
+ubc_1997_params = {"ZONE": 0.2, "I": 1.0, "RWX": 5.6, "RWZ": 5.6, "STYPE": 2, "NA": 1.0, "NV": 1.0}
+for name, val in ubc_1997_params.items():
+    load.ModifySeismicDefinitionParams(name, val)   # ALL of these are mandatory for UBC 1997 — see Gotchas
+load.AddSeismicLoad(0, 1.0)   # direction: 0=X, 1=Y, 2=Z
 ```
+See [seismic-definition.py](./scripts/seismic-definition.py) for a full working example.
+
+**Load case ordering (live-verified, not obvious from the API):** for UBC/IBC-type seismic definitions, every seismic load case must be defined **before any non-seismic load case** in the model — confirmed via the real engine error `"UBC LOAD CASES MUST BE DEFINED BEFORE ANY OTHER LOAD CASE"` when a seismic case was added (via `CreateNewPrimaryLoadEx`) after pre-existing Dead/Wind cases. If you're adding seismic loads to a model that already has non-seismic load cases, either build the whole model's load cases in seismic-first order from the start, or delete and recreate the non-seismic cases after the seismic one(s) with `CreateNewPrimaryLoadEx2(title, loadType, loadCaseNo)` using explicit case numbers to control the order.
 
 **Advanced seismic weight definitions** (each adds to the currently active seismic definition):
 ```python
@@ -171,6 +177,33 @@ load.AddSeismicDefWallArea(seismicType, direction, sizeArray)   # IS 1893-2016 o
 # Modify/add a single named parameter in the active seismic definition (param names are code-specific — see LOAD_CODES.md "Seismic Definition Parameter Keywords" for the full per-code table)
 load.ModifySeismicDefinitionParams(paramName, value)  # e.g. load.ModifySeismicDefinitionParams("ZONE", 0.2)
 ```
+
+**Gotchas (live-verified):**
+- `AddSeismicDefinition` returns `True` for **any** `type` in roughly 0-49 even though only 0-24 are real,
+  implemented codes — it returns `False` only for `type < 0` or `type >= 50`. A `True` return does **not**
+  mean the type was valid — cross-check against the LOAD_CODES.md table before trusting it, and never guess
+  an undocumented type number.
+- There is **no getter** to read back a seismic definition's type/code after it is set (no
+  `GetSeismicDefinition`/`GetSeismicDefinitionType`/equivalent exists on `staad.Load`) — the API is write-only.
+- Return-value conventions differ by function: `AddSeismicDefinition`/`AddSeismicDefSelfWeight` return a real
+  Python `bool`, but `AddSeismicDefJointWeight` (and `AddSeismicDefWallArea`) return a raw integer error code
+  where `0` means success — do not treat `0` as falsy/failure for those two.
+- `AddSeismicDefMemberWeight`'s `seismicType` and `AddSeismicDefWallArea`'s `seismicType` use **different
+  numbering** from `AddSeismicDefinition`'s `type` for the same codes (see LOAD_CODES.md — three separate
+  tables). Never reuse a type number across these functions.
+- **Only one seismic load definition (`DEFINE <code> LOAD` block) is allowed per model** — STAAD.Pro does
+  not support stacking multiple definitions. There is **no COM function to delete/replace an existing
+  seismic definition** once `AddSeismicDefinition` is called (confirmed: no such function exists anywhere
+  in `openstaadpy`'s `osload.py` or `oscommand.py`). Calling `AddSeismicDefinition` again in the same
+  session to fix a mistake leaves the old definition behind and produces a generic
+  `"ABOVE LINE CONTAINS ERRONEOUS DATA"` analysis error unrelated to whatever you actually changed. To
+  redefine, either discard all in-memory changes (see staad-core for the "switch to a different file, then
+  back" re-parse trick) before the old definition is ever saved, or delete the existing seismic definition
+  through the STAAD.Pro UI (Definitions tree) / by editing the `.std` file directly if it was already saved
+  — there is no automation-only path to remove one.
+- UBC/IBC seismic load cases must be defined **before any non-seismic load case** in the model (live-verified
+  engine error: `"UBC LOAD CASES MUST BE DEFINED BEFORE ANY OTHER LOAD CASE"`) — see the Load Case ordering
+  note above.
 
 ### Notional & Repeat Loads
 
