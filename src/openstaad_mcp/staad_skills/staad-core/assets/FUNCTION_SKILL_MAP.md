@@ -195,7 +195,7 @@ Load the governing skill via `read_skills(["skill-name"])` before writing any sc
 | Function                                                                               | Purpose                                                                        |
 | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | `CopyPicture`                                                                          | Copy view to clipboard                                                         |
-| `ExportView`                                                                           | Export view as image file (`.png`/`.jpg`/`.bmp`/`.emf`/`.wmf`, path-validated) |
+| `ExportView`                                                                           | Export view as image file (`.bmp`/`.jpg`/`.tga`/`.tif`, path-validated)         |
 | `ShowFront` / `ShowBack` / `ShowLeft` / `ShowRight` / `ShowPlan` / `ShowIsometric`     | Standard orientations                                                          |
 | `ShowBottom` / `RotateLeft` / `RotateRight` / `RotateUp` / `RotateDown`                | Rotate/orient                                                                  |
 | `SpinLeft` / `SpinRight`                                                               | Spin                                                                           |
