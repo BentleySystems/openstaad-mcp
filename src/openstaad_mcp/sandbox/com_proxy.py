@@ -184,11 +184,6 @@ class COMProxy:
         obj = object.__getattribute__(self, "_com_obj")
         value = getattr(obj, name)
 
-        # Test doubles and older integrations may expose sub-APIs as classes.
-        # Classes are callable, but are namespace containers rather than COM methods.
-        if isinstance(value, type):
-            return _maybe_wrap(value)
-
         # Wrap callable results to intercept path arguments
         if callable(value):
             rule = VALIDATED_COM_METHODS.get(name)

@@ -7,6 +7,27 @@ import pytest
 from openstaad_mcp.sandbox.com_proxy import COMProxy, validate_file_path
 
 
+class FakeGeometry:
+    """Simulates a pywin32 geometry sub-API."""
+
+    _oleobj_ = "geo-dispatch"
+
+    def GetNodeCount(self):
+        return 42
+
+    def GetNodeCoordinates(self, node_id):
+        return (1.0, 2.0, 3.0)
+
+
+class FakeView:
+    """Simulates a pywin32 view sub-API."""
+
+    _oleobj_ = "view-dispatch"
+
+    def ExportView(self, directory, filename, fmt, flag):
+        return True
+
+
 class FakeCOMObj:
     """Simulates a pywin32 CDispatch object for testing."""
 
@@ -19,23 +40,9 @@ class FakeCOMObj:
     _enum_ = None
     _lazydata_ = None
 
-    class Geometry:
-        _oleobj_ = "geo-dispatch"
-
-        @staticmethod
-        def GetNodeCount():
-            return 42
-
-        @staticmethod
-        def GetNodeCoordinates(node_id):
-            return (1.0, 2.0, 3.0)
-
-    class View:
-        _oleobj_ = "view-dispatch"
-
-        @staticmethod
-        def ExportView(directory, filename, fmt, flag):
-            return True
+    def __init__(self):
+        self.Geometry = FakeGeometry()
+        self.View = FakeView()
 
     @staticmethod
     def GetApplicationVersion():
