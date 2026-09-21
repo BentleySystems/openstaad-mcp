@@ -6,9 +6,9 @@ See LICENSE.md in the project root for license terms and full copyright notice.
 
 COM object proxy for the sandbox.
 
-Wraps pywin32 CDispatch objects to block access to internal attributes
-(_oleobj_, _ApplyTypes_, etc.) and validates file-path arguments on
-methods that interact with the filesystem.
+Wraps objects exposed by OpenSTAAD to block access to internal attributes
+(_oleobj_, _ApplyTypes_, etc.) and validates file-path arguments on methods
+that interact with the filesystem.
 """
 
 from __future__ import annotations
@@ -82,9 +82,11 @@ VALIDATED_COM_METHODS: dict[str, _PathRule | _CompositePathRule] = {
     "ExportView": _CompositePathRule(
         dir_arg_index=0,
         name_arg_index=1,
-        allowed_extensions=frozenset({".png", ".jpg", ".jpeg", ".bmp", ".emf", ".wmf"}),
+        allowed_extensions=frozenset({".bmp", ".jpg", ".tga", ".tif"}),
     ),
 }
+
+BLOCKED_COM_METHODS: frozenset[str] = frozenset({"SetStandardProfileDBFolder"})
 
 # Normalised directory prefixes (after os.path.splitdrive, lower-cased) that
 # must never be written to or read from.
@@ -160,7 +162,7 @@ class COMProxy:
     - Dunder attributes (__class__, __init__, etc.)
     - Dangerous COM methods that accept filesystem paths
 
-    Recursively wraps returned COM sub-objects so that sub-APIs
+    Recursively wraps returned OpenSTAAD sub-objects so that sub-APIs
     (e.g. staad.Geometry, staad.View) are also protected.
     """
 
@@ -176,14 +178,11 @@ class COMProxy:
         # Block pywin32 internal attributes (single underscore prefix)
         if name.startswith("_"):
             raise AttributeError(f"access to '{name}' is not allowed on COM objects in the sandbox")
+        if name in BLOCKED_COM_METHODS:
+            raise AttributeError(f"access to '{name}' is not allowed on COM objects in the sandbox")
 
         obj = object.__getattribute__(self, "_com_obj")
         value = getattr(obj, name)
-
-        # Wrap returned COM sub-objects first (they may also be callable)
-        wrapped = _maybe_wrap(value)
-        if wrapped is not value:
-            return wrapped
 
         # Wrap callable results to intercept path arguments
         if callable(value):
@@ -192,7 +191,7 @@ class COMProxy:
                 return _ValidatedFileMethodWrapper(value, name, rule)
             return _SafeMethodWrapper(value, name)
 
-        return value
+        return _maybe_wrap(value)
 
     def __setattr__(self, name: str, value: Any) -> None:
         raise AttributeError("cannot set attributes on COM objects in the sandbox")
@@ -272,15 +271,19 @@ class _ValidatedFileMethodWrapper:
 
 
 def _maybe_wrap(value: Any) -> Any:
-    """Wrap COM dispatch objects recursively; pass through primitives."""
-    # Check if it looks like a COM dispatch wrapper.
-    # For instances: check the type.  For classes used as sub-objects
-    # (e.g. staad.Geometry returning a class), check the value directly.
-    if hasattr(type(value), "_oleobj_") or (isinstance(value, type) and hasattr(value, "_oleobj_")):
-        return COMProxy(value)
-    # Also wrap plain class objects used as namespace containers (e.g. in tests
-    # or non-COM sub-objects).  This ensures recursive protection even when the
-    # underlying object is not a true COM dispatch.
-    if isinstance(value, type):
-        return COMProxy(value)
-    return value
+    """Recursively proxy opaque values while preserving data returned by OpenSTAAD."""
+    if isinstance(value, COMProxy):
+        return value
+    if value is None or isinstance(value, (bool, int, float, complex, str, bytes)):
+        return value
+    if isinstance(value, list):
+        return [_maybe_wrap(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_maybe_wrap(item) for item in value)
+    if isinstance(value, dict):
+        return {_maybe_wrap(key): _maybe_wrap(item) for key, item in value.items()}
+    if isinstance(value, set):
+        return {_maybe_wrap(item) for item in value}
+    if isinstance(value, frozenset):
+        return frozenset(_maybe_wrap(item) for item in value)
+    return COMProxy(value)

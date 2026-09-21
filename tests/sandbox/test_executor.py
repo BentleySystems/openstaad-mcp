@@ -15,51 +15,46 @@ from openstaad_mcp.sandbox.const import ALLOWED_BUILTIN_EXCEPTIONS
 from openstaad_mcp.sandbox.executor import Executor
 
 
+class MockGeometry:
+    """Fake OpenSTAAD geometry sub-API."""
+
+    def GetNodeCount(self):
+        return 42
+
+    def GetNodeCoordinates(self, node_id):
+        return (1.0, 2.0, 3.0)
+
+    def GetBeamCount(self):
+        return 10
+
+    def GetBeamList(self):
+        return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+
+class MockOutput:
+    """Fake OpenSTAAD output sub-API."""
+
+    def GetBeamEndForces(self, beam_no, load_case):
+        return [100.0, -50.0, 25.0, 10.0, -5.0, 2.5]
+
+
+class MockSubApi:
+    """Fake empty OpenSTAAD sub-API."""
+
+
 class MockStaad:
     """Fake OpenSTAAD root for testing without COM."""
 
-    class Geometry:
-        @staticmethod
-        def GetNodeCount():
-            return 42
-
-        @staticmethod
-        def GetNodeCoordinates(node_id):
-            return (1.0, 2.0, 3.0)
-
-        @staticmethod
-        def GetBeamCount():
-            return 10
-
-        @staticmethod
-        def GetBeamList():
-            return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-
-    class Output:
-        @staticmethod
-        def GetBeamEndForces(beam_no, load_case):
-            return [100.0, -50.0, 25.0, 10.0, -5.0, 2.5]
-
-    class Load:
-        pass
-
-    class Property:
-        pass
-
-    class Support:
-        pass
-
-    class Command:
-        pass
-
-    class View:
-        pass
-
-    class Table:
-        pass
-
-    class Design:
-        pass
+    def __init__(self):
+        self.Geometry = MockGeometry()
+        self.Output = MockOutput()
+        self.Load = MockSubApi()
+        self.Property = MockSubApi()
+        self.Support = MockSubApi()
+        self.Command = MockSubApi()
+        self.View = MockSubApi()
+        self.Table = MockSubApi()
+        self.Design = MockSubApi()
 
     @staticmethod
     def GetApplicationVersion():
@@ -68,6 +63,24 @@ class MockStaad:
     @staticmethod
     def IsAnalyzing():
         return False
+
+
+class PlainView:
+    """Plain-Python stand-in for openstaadpy.OSView."""
+
+    def __init__(self):
+        self.export_calls: list[tuple[str, str, int, bool]] = []
+
+    def ExportView(self, directory, filename, file_format, overwrite):
+        self.export_calls.append((directory, filename, file_format, overwrite))
+        return True
+
+
+class PlainStaad:
+    """OpenSTAAD root with a sub-API that deliberately lacks _oleobj_."""
+
+    def __init__(self):
+        self.View = PlainView()
 
 
 @pytest.fixture
@@ -289,6 +302,18 @@ class TestSandboxIsolation:
     def test_dunder_blocked(self, staad, executor):
         r = executor.execute("staad.__class__", staad)
         assert not r.success
+
+    def test_plain_view_export_is_validated_before_calling_raw_method(self, executor):
+        staad = PlainStaad()
+
+        result = executor.execute(
+            'staad.View.ExportView("C:\\\\exports\\\\..\\\\..\\\\Windows", "view.scr", 0, True)',
+            staad,
+        )
+
+        assert not result.success
+        assert "traversal" in result.error
+        assert staad.View.export_calls == []
 
     def test_builtins_not_leaking(self, staad, executor):
         """Ensure __builtins__ is not the full module."""
