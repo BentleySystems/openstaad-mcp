@@ -142,7 +142,7 @@ Selections are additive — **always clear before starting a new selection**.
 Group types: 1=Nodes, 2=Members, 3=Plates, 4=Solids, 5=Geometry, 6=FloorBeam
 
 ### Translational Repeat
-Duplicate selected geometry along an axis. Returns `bool` — `True` on success, `False` on failure; always check the return value before reporting success. Max `no_of_bays` = 100 per call; split into multiple calls for more:
+Duplicate selected geometry along an axis. Returns `bool` — `True` on success, `False` on failure; always check the return value before reporting success. Max `no_of_bays` = 100 per call; split into multiple calls for more. Not supported on models containing enclosed zones — the call will return `False` in that case:
 ```python
 ok = geo.DoTranslationalRepeat(
     link_bays=True, open_base=False,
