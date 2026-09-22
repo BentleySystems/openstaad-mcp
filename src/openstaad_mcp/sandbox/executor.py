@@ -25,6 +25,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
+from openstaad_mcp.ptc.namespace import ToolNamespace
 from openstaad_mcp.sandbox.ast import capture_last_expr, validate_code
 from openstaad_mcp.sandbox.com_proxy import COMProxy
 from openstaad_mcp.sandbox.const import ALLOWED_BUILTINS, ALLOWED_MODULE_ATTRS
@@ -85,6 +86,7 @@ class Executor:
         staad_object: Any,
         *,
         input_data: Any = None,
+        ptc_tools: ToolNamespace | None = None,
     ) -> ExecutionResult:
         """Validate and execute *code* in the sandbox.
 
@@ -94,6 +96,9 @@ class Executor:
             Python source code to execute.
         staad_object:
             The connected OpenSTAAD root object (or a mock for testing).
+        ptc_tools:
+            Host-created opaque query namespace. When supplied, inject only
+            ``tools`` instead of ``staad``; never accept arbitrary globals.
         input_data:
             Optional pre-parsed data injected as ``input_data``
             in the sandbox globals.  ``None`` when no input file is provided.
@@ -116,7 +121,12 @@ class Executor:
         # ── 3. Build restricted globals ──────────────────────────────
         sandbox_globals: dict[str, Any] = {"__builtins__": self.safe_builtins.copy()}
         sandbox_globals.update(self.injected_modules)
-        sandbox_globals["staad"] = COMProxy(staad_object)
+        if ptc_tools is None:
+            sandbox_globals["staad"] = COMProxy(staad_object)
+        else:
+            if type(ptc_tools) is not ToolNamespace:
+                return ExecutionResult(success=False, error="Invalid PTC capability namespace")
+            sandbox_globals["tools"] = ptc_tools
         sandbox_globals["input_data"] = deepcopy(input_data)
 
         # ── 4. Execute with stdout/stderr capture ───────────────────
