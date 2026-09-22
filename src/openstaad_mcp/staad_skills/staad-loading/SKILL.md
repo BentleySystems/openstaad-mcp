@@ -107,11 +107,16 @@ load.AddStrainLoad(beamIds, axialElong)           # strain/thermal
 
 ### Floor Loads
 
-| rangeType | Range  |     | grpOrOneWay | Mode    |
-| --------- | ------ | --- | ----------- | ------- |
-| 0         | YRange |     | 0           | Two-way |
-| 1         | XRange |     | 1           | One-way |
-| 2         | ZRange |     |             |         |
+| rangeType | Range      |     | direction | Axis     |     | grpOrOneWay | Mode    |
+| --------- | ---------- | --- | --------- | -------- | --- | ----------- | ------- |
+| 0         | XRange     |     | 0         | Global X |     | 0           | Two-way |
+| 1         | YRange     |     | 1         | Global Y |     | 1           | One-way |
+| 2         | ZRange     |     | 2         | Global Z |     |             |         |
+| 3         | Group Load |     |           |          |     |             |         |
+
+When `rangeType=3`, pass the floor-group name as `grpOrOneWay` (must be a group of FLOOR type); otherwise
+`grpOrOneWay` is `0`/`""` for two-way or `1` for one-way. Per openstaadpy/STAAD source, `rangeType=0` is
+X-range and `rangeType=1` is Y-range (opposite of what earlier revisions of this doc claimed).
 
 ```python
 load.AddMemberFloorLoadEx(rangeType, direction, pressure, grpOrOneWay, YMIN, YMAX, ZMIN, ZMAX, XMIN, XMAX)
@@ -179,10 +184,10 @@ load.ModifySeismicDefinitionParams(paramName, value)  # e.g. load.ModifySeismicD
 ```
 
 **Gotchas (live-verified):**
-- `AddSeismicDefinition` returns `True` for **any** `type` in roughly 0-49 even though only 0-24 are real,
-  implemented codes — it returns `False` only for `type < 0` or `type >= 50`. A `True` return does **not**
-  mean the type was valid — cross-check against the LOAD_CODES.md table before trusting it, and never guess
-  an undocumented type number.
+- `AddSeismicDefinition` returns `True` for **any** `type` in roughly 0-49 even though only 0-25 are real,
+  implemented codes returns `False` only for `type < 0` or `type >= 50`. A `True` return does **not** mean the
+  type was valid — cross-check against the LOAD_CODES.md table before trusting it, and never guess an
+  undocumented type number.
 - There is **no getter** to read back a seismic definition's type/code after it is set (no
   `GetSeismicDefinition`/`GetSeismicDefinitionType`/equivalent exists on `staad.Load`) — the API is write-only.
 - Return-value conventions differ by function: `AddSeismicDefinition`/`AddSeismicDefSelfWeight` return a real
