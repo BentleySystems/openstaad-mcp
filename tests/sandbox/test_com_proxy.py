@@ -7,6 +7,43 @@ import pytest
 from openstaad_mcp.sandbox.com_proxy import COMProxy, validate_file_path
 
 
+class FakeGeometry:
+    """Simulates a pywin32 geometry sub-API."""
+
+    _oleobj_ = "geo-dispatch"
+
+    def GetNodeCount(self):
+        return 42
+
+    def GetNodeCoordinates(self, node_id):
+        return (1.0, 2.0, 3.0)
+
+
+class FakeView:
+    """Simulates a pywin32 view sub-API."""
+
+    _oleobj_ = "view-dispatch"
+
+    def ExportView(self, directory, filename, fmt, flag):
+        return True
+
+class FakeProperty:
+    """Simulates a pywin32 property sub-API."""
+
+    _oleobj_ = "property-dispatch"
+
+    @staticmethod
+    def SetStandardProfileDBFolder(folder_path):
+        return True
+
+    @staticmethod
+    def GetStandardProfileDBFolder():
+        return "C:\\Sections"
+
+    @staticmethod
+    def GetStandardSectionName(section_property_id):
+        return "W14X90"
+
 class FakeCOMObj:
     """Simulates a pywin32 CDispatch object for testing."""
 
@@ -19,38 +56,10 @@ class FakeCOMObj:
     _enum_ = None
     _lazydata_ = None
 
-    class Geometry:
-        _oleobj_ = "geo-dispatch"
-
-        @staticmethod
-        def GetNodeCount():
-            return 42
-
-        @staticmethod
-        def GetNodeCoordinates(node_id):
-            return (1.0, 2.0, 3.0)
-
-    class View:
-        _oleobj_ = "view-dispatch"
-
-        @staticmethod
-        def ExportView(FileLocation, FileName, FileFormat, Overwrite):
-            return True
-
-    class Property:
-        _oleobj_ = "property-dispatch"
-
-        @staticmethod
-        def SetStandardProfileDBFolder(folder_path):
-            return True
-
-        @staticmethod
-        def GetStandardProfileDBFolder():
-            return "C:\\Sections"
-
-        @staticmethod
-        def GetStandardSectionName(section_property_id):
-            return "W14X90"
+    def __init__(self):
+        self.Geometry = FakeGeometry()
+        self.View = FakeView()
+        self.Property = FakeProperty()
 
     class _PlainSubObjectImpl:
         """Mimics openstaadpy's real sub-API shape: a plain Python instance with NO
@@ -102,6 +111,66 @@ class FakeCOMObj:
     @staticmethod
     def GetSTAADFile():
         return "C:\\model.std"
+
+
+class FakePlainSubApi:
+    """Simulates an openstaadpy sub-API wrapper without pywin32 internals."""
+
+
+class FakePlainOSView:
+    """Plain wrapper shape used by openstaadpy.OSView."""
+
+    def __init__(self):
+        self.export_calls: list[tuple[str, str, int, bool]] = []
+
+    def ExportView(self, directory, filename, file_format, overwrite):
+        self.export_calls.append((directory, filename, file_format, overwrite))
+        return True
+
+
+class FakeRawDesignParams:
+    """Opaque object that must never leave the sandbox unwrapped."""
+
+
+class FakePlainOSDesign:
+    """Plain wrapper shape used by openstaadpy.OSDesign."""
+
+    def __init__(self):
+        self.raw_design_params = FakeRawDesignParams()
+
+    def GetMemberDesignParameters(self, design_ref_id, member_no):
+        return {
+            "status": 0,
+            "count": 1,
+            "_raw": self.raw_design_params,
+            "parameters": {"FYLD": [355.0, "MPa", "Yield stress", 355.0]},
+        }
+
+
+class FakePlainOSProperty:
+    """Plain wrapper shape used by openstaadpy.OSProperty."""
+
+    def __init__(self):
+        self.directory_calls: list[str] = []
+
+    def SetStandardProfileDBFolder(self, folder_name):
+        self.directory_calls.append(folder_name)
+        return True
+
+
+class FakePlainOSRoot:
+    """Simulates OSRoot's plain-Python sub-API attributes."""
+
+    def __init__(self):
+        self.Geometry = FakePlainSubApi()
+        self.View = FakePlainOSView()
+        self.Support = FakePlainSubApi()
+        self.Load = FakePlainSubApi()
+        self.Property = FakePlainOSProperty()
+        self.Output = FakePlainSubApi()
+        self.Command = FakePlainSubApi()
+        self.Table = FakePlainSubApi()
+        self.Design = FakePlainOSDesign()
 
 
 @pytest.fixture
@@ -417,12 +486,12 @@ class TestDeniedMethods:
 
     def test_set_standard_profile_db_folder_denied(self, proxy):
         prop = proxy.Property
-        with pytest.raises(ValueError, match="not available in the sandbox"):
+        with pytest.raises(AttributeError, match="not allowed in the sandbox"):
             prop.SetStandardProfileDBFolder("C:\\Sections")
 
     def test_set_standard_profile_db_folder_denied_for_valid_looking_path(self, proxy):
         prop = proxy.Property
-        with pytest.raises(ValueError, match="not available in the sandbox"):
+        with pytest.raises(AttributeError, match="not allowed in the sandbox"):
             prop.SetStandardProfileDBFolder("C:\\Users\\me\\Sections")
 
     def test_profile_db_getter_still_allowed(self, proxy):
@@ -618,6 +687,50 @@ class TestAllowedAccess:
     def test_geometry_coordinates(self, proxy):
         geo = proxy.Geometry
         assert geo.GetNodeCoordinates(1) == (1.0, 2.0, 3.0)
+
+
+class TestPlainOpenSTAADPySubApiWrapping:
+    """Prevent unwrapped plain-Python openstaadpy wrappers from escaping."""
+
+    @pytest.fixture
+    def plain_root(self):
+        return FakePlainOSRoot()
+
+    @pytest.fixture
+    def plain_proxy(self, plain_root):
+        return COMProxy(plain_root)
+
+    @pytest.mark.parametrize(
+        "sub_api_name",
+        ("Geometry", "View", "Support", "Load", "Property", "Output", "Command", "Table", "Design"),
+    )
+    def test_plain_sub_api_is_recursively_wrapped(self, plain_proxy, sub_api_name):
+        assert isinstance(getattr(plain_proxy, sub_api_name), COMProxy)
+
+    def test_plain_view_export_validates_before_raw_method_is_called(self, plain_root, plain_proxy):
+        with pytest.raises(ValueError, match="traversal"):
+            plain_proxy.View.ExportView(
+                "C:\\exports\\..\\..\\Windows\\System32",
+                "definitely-not-an-image.scr",
+                0,
+                True,
+            )
+
+        assert plain_root.View.export_calls == []
+
+    def test_plain_design_result_wraps_nested_raw_com_object(self, plain_root, plain_proxy):
+        design_params = plain_proxy.Design.GetMemberDesignParameters(1, 1)
+
+        assert design_params["status"] == 0
+        assert design_params["parameters"]["FYLD"][0] == 355.0
+        assert isinstance(design_params["_raw"], COMProxy)
+        assert design_params["_raw"] is not plain_root.Design.raw_design_params
+
+    def test_plain_property_database_folder_setter_is_not_exposed(self, plain_root, plain_proxy):
+        with pytest.raises(AttributeError, match="not allowed"):
+            plain_proxy.Property.SetStandardProfileDBFolder("C:\\profiles")
+
+        assert plain_root.Property.directory_calls == []
 
 
 class TestImmutability:

@@ -9,11 +9,10 @@ COM object proxy for the sandbox.
 Wraps pywin32 CDispatch objects to block access to internal attributes
 (_oleobj_, _ApplyTypes_, etc.) and validates the arguments of every COM call.
 
-Validation is deny-by-default: a per-method rule in :data:`COM_METHOD_RULES` gives the
+A per-method rule in :data:`COM_METHOD_RULES` gives the
 strict treatment (argument position, extension allowlist, or an outright deny), and
 *every* string argument of *every* call additionally goes through
-:func:`_scan_string_args`.  An earlier version validated only the handful of methods
-named in the registry, which let unlisted path-taking COM methods through unchecked.
+:func:`_scan_string_args`.
 """
 
 from __future__ import annotations
@@ -77,8 +76,8 @@ class _DenyRule:
     reason: str
 
     def validate(self, args: tuple[Any, ...], kwargs: dict[str, Any], method_name: str) -> None:
-        """Always raise :class:`ValueError`."""
-        raise ValueError(f"'{method_name}' is not available in the sandbox: {self.reason}")
+        """Always raise :class:`AttributeError`."""
+        raise AttributeError(f"'{method_name}' is not allowed in the sandbox: {self.reason}")
 
 
 @dataclass(frozen=True)
@@ -304,7 +303,7 @@ class COMProxy:
     - Dunder attributes (__class__, __init__, etc.)
     - Unsafe arguments on every COM method call (see :func:`_scan_string_args`)
 
-    Recursively wraps returned COM sub-objects so that sub-APIs
+    Recursively wraps returned OpenSTAAD sub-objects so that sub-APIs
     (e.g. staad.Geometry, staad.View) are also protected.
     """
 
@@ -324,16 +323,11 @@ class COMProxy:
         obj = object.__getattribute__(self, "_com_obj")
         value = getattr(obj, name)
 
-        # Wrap returned COM sub-objects first (they may also be callable)
-        wrapped = _maybe_wrap(value)
-        if wrapped is not value:
-            return wrapped
-
         # Wrap callable results to intercept path arguments
         if callable(value):
             return _MethodWrapper(value, name, COM_METHOD_RULES.get(name, _NULL_RULE))
 
-        return value
+        return _maybe_wrap(value)
 
     def __setattr__(self, name: str, value: Any) -> None:
         raise AttributeError("cannot set attributes on COM objects in the sandbox")
@@ -375,27 +369,20 @@ class _MethodWrapper:
         return f"<sandbox COM method '{name}'>"
 
 
-# Types returned as-is by COM/openstaadpy calls that never need (and cannot usefully be)
-# wrapped in a COMProxy — everything else (raw COM dispatch objects, and openstaadpy's
-# own Python sub-API wrapper instances such as OSGeometry/OSView/OSLoad, which are plain
-# Python objects with NO `_oleobj_`) gets wrapped so their methods stay subject to the same
-# argument validation and internal-attribute blocking as the root object.
-_PASSTHROUGH_TYPES = (str, bytes, int, float, bool, complex, type(None))
-_PASSTHROUGH_CONTAINER_TYPES = (list, tuple, dict, set, frozenset)
-
-
 def _maybe_wrap(value: Any) -> Any:
-    """Wrap any non-primitive, non-callable object so nested method calls stay validated.
-
-    Classes are wrapped even though they are technically callable (constructing them), since
-    they're used here as plain namespace containers, never instantiated. Other callables (bound
-    methods, raw COM method wrappers) are left untouched — they are wrapped separately by the
-    caller via ``_MethodWrapper``.
-    """
-    if isinstance(value, type):
-        return COMProxy(value)
-    if callable(value):
+    """Recursively proxy opaque values while preserving data returned by OpenSTAAD."""
+    if isinstance(value, COMProxy):
         return value
-    if isinstance(value, _PASSTHROUGH_TYPES + _PASSTHROUGH_CONTAINER_TYPES):
+    if value is None or isinstance(value, (bool, int, float, complex, str, bytes)):
         return value
+    if isinstance(value, list):
+        return [_maybe_wrap(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_maybe_wrap(item) for item in value)
+    if isinstance(value, dict):
+        return {_maybe_wrap(key): _maybe_wrap(item) for key, item in value.items()}
+    if isinstance(value, set):
+        return {_maybe_wrap(item) for item in value}
+    if isinstance(value, frozenset):
+        return frozenset(_maybe_wrap(item) for item in value)
     return COMProxy(value)

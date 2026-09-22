@@ -195,6 +195,9 @@ view.SetActiveWindow(1)   # main view for a freshly opened model
 # Export to TIF
 view.ExportView("C:\\exports", "iso_view.tif", 3, True)
 
+# Export to TGA
+view.ExportView("C:\\exports", "plan_view.tga", 2, True)
+
 # Export to JPG
 view.ExportView("C:\\exports", "iso_view.jpg", 1, True)
 
@@ -295,4 +298,4 @@ view.SetUnits(uType, strUnit)   # e.g. SetUnits(5, "kN")
   # geo.IsBeam(bid, tol) is the horizontal equivalent; neither covers arbitrary
   # non-cardinal axes, which only view.SelectMembersParallelTo supports
   ```
-- `ExportView(directory, filename, ...)` takes a **directory** and **filename** as separate arguments; the combined path must be absolute, end with a supported image extension (`.bmp`, `.jpg`, `.jpeg`, `.tga`, `.tif`, `.tiff`), and not target a protected OS directory; UNC paths and `..` traversal are rejected. Whether the written file's extension ends up doubled (e.g. `"a.tif"` → `a.tif.tif` on disk) depends on the STAAD.Pro build — always verify the real filename on disk rather than assuming either way (see Export View to File above)
+- `ExportView(directory, filename, ...)` takes a **directory** and **filename** as separate arguments; the combined path must be absolute, end with a supported image extension (`.bmp`, `.jpg`, `.jpeg`, `.tga`, `.tif`, `.tiff`), and not target a protected OS directory; UNC paths and `..` traversal are rejected.
