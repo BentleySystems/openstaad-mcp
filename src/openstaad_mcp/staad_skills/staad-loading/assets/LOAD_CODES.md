@@ -78,19 +78,30 @@
 
 ## Floor Load Range Type Codes (AddMemberFloorLoadEx)
 
+`rangeType`:
+
 | Value | Range Type |
 |-------|------------|
-| 0 | Y Range |
-| 1 | X Range |
+| 0 | X Range |
+| 1 | Y Range |
 | 2 | Z Range |
+| 3 | Group Load |
+
+`loadDirection` (distinct from the 9-way member direction codes):
+
+| Value | Direction |
+|-------|-----------|
+| 0 | Global X |
+| 1 | Global Y |
+| 2 | Global Z |
 
 ## Seismic Load Direction Codes (AddSeismicLoad)
 
 | Value | Direction |
 |-------|-----------|
-| 1 | X |
-| 2 | Y |
-| 3 | Z |
+| 0 | X |
+| 1 | Y |
+| 2 | Z |
 
 ## Response Spectrum Codes (AddResponseSpectrumLoad)
 
@@ -163,7 +174,7 @@ the same `set1`/`set2`/`dataPairs` split.
 | 11 | SP 14.13330.2011 | 0 (SRSS) | `["ECC","A","X","ACC","DAM","LOG","SOI"]`, `[1.0,0.2,1.0,1.0,0.05,1.0,1.0]` | — | — |
 | 12/13 | Canadian NRC-2005/2010 | 0 (SRSS) | `["TOR","X","ACC","DAM"]`, `[0.0,1.0,1.0,0.05]` | — | `[0.1,0.5, 0.5,0.3, 1.0,0.1]` |
 | 14 | GB 50011 2010 | 0 (SRSS) | `["X","ALP","DAM"]`, `[1.0,1.0,0.05]` | `["INT","FRE","GRO","SCL"]`, `[1.0,0.0,1.0,1.0]` | — |
-| 15 | Canadian NRC-2020 | not yet tested | untested — likely same `set1Names` shape as 12/13 plus `SA1..SA6` in `set2Names` (see table above) | untested | untested |
+| 15 | Canadian NRC-2020 | not yet tested | untested — source confirms same `set1Names` shape as 12/13 with `SA1..SA6` in `set2Names` | untested | untested |
 
 `rsaCombination` was `0` (SRSS) in every test above except where CQC was specifically being verified (rsaCode
 6, `rsaCombination=2` — see staad-loading SKILL.md). Combination method does not affect which parameters are
@@ -192,7 +203,7 @@ Loads" for usage notes and gotchas.
 | 9 | Algerian: RPA | 22 | Chinese: GB50011-2001 |
 | 10 | Mex: CFE-1993 | 23 | Chinese: GB50011-2010 |
 | 11 | Mex: NTC-1987 | 24 | Turkish |
-| 12 | Indian: IS 1893-2016 | | |
+| 12 | Indian: IS 1893-2016 | 25 | Canadian: NRC-2020 |
 
 ## Seismic Type Codes (AddSeismicDefMemberWeight)
 
@@ -218,6 +229,16 @@ Loads" for usage notes and gotchas.
 `0` = AUTO DETECT — matches the type to the currently active seismic definition automatically; prefer this
 over guessing a specific number.
 
+`varLoadType` — weight distribution shape (a separate integer argument to the same method):
+
+| Value | Load Type |
+|-------|-----------|
+| 1 | UNI (uniform weight over the length) |
+| 2 | CON (concentrated weight at a point) |
+
+When `varLoadType = 1` (UNI) and both `varStartDist` and `varEndDist` are `0`, the weight is applied over the
+entire member length.
+
 ## Seismic Type Codes (AddSeismicDefWallArea)
 
 `nTypeNo` for this function only accepts one value — Wall Area is Indian IS 1893-2016 specific:
@@ -236,6 +257,7 @@ over guessing a specific number.
 | Canadian: NRC-1995 | V, ZA, ZV, RX, RZ, I, F, CT, PX, PZ |
 | Canadian: NRC-2005 | SA1, SA2, SA3, SA4, IE, SCLASS, MVX, MVZ, JX, JZ, RDX, RDZ, ROX, ROZ, CT, PX, PZ, FA, FV |
 | Canadian: NRC-2010 | SA1, SA2, SA3, SA4, I, SCLASS, MVX, MVZ, RDX, RDZ, ROX, ROZ, CTX, CTZ, PX, PZ, FA, FV, STX, STZ, MD |
+| Canadian: NRC-2020 | SA1, SA2, SA3, SA4, I, SCLASS, MVX, MVZ, RDX, RDZ, ROX, ROZ, CTX, CTZ, PX, PZ, SA5, SA6, STX, STZ, MD |
 | Chinese: GB50011-2001 | INTENSITY, FREQUENT, RARE, GROUP, SCLASS, DAMP, DELN, SF, PX, PZ, GFACTOR (FREQUENT/RARE: 0/1) |
 | Chinese: GB50011-2010 | INTENSITY, FREQUENT, FORTIFIED, RARE, GROUP, SCLASS, DAMP, GFACTOR, DELN, SF, PX, PZ (FREQUENT/FORTIFIED/RARE: 0/1/2) |
 | Colombian: NSR 98 | ZONE, I, S |
@@ -380,18 +402,36 @@ Applies to both `varPLDirectionList` (primary) and `varRLDirectionList` (referen
 
 | Value | Load Type | Value | Load Type |
 |-------|-----------|-------|-----------|
-| 4000 | SelfWeight | 3275 | Uniform Force (Physical) |
-| 3110 | Nodal Load (Node) | 3280 | Uniform Moment (Physical) |
-| 3120 | Nodal Load (Inclined) | 3285 | Concentrated Force (Physical) |
-| 3910 | Nodal Load (Support Displacement) | 3290 | Concentrated Moment (Physical) |
-| 3210 | Uniform Force | 3295 | Trapezoidal (Physical) |
+| 4000 | SelfWeight | 3520 | FloorLoadZrange |
+| 3110 | Nodal Load (Node) | 3530 | FloorLoadGroup |
+| 3120 | Nodal Load (Inclined) | 3551 | OneWayFloorLoadXrange |
+| 3910 | Nodal Load (Support Displacement) | 3552 | OneWayFloorLoadYrange |
+| 3312 | Nodal Load (Region node load) | 3553 | OneWayFloorLoadZrange |
+| 3210 | Uniform Force | 3554 | OneWayFloorLoadGroup |
 | 3220 | Uniform Moment | 3310 | Pressure on full plate |
-| 3230 | Concentrated Force | 3310 | Concentrated Load (Plate) |
-| 3240 | Concentrated Moment | 3310 | Partial plate pressure load |
+| 3230 | Concentrated Force | 3311 | Concentrated Load (Plate) |
+| 3240 | Concentrated Moment | 3312 | Partial plate pressure load |
 | 3250 | Linear Varying | 3320 | Trapezoidal (Plate) |
 | 3260 | Trapezoidal | 3322 | Solid |
-| 3260 | Hydrostatic | 3710 | Temperature |
+| 3261 | Hydrostatic | 3710 | Temperature |
 | 3620 | Pre/Post Stress | 3720 | Strain |
 | 3810 | Fixed End | 3721 | Strain Rate |
-| 3530 | FloorLoadGroup | 3410 | Area |
-| 3554 | OneWayFloorLoadGroup | | |
+| 3275 | Uniform Force (Physical) | 3410 | Area |
+| 3280 | Uniform Moment (Physical) | 4400 | UBC Load |
+| 3285 | Concentrated Force (Physical) | 4405 | IbcLoad |
+| 3290 | Concentrated Moment (Physical) | 4410 | 1893Load |
+| 3295 | Trapezoidal (Physical) | 4500 | AijLoad |
+| 3510 | FloorLoadYrange | 4510 | ColombianLoad |
+| 3511 | FloorLoadXrange | 4520 | CFELoad |
+| 4530 | RPALoad | 4540 | NTCLoad |
+| 4550 | NRCLoad | 4560 | NRCLoad2005 |
+| 4561 | NRCLoad2010 | 4570 | TurkishLoad |
+| 4575 | GB50011Load | 4576 | Colombian2010Load |
+| 4600 | Wind Load | 4610 | Wind Load Dynamic |
+| 4650 | Snow Load | 4651 | Snow Load Data |
+| 4100 | Spectrum Load | 4101 | Spectrum Data |
+| 4200 | Repeat load | 4201 | Repeat load data |
+| 4220 | Reference Load | 4222 | Notional Load |
+| 4223 | Notional Load Data | 4700 | Calulate Natural Frequency |
+| 4701 | Calulate Rayleigh Frequency | 4710 | Modal Calculation Requested |
+| 4820 | TimeHistoryLoad | | |
