@@ -250,15 +250,23 @@ def _register_tools(
             The containers are mutable for normal Python compatibility, but are fresh for each execution; mutations do not change the source file or persist across executions.
         output_data_path: str, optional
             Path on user LOCAL filesystem to a ``.csv`` or ``.xlsx`` file where to write the ``result`` value.
-            Use this to avoid flooding the context window with large amount of data. The ``result`` variable must be formatted as one of:
+            Use this to avoid flooding the context window with large amount of data.
+            **Units rule:** every column holding a physical quantity MUST carry its unit inside the header cell as
+            ``Name [unit]`` (e.g. ``"Fx [kN]"``, ``"UY [mm]"``).  Never emit a separate units row — the first row is
+            the header and any row below it is data, so a units row is read back as a record and turns the whole
+            column into text.  Take the unit string from ``Output.GetOutputUnitFor*`` and convert the value into it
+            first (every result getter returns base units).  Leave ID/count/dimensionless columns unbracketed.
+            Keep file headers plain single-line text — no ``<br>`` or newlines (that variant is for chat tables only).
+            Put model-level context (model name, base unit system, load cases, date) on a separate ``"Info"`` sheet,
+            never as banner rows above the header.  The ``result`` variable must be formatted as one of:
             - List-of-lists → written as CSV or single-sheet xlsx:
-                result = [["Node ID", "X", "Y", "Z"], [1, 0.0, 0.0, 0.0], ...]
+                result = [["Node ID", "X [m]", "Y [m]", "Z [m]"], [1, 0.0, 0.0, 0.0], ...]
             - Dict of sheet dicts → written as multi-sheet xlsx:
                 result = {
-                    "Nodes": {"columns": ["Node ID", "X", "Y", "Z"],
+                    "Nodes": {"columns": ["Node ID", "X [m]", "Y [m]", "Z [m]"],
                             "rows": [[1, 0.0, 0.0, 0.0], ...]},
-                    "Members": {"columns": ["Member ID", "Start", "End"],
-                                "rows": [[1, 1, 2], ...]}
+                    "Reactions": {"columns": ["Node ID", "Load Case", "FX [kN]", "MZ [kN-m]"],
+                                  "rows": [[1, 1, 12.5, 3.2], ...]}
                 }
         overwrite: bool, optional
             Allow overwriting an existing output file.
@@ -367,6 +375,11 @@ def create_mcp_server(allowed_dirs: list[Path], fastmcp_kwargs: dict | None = No
             "instructions. Use `list_instances` to see running STAAD instances, "
             "`execute_code` to run code against a live STAAD.Pro model, and "
             "`get_status` to check connection. "
+            "Whenever you produce a table — written to a CSV/XLSX file, or shown in chat — put each "
+            "column's unit inside its header cell as `Name [unit]` (e.g. `Fx [kN]`), never in a "
+            "separate units row, and convert the value into that unit first. In a chat markdown "
+            "table the unit may sit on its own line inside that same header cell (`Fx<br>[kN]`); "
+            "file headers stay plain single-line text. "
             "When a `warning` field appears in any tool response, report it to the user."
         ),
         lifespan=mcp_lifespan,

@@ -54,3 +54,9 @@ else:
     # Displacements: raw value is in base length units (Metric = m), UI shows mm
     d = out.GetNodeDisplacements(node_list[-1], lc)
     print(f'Node {node_list[-1]} UX={d[0] * disp_f:.3f} UY={d[1] * disp_f:.3f} {disp_unit}')
+
+    # Tabular export (set output_data_path): unit lives in the header cell, never in a second row
+    result = [['Node ID', 'Load Case', f'FX [{force_unit}]', f'FY [{force_unit}]', f'FZ [{force_unit}]']]
+    for nid in list(staad.Support.GetSupportNodes()):
+        rx, ry, rz = out.GetSupportReactions(nid, lc)[:3]
+        result.append([nid, lc, rx * force_f, ry * force_f, rz * force_f])

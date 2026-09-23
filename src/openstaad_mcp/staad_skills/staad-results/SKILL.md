@@ -60,6 +60,8 @@ serviceability check (e.g. "is the drift under 10 mm?").
    user's limits/targets into base units, not the other way round).
 3. Only when presenting a number to the user, convert it to the matching
    `GetOutputUnitFor*` unit and label it with that unit string.
+4. When the presentation is a **table** (chat, CSV or XLSX via `output_data_path`),
+   the label belongs in the header cell as `Name [unit]` — see below.
 
 ```python
 out = staad.Output
@@ -83,6 +85,32 @@ and raise/report clearly if the returned string is one you have no factor for.
 
 The `GetOutputUnitFor*` methods raise on error (e.g. if the model has no output
 units established yet) — `execute_code` reports any such error.
+
+#### Result tables — unit in the header cell
+
+Build the header from the live `GetOutputUnitFor*` string, one header row only:
+
+```python
+force_unit = out.GetOutputUnitForForce()        # e.g. 'kN'
+moment_unit = out.GetOutputUnitForMoment()      # e.g. 'kN-m'
+
+result = {
+    "Reactions": {
+        "columns": ["Node ID", "Load Case",
+                    f"FX [{force_unit}]", f"FY [{force_unit}]", f"MZ [{moment_unit}]"],
+        "rows": rows,   # numbers already multiplied by the base→UI factor
+    },
+}
+```
+
+Never write the units as a second row underneath the header: row 0 is the header and
+everything below it is data, so a units row comes back as a record on re-import, skews
+the row count in the `execute_code` summary, and forces the whole Excel column to text
+(no sorting, no `SUM`, no charts). ID and load-case columns stay unbracketed.
+
+When the same table is shown in chat rather than written to a file, the unit may sit on
+its own line inside the header cell (`| FX<br>[kN] |`) — still one header row, still
+inside the cell. See staad-core → Table Output Format for the full output shape.
 
 ### Analysis Messages
 

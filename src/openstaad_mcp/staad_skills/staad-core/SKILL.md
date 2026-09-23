@@ -1,6 +1,6 @@
 ﻿---
 name: staad-core
-description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), units and axis check via execute_code, standard units convention — setters consume the current input unit setting and convert to base for storage, getters return fixed base units (exception: geometry always uses base units, ignores input unit setting); use GetInputUnitForLength/Force to discover the current unit instead of calling SetInputUnits; GetOutputUnitFor* is a separate UI-display-only subsystem, GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeModel/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit), job metadata (GetFullJobInfo, GetShortJobInfo, SetFullJobInfo, SetShortJobInfo). Do not auto-save."
+description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), table output format for CSV/XLSX and chat (single header row, unit inside the header cell as `Name [unit]`, never a separate units row), units and axis check via execute_code, standard units convention — setters consume the current input unit setting and convert to base for storage, getters return fixed base units (exception: geometry always uses base units, ignores input unit setting); use GetInputUnitForLength/Force to discover the current unit instead of calling SetInputUnits; GetOutputUnitFor* is a separate UI-display-only subsystem, GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeModel/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit), job metadata (GetFullJobInfo, GetShortJobInfo, SetFullJobInfo, SetShortJobInfo). Do not auto-save."
 ---
 
 # STAAD.Pro Core — Sandbox & Model Setup
@@ -15,8 +15,56 @@ description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python san
 - `input_data` is injected if `input_data_path` is provided in `execute_code` params — use it to feed large datasets into the sandbox without hardcoding. CSV input is a list of row lists (the detected header is row 0); XLSX input is a `{sheet_name: {"columns": list, "rows": list_of_rows}}` dict.
 - Sub-modules: `geo = staad.Geometry`, `prop = staad.Property`, `sup = staad.Support`, `load = staad.Load`, `cmd = staad.Command`, `out = staad.Output`, `design = staad.Design`
 - If `output_data_path` is provided, write the `result` variable to that file path instead of returning it in the context (use for large/tabular data). The `execute_code` return value will contain a summary of the `result` content instead (e.g. number of rows, columns and a sample of rows).
+- **Every table you produce — file or chat — carries its units in the header cells** (see [Table Output Format](#table-output-format) below).
 - Both `input_data_path` and `output_data_path` must be on the user LOCAL filesystem and inside MCP roots or configured `allowed_dirs`. On Claude Desktop, users can configure allowed directories in the extension settings and Claude can use the filesystem `copy_file_to_claude` tool to move files to Claude's filesystem.
 - `get_status` returns the currently configured `allowed_dirs` — the MCP server must be relaunched for a change to allowed directories to take effect, so re-call `get_status` after the user reconfigures them rather than trusting an `allowed_dirs` value from earlier in the conversation.
+
+### Table Output Format
+
+One header row, unit in the header cell as **`Name [unit]`** — never a second row of units.
+
+#### Files (CSV / XLSX via `output_data_path`)
+
+```python
+# CSV / single-sheet xlsx — flat list of rows, row 0 is the header
+result = [["Node ID", "UX [mm]", "UY [mm]", "UZ [mm]"],
+          [1, 0.412, -3.907, 0.118]]
+
+# Multi-sheet xlsx — one dict per sheet
+result = {
+    "Info":      {"columns": ["Property", "Value"],
+                  "rows": [["Model", model_name], ["Base unit", staad.GetBaseUnit()], ["Load case", lc]]},
+    "Reactions": {"columns": ["Node ID", "FX [kN]", "FY [kN]", "MZ [kN-m]"],
+                  "rows": [[1, 12.5, 88.1, 3.2]]},
+}
+```
+
+Rules:
+
+- **Unit goes in the header cell, in square brackets.** A separate units row is read back as a *data* row (row 0 is the header, everything below is data), corrupts the row count in the returned summary, forces the whole Excel column to text, and breaks sorting, filtering, `SUM`, charts and `pandas.read_excel`.
+- **Build the header string from the live unit**, e.g. `f"UY [{out.GetOutputUnitForDisplacement()}]"` — and convert the value into that unit first; every result getter returns base units (see staad-results → Output Units). A raw base-unit number under an `[mm]` header is off by 1000 on a Metric model.
+- **ID, count and dimensionless columns get no brackets** (`Node ID`, `Load Case`, `Beam ID`). Use `[-]` only if a ratio column really needs a marker.
+- **Model-level context goes on its own `Info` sheet** (model path, `GetBaseUnit()`, load cases, date) — never as banner rows above the header, which would shift the header off row 0.
+- Cell values must be JSON primitives (`str`/`int`/`float`/`bool`/`None`) and cannot start with `=`, `+`, `-` or `@` (formula-injection guard) — send numbers as numbers, not pre-formatted strings, so Excel can compute with them.
+- **No `<br>`, newline or other markup in a file header** — that is a chat-only presentation choice (below). File headers are plain single-line text so they survive re-import.
+
+#### Chat (markdown tables)
+
+Same single header row, but the unit may sit on its **own line inside the header cell**
+using `<br>` — preferred when the table is wide or the unit strings are long, because
+it keeps the column narrow without losing the unit:
+
+```markdown
+| Node ID | FX<br>[kN] | FY<br>[kN] | MZ<br>[kN-m] |
+|--------:|-----------:|-----------:|-------------:|
+|       1 |       12.5 |       88.1 |          3.2 |
+```
+
+- Inline `FX [kN]` is equally correct and is the safer default for a short table or a
+  client that renders raw HTML literally.
+- The unit stays **inside the header cell** either way — still never a separate markdown
+  row under the header, which reads as a data row.
+- Numbers shown in chat are already converted to the displayed unit, exactly as in files.
 
 ### Discovery
 
@@ -198,6 +246,7 @@ staad.CloseSTAADFile()
 - `import`, `dir()`, `getattr()`, ... are blocked — only `staad`, `input_data`, `json`, `math` are available
 - If `input_data_path` is provided, `input_data` is injected as fresh lists/dicts — use it to feed large datasets into the sandbox without hardcoding
 - If `output_data_path` is provided, write the `result` variable to that file path instead of returning it in the context (use for large/tabular data). The `execute_code` return value will contain a summary of the `result` content instead (e.g. number of rows, columns and a sample of rows).
+- Table headers carry the unit as `Name [unit]` (`"UY [mm]"`), converted from base units first — never a separate units row, which is read back as data and turns the Excel column into text (see Table Output Format). In a chat markdown table the unit may instead go on its own line inside the same header cell (`FX<br>[kN]`); file headers stay plain single-line text
 - Both `input_data_path` and `output_data_path` must be on the user LOCAL filesystem and inside MCP roots or configured `allowed_dirs`. On Claude Desktop, users can configure allowed directories in the extension settings and Claude can use the filesystem `copy_file_to_claude` tool to move files to Claude's filesystem.
 - Use `staad.GetSTAADFile()` to get the current model path after a file switch
 - Always wrap `UpdateStructure`/`AnalyzeModel`/`AnalyzeEx`/`SaveModel` inside `SetSilentMode(True/False)`
