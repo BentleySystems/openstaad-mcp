@@ -27,6 +27,7 @@ class FakeView:
     def ExportView(self, directory, filename, fmt, flag):
         return True
 
+
 class FakeProperty:
     """Simulates a pywin32 property sub-API."""
 
@@ -43,6 +44,7 @@ class FakeProperty:
     @staticmethod
     def GetStandardSectionName(section_property_id):
         return "W14X90"
+
 
 class FakeCOMObj:
     """Simulates a pywin32 CDispatch object for testing."""

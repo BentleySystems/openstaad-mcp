@@ -10,7 +10,6 @@ Tests for InstanceRegistry, get_active_instances, and connect_and_run.
 from __future__ import annotations
 
 import asyncio
-import logging
 import sys
 import threading
 from pathlib import Path
