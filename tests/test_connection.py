@@ -12,7 +12,8 @@ from __future__ import annotations
 import asyncio
 import sys
 import threading
-from typing import Any
+from pathlib import Path
+from typing import Any, ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -165,6 +166,50 @@ class TestInstanceSelection:
             text = result.content[0].text
             assert "staadPro1" in text
             assert "staadPro2" in text
+
+
+class TestGetStatusAllowedDirs:
+    """`get_status` must report the directories currently in effect, not a stale copy."""
+
+    _INSTANCE: ClassVar = [StaadInstance(alias="staadPro1", pid=1234, file_path="C:\\A.std", version="22.12")]
+    _CONNECTED: ClassVar = {
+        "connected": True,
+        "staad_version": "25.0.1.293",
+        "model_path": "C:\\A.std",
+        "alias": "staadPro1",
+        "analyzing": False,
+    }
+
+    def test_reports_configured_allowed_dirs_on_success(self):
+        with (
+            _mock_get_active_instances(self._INSTANCE),
+            patch("openstaad_mcp.server.connect_and_run", return_value=self._CONNECTED),
+        ):
+            mcp = create_mcp_server(allowed_dirs=[Path("C:\\Models"), Path("C:\\Exports")])
+            result = asyncio.run(mcp.call_tool("get_status", {}))
+
+        text = result.content[0].text
+        assert "Models" in text
+        assert "Exports" in text
+
+    def test_reports_no_allowed_dirs_when_none_configured(self):
+        with (
+            _mock_get_active_instances(self._INSTANCE),
+            patch("openstaad_mcp.server.connect_and_run", return_value=self._CONNECTED),
+        ):
+            mcp = create_mcp_server(allowed_dirs=[])
+            result = asyncio.run(mcp.call_tool("get_status", {}))
+
+        assert '"allowed_dirs":[]' in result.content[0].text
+
+    def test_reports_allowed_dirs_even_when_no_instance_found(self):
+        with _mock_get_active_instances([]):
+            mcp = create_mcp_server(allowed_dirs=[Path("C:\\Models")])
+            result = asyncio.run(mcp.call_tool("get_status", {}))
+
+        text = result.content[0].text
+        assert "No STAAD.Pro instances found" in text
+        assert "Models" in text
 
 
 # ---------------------------------------------------------------------------

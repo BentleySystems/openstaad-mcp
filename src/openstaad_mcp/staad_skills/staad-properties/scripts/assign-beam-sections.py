@@ -1,6 +1,7 @@
 ﻿# assign-beam-sections.py
 # Assigns a W-section to all beams in the model.
 # Always retrieve actual beam IDs — never assume they start at 1.
+# CreateBeamPropertyFromTable raises on failure; AssignBeamProperty returns a bool and never raises.
 
 geo = staad.Geometry
 prop = staad.Property
@@ -10,12 +11,20 @@ beam_ids = list(geo.GetBeamList())
 print(f'Beams found: {beam_ids}')
 
 # Create section property from the American steel table (countryCode=1)
-# typeSpec=0 means standard (ST) section
+# typeSpec=0 means standard (ST) section. Raises if the section name is not in the table.
 prop_id = prop.CreateBeamPropertyFromTable(1, 'W14X120', 0, 0.0, 0.0)
 print(f'Created section property ID: {prop_id}')
 
-# Assign to all beams
-prop.AssignBeamProperty(beam_ids, prop_id)
+# Assign to all beams — a False return is the ONLY failure signal here
+if not prop.AssignBeamProperty(beam_ids, prop_id):
+    print('AssignBeamProperty reported failure')
+
+# Reassigning a section drops the members' material — put it back or analysis fails with
+# "ELASTIC MODULUS (E) NOT ENTERED FOR MEMBER ..."
+prop.AssignMaterialToMember('STEEL', beam_ids)
+
+# Confirm the assignment actually landed
+print(f'Beam {beam_ids[0]} section: {prop.GetBeamSectionName(beam_ids[0])}')
 print(f'Assigned W14X120 to {len(beam_ids)} beams')
 
 # countryCode reference:

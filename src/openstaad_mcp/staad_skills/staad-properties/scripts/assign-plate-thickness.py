@@ -2,6 +2,7 @@
 # Assigns a uniform thickness to all plates in the model.
 # Always retrieve actual plate IDs — never assume they start at 1.
 # CreatePlateThicknessProperty requires a list of 4 floats (one per corner node).
+# Both calls below raise on failure — no return-value check needed.
 
 geo = staad.Geometry
 prop = staad.Property

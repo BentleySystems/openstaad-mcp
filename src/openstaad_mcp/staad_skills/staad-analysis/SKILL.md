@@ -1,6 +1,6 @@
 ﻿---
 name: staad-analysis
-description: 'Use when running structural analysis, solving the model, or executing the STAAD.Pro solver. Covers: PerformAnalysis (adds PERFORM ANALYSIS command — call once only), AnalyzeModel (linear static solver — requires SaveModel first), AnalyzeEx (analysis + design in one call — use for design workflows), GetAnalysisErrorMessages / GetAnalysisWarningMessages (STAAD.Pro v26+), GetAnalysisStatus, P-Delta analysis (PerformPDeltaAnalysisEx), buckling analysis (PerformBucklingAnalysis/Ex), cable analysis, direct analysis (AISC), nonlinear analysis (PerformNonlinearAnalysisEx), print options, DeleteAllAnalysisCommands, CreateSteelDesignCommand. Two steps required for static analysis. Requires staad-core.'
+description: 'Use when running structural analysis, solving the model, or executing the STAAD.Pro solver. Covers: PerformAnalysis (adds PERFORM ANALYSIS command — call once only), AnalyzeModel (linear static solver — requires SaveModel first), AnalyzeEx (analysis + design in one call — use for design workflows), GetAnalysisErrorMessages / GetAnalysisWarningMessages (STAAD.Pro v26+), GetAnalysisStatus, P-Delta analysis (PerformPDeltaAnalysisEx), buckling analysis (PerformBucklingAnalysis/Ex), cable analysis, direct analysis (AISC), nonlinear analysis (PerformNonlinearAnalysisEx), print options, DeleteAllAnalysisCommands, DeleteFloorDiaphragmBaseCommand, DeleteCheckSoftStoryCommand, DeleteCheckIrregularitiesCommand, CreateSteelDesignCommand. Two steps required for static analysis. Requires staad-core.'
 ---
 
 # STAAD.Pro Analysis
@@ -19,6 +19,7 @@ Both steps are required. `PerformAnalysis` alone does NOT run the solver.
 
 ```python
 cmd = staad.Command
+cmd.PerformAnalysis(0)  # adds the PERFORM ANALYSIS command — call once only, before AnalyzeEx
 staad.SetSilentMode(True)
 staad.SaveModel(True)
 status = staad.AnalyzeEx(1, 0, 1)  # silent, visible, waitTillComplete
@@ -121,6 +122,8 @@ cmd.DeleteFloorDiaphragmBaseCommand()
 ```python
 cmd.SetCheckSoftStoryCommand(DesignCode=3)
 cmd.SetCheckIrregularitiesCommand(DesignCode=3)
+cmd.DeleteCheckSoftStoryCommand()          # returns 1=OK, 0=failed
+cmd.DeleteCheckIrregularitiesCommand()      # returns 1=OK, 0=failed
 ```
 
 ### Delete Commands
@@ -140,6 +143,7 @@ For workflows, prefer the staad-steel-design skill which uses the `Design` sub-m
 
 ## Example
 See [run-analysis.py](./scripts/run-analysis.py) for a complete working example.
+See [check-analysis-results.py](./scripts/check-analysis-results.py) for the recommended status/error check before querying `Output` results.
 
 ## Gotchas
 - Do NOT call `PerformAnalysis` more than once — it adds duplicate commands
@@ -148,3 +152,5 @@ See [run-analysis.py](./scripts/run-analysis.py) for a complete working example.
 - For design workflows always use `AnalyzeEx(1, 0, 1)` — never `AnalyzeModel`
 - `AnalyzeEx` runs both analysis AND design; `AnalyzeModel` runs analysis only
 - **Compression-only springs/supports (elastic mat, plate mat with `springType=1`) are incompatible with P-Delta, Nonlinear, Buckling, and Cable analysis** — the engine uses member/spring deactivation iterations that cannot coexist with geometric nonlinearity or those other solver loops. The engine will throw an error. Use plain `PerformAnalysis` + `AnalyzeEx` for models with compression-only supports.
+- **After `AnalyzeEx` returns status `4` (errors) or `-1` (terminated), do NOT call `Output` getters directly** — querying results from a failed/incomplete run has been observed to raise a misleading, unrelated-looking `COMError: Memory is locked.` instead of a clear "results not available" message. Always check the status code and `out.AreResultsAvailable()` first, and read `staad.GetAnalysisErrorMessages()` to see the actual cause (e.g. a member missing a material) — see [check-analysis-results.py](./scripts/check-analysis-results.py)
+- If a script needs to change properties/loads and re-run analysis in a loop (e.g. iteratively resizing members until a result target is met), each `SaveModel`+`AnalyzeEx` cycle can take several seconds — looping more than a few iterations inside a single `execute_code` call risks hitting the tool's execution timeout with no partial results returned. Split long iterative loops across multiple `execute_code` calls (one or a few iterations per call) instead of one large loop

@@ -93,6 +93,30 @@ def executor():
     return Executor()
 
 
+_LONG_SCRIPT_LINES = 2000
+
+
+def _long_script(line_count: int) -> str:
+    """Build a syntactically valid script far longer than any realistic user script."""
+    lines = ["total = 0.0"]
+    lines += [f"total += staad.Geometry.GetNodeCoordinates({i})[0]" for i in range(line_count)]
+    lines.append("result = total")
+    return "\n".join(lines)
+
+
+class TestScriptLength:
+    """The `code` argument has no length limit."""
+
+    def test_very_long_script_executes(self, staad, executor):
+        script = _long_script(_LONG_SCRIPT_LINES)
+        assert len(script) > 90_000
+
+        r = executor.execute(script, staad)
+
+        assert r.success, r.error
+        assert r.result == pytest.approx(_LONG_SCRIPT_LINES)
+
+
 class TestResultCapture:
     """Test that results are captured correctly."""
 

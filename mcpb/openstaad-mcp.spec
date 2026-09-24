@@ -8,10 +8,22 @@ Both bundle the Python runtime, all dependencies, openstaadpy, and bundled
 STAAD skills content.
 """
 
+import datetime
+import importlib.util
 import os
+import tomllib
 from pathlib import Path
 
-from PyInstaller.utils.hooks import copy_metadata
+from PyInstaller.utils.hooks import collect_all, copy_metadata
+from PyInstaller.utils.win32.versioninfo import (
+    FixedFileInfo,
+    StringFileInfo,
+    StringStruct,
+    StringTable,
+    VarFileInfo,
+    VarStruct,
+    VSVersionInfo,
+)
 
 block_cipher = None
 
@@ -30,22 +42,94 @@ if skills_dir.exists():
 # Include distribution metadata so frozen builds can resolve it.
 package_metadata = copy_metadata("fastmcp")
 
+# openstaadpy is installed editable in dev venvs: its finder redirects imports to
+# the real source checkout, but PyInstaller's static modulegraph analysis does not
+# follow that redirection, so hidden-import verification fails even though
+# collect_all() can find the submodule names by walking the filesystem. Resolve the
+# real source directory via importlib and add its parent to pathex so modulegraph
+# treats it like a normal package on the path.
+openstaadpy_extra_pathex = []
+_openstaadpy_spec = importlib.util.find_spec("openstaadpy")
+if _openstaadpy_spec and _openstaadpy_spec.submodule_search_locations:
+    openstaadpy_extra_pathex.append(str(Path(list(_openstaadpy_spec.submodule_search_locations)[0]).parent))
+
+openstaadpy_datas, openstaadpy_binaries, openstaadpy_hiddenimports = collect_all("openstaadpy")
+
+# comtypes is openstaadpy's COM layer; collect_all("openstaadpy") does not pull in
+# transitive third-party deps, and comtypes dynamically generates/imports
+# submodules (comtypes.gen, comtypes.stream, etc.) that static analysis misses.
+comtypes_datas, comtypes_binaries, comtypes_hiddenimports = collect_all("comtypes")
+
+
+def _build_version_info(raw_version):
+    """Windows version resource (Bentley copyright, FileVersion, etc.), required
+    by the internal ADO signing/compliance audit."""
+    parts = (raw_version.split(".") + ["0", "0", "0", "0"])[:4]
+    version_tuple = tuple(int(p) for p in parts)
+    version_string = ".".join(str(p) for p in version_tuple)
+    return VSVersionInfo(
+        ffi=FixedFileInfo(
+            filevers=version_tuple,
+            prodvers=version_tuple,
+            mask=0x3F,
+            flags=0x0,
+            OS=0x40004,
+            fileType=0x1,
+            subtype=0x0,
+            date=(0, 0),
+        ),
+        kids=[
+            StringFileInfo(
+                [
+                    StringTable(
+                        "040904B0",
+                        [
+                            StringStruct("CompanyName", "Bentley Systems, Incorporated"),
+                            StringStruct("FileDescription", "OpenSTAAD MCP Server"),
+                            StringStruct("FileVersion", version_string),
+                            StringStruct("InternalName", "openstaad-mcp"),
+                            StringStruct(
+                                "LegalCopyright",
+                                f"Copyright (c) {datetime.date.today().year} Bentley Systems, Incorporated. "
+                                "All rights reserved.",
+                            ),
+                            StringStruct("OriginalFilename", "openstaad-mcp.exe"),
+                            StringStruct("ProductName", "OpenSTAAD MCP Server"),
+                            StringStruct("ProductVersion", version_string),
+                        ],
+                    )
+                ]
+            ),
+            VarFileInfo([VarStruct("Translation", [1033, 1200])]),
+        ],
+    )
+
+
+# ADO exposes its Build.BuildNumber (e.g. "26.0.0.14", tracking the STAAD.Pro
+# release train) as the BUILD_BUILDNUMBER env var automatically. GitHub Actions
+# and local builds don't set it, so fall back to pyproject.toml's own version.
+raw_version = os.environ.get("BUILD_BUILDNUMBER")
+if not raw_version:
+    with open(ROOT / "pyproject.toml", "rb") as f:
+        raw_version = tomllib.load(f)["project"]["version"]
+version_info = _build_version_info(raw_version)
+
 a = Analysis(
     [str(ROOT / "src" / "openstaad_mcp" / "main.py")],
-    pathex=[str(ROOT / "src")],
-    binaries=[],
-    datas=skills_data + package_metadata,
+    pathex=[str(ROOT / "src")] + openstaadpy_extra_pathex,
+    binaries=openstaadpy_binaries + comtypes_binaries,
+    datas=skills_data + package_metadata + openstaadpy_datas + comtypes_datas,
     hiddenimports=[
         "openstaad_mcp",
         "openstaad_mcp.server",
         "openstaad_mcp.connection",
         "openstaad_mcp.sandbox",
-        "openstaad_mcp.executor",
-        "openstaadpy",
-        "openstaadpy.os_analytical",
+        "openstaad_mcp.sandbox.executor",
         "uvicorn",
         "fastmcp",
-    ],
+    ]
+    + openstaadpy_hiddenimports
+    + comtypes_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -79,4 +163,5 @@ console_exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=None,  # TODO: add an .ico file
+    version=version_info,
 )
