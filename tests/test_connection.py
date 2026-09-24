@@ -169,52 +169,6 @@ class TestInstanceSelection:
             assert "staadPro2" in text
 
 
-class TestTruncatedCodeDiagnostics:
-    """A truncated `code` argument must be attributed to the caller, not to the sandbox."""
-
-    _INSTANCE: ClassVar = [StaadInstance(alias="staadPro1", pid=1234, file_path="C:\\A.std", version="22.12")]
-
-    @staticmethod
-    def _failure(error: str) -> dict:
-        return {
-            "success": False,
-            "result": None,
-            "stdout": "",
-            "stderr": "",
-            "error": error,
-            "duration_seconds": 0.0,
-        }
-
-    def _call(self, code: str, error: str):
-        with (
-            _mock_get_active_instances(self._INSTANCE),
-            patch("openstaad_mcp.server.connect_and_run", return_value=self._failure(error)),
-        ):
-            mcp = create_mcp_server(allowed_dirs=[])
-            return asyncio.run(mcp.call_tool("execute_code", {"code": code}))
-
-    def test_reports_received_size_and_tail(self, caplog):
-        code = "staad.Geometry.AddNode(1, 0.0, 0.0,"
-        error = "Validation failed:\n  line 1:23 — syntax error: '(' was never closed — truncated in transit"
-
-        with caplog.at_level(logging.WARNING, logger="openstaad_mcp.server"):
-            result = self._call(code, error)
-
-        text = result.content[0].text
-        assert f"received {len(code)} bytes" in text
-        assert "ending with" in text
-        assert "execute_code received 35 bytes of code" in caplog.text
-
-    def test_ordinary_failure_is_not_annotated(self, caplog):
-        error = "Validation failed:\n  line 1:0 — 'import' is not allowed"
-
-        with caplog.at_level(logging.WARNING, logger="openstaad_mcp.server"):
-            result = self._call("import os", error)
-
-        assert "received" not in result.content[0].text
-        assert "execute_code received" not in caplog.text
-
-
 class TestGetStatusAllowedDirs:
     """`get_status` must report the directories currently in effect, not a stale copy."""
 

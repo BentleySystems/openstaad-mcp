@@ -159,12 +159,12 @@ def _register_tools(
         that change to take effect and a stale in-context list will
         otherwise look correct.
         """
-        allowed_dirs = await get_allowed_dirs(ctx, args_allowed_dirs)
+        allowed_dirs = [str(d) for d in await get_allowed_dirs(ctx, args_allowed_dirs)]
 
         try:
             target = _resolve_target(instance)
         except ValueError as e:
-            return {"connected": False, "error": str(e), "allowed_dirs": [str(d) for d in allowed_dirs]}
+            return {"connected": False, "error": str(e), "allowed_dirs": allowed_dirs}
 
         def _read_status(staad: Any) -> dict[str, Any]:
             version = staad.GetApplicationVersion()
@@ -191,11 +191,11 @@ def _register_tools(
         try:
             result = connect_and_run(_read_status, target.file_path, timeout=10.0)
         except TimeoutError:
-            return {"connected": False, "error": "Connection timed out", "allowed_dirs": [str(d) for d in allowed_dirs]}
+            return {"connected": False, "error": "Connection timed out", "allowed_dirs": allowed_dirs}
         except Exception as e:
-            return {"connected": False, "error": str(e), "allowed_dirs": [str(d) for d in allowed_dirs]}
+            return {"connected": False, "error": str(e), "allowed_dirs": allowed_dirs}
 
-        result["allowed_dirs"] = [str(d) for d in allowed_dirs]
+        result["allowed_dirs"] = allowed_dirs
         return result
 
     @mcp.tool(
@@ -324,16 +324,6 @@ def _register_tools(
                 "error": str(e),
                 "duration_seconds": 0.0,
             }
-
-        # Record what actually arrived, so a truncated payload can be pinned on the caller
-        # rather than on the sandbox.
-        if "truncated in transit" in (result.get("error") or ""):
-            logger.warning(
-                "execute_code received %d bytes of code ending with %r",
-                len(code),
-                code[-60:],
-            )
-            result["error"] += f" (received {len(code)} bytes, ending with {code[-60:]!r})"
 
         # ── Output file handling (server-side, outside sandbox) ──────
         if output_data_path is not None and result.get("success"):
