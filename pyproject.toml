@@ -27,7 +27,7 @@ dependencies = [
     "starlette>=1.0.0,<2.0.0",
     "pydantic>=2,<3",
     "pywin32>=311; platform_system == 'Windows'",
-    "openstaadpy @ git+https://github.com/BentleySystems/openstaadpy.git@df84ddb76402268f7fc7a1d6974bbc33b83a03f6",
+    "openstaadpy @ git+https://github.com/BentleySystems/openstaadpy.git@13d6c0eeea9df2106e5167e167b0d9340f86bc0f",
     "openpyxl>=3.1,<4",
     "defusedxml>=0.7",
     "chardet>=5,<8",
