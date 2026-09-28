@@ -119,12 +119,12 @@ sup.SetSupportSpringBehavior(1, [9], [0, 1, 0])   # 0=compression-only, 1=tensio
 
 | Function                          | Returns                                           |
 | --------------------------------- | ------------------------------------------------- |
-| `GetSupportCount()`               | total supports                                    |
+| `GetSupportCount()`               | count of supported **nodes**, equal to `len(GetSupportNodes())`; one definition on N nodes counts N |
 | `GetSupportNodes()`               | list of supported node IDs                        |
 | `GetSupportType(nodeNo)`          | support type code (see SUPPORT_CODES.md)          |
 | `GetSupportInformation(nodeNo)`   | `(type, releases, springs)`                       |
 | `GetSupportInformationEx(nodeNo)` | `(supportNo, type, releases, springs)` — `type` includes 14=CompressionOnlySpring, 15=TensionOnlySpring (see SUPPORT_CODES.md) |
-| `GetSupportName(supportNo)`       | support name                                      |
+| `GetSupportName(nodeNo)`          | name of the support sitting on that **node**; `"No support"` when the node is free |
 | `GetCountOfElasticMat()`          | elastic mat count                                 |
 | `GetElasticMatDetail(matId)`      | `(direction, subgrade, print, spring, nodeCount)` |
 | `GetElasticMatAssignmentList(matId)` | assigned node IDs                             |
@@ -171,7 +171,7 @@ See [check-tension-compression-spring.py](./scripts/check-tension-compression-sp
 - **Use `SetSupportSpringBehavior(compressionOrTensionFlag, supportNodes, springFlags)` instead** — confirmed live and matches STAAD.Pro's own production import/export code (`StaadWriter.cs`), which calls only this function, never `CreateTensionOnlySpring`/`CreateCompressionOnlySpring`:
   - `compressionOrTensionFlag`: `0` = compression-only, `1` = tension-only — per the openstaadpy source docstring. This is easy to get backwards; `GetSupportInformationEx` does not expose which of the two was actually applied, so double-check against the source rather than assuming.
   - It validates upfront, but only at the node level, not per-direction: raises `[-7504] Spring not defined at node.` only if the node has NO spring in any direction. If the node has a real spring in FY but you flag FX (which has none), it succeeds silently and creates the same broken, unanalyzable state as the two functions above — confirmed live. Always check each flagged direction individually against `GetSupportInformationEx(nodeNo)` before calling.
-  - When the flagged direction does have a real spring, it modifies the existing support **in place** — confirmed live: `GetSupportInformationEx(nodeNo)` is unchanged (same support ID, same stiffness) before and after the call, and the resulting model analyzes successfully.
+  - When the flagged direction does have a real spring, it modifies the existing support **in place** — confirmed live: `GetSupportInformationEx(nodeNo)` is unchanged (same support ID, same stiffness) before and after the call, and the resulting model analyzes successfully. Every other getter reports the underlying spring too, so type codes `14`/`15` show up only for a node whose own support *is* a spring entry from the two functions above. Confirm a marking took effect through the analysis reactions.
   - Always establish the real spring first via `CreateSupportFixedBut` (`ReleaseSpec=-1`, real `SpringSpec` value), assign it, THEN call `SetSupportSpringBehavior` — see [check-tension-compression-spring.py](./scripts/check-tension-compression-spring.py).
 - **Marking a node via `SetSupportSpringBehavior` (or the broken functions above) adds it to a separate, persistent, model-level `SPRING TENSION`/`COMPRESSION` joint list that `RemoveSupportFromNode` does NOT clear** — confirmed live: after marking a node and later calling `RemoveSupportFromNode` on it, analysis fails on the *entire model* with the same `"...DOES [NOT HAVE A SPRING]"` error, even though `GetSupportNodes()` shows the node as unsupported. There is no known function in this API to clear that list once a node has been added to it. If you need to "undo" a tension/compression-only marking, leave a real spring on the node (do not fully remove its support) — removing it entirely leaves the model permanently broken for analysis.
 - **Assigning any support to a node that already has one replaces it silently** — confirmed live: assigning a new support to a node with an existing Fixed-But support replaced it with no error, no warning, and no trace of the discarded support. This is general OpenSTAAD behavior — be aware of it whenever reassigning a node that may already be supported.
