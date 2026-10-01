@@ -1,6 +1,6 @@
 ﻿---
 name: staad-analysis
-description: 'Use when running structural analysis, solving the model, or executing the STAAD.Pro solver. Covers: PerformAnalysis (adds PERFORM ANALYSIS command — call once only), AnalyzeModel (linear static solver — requires SaveModel first), AnalyzeEx (analysis + design in one call — use for design workflows), GetAnalysisErrorMessages / GetAnalysisWarningMessages (STAAD.Pro v26+), GetAnalysisStatus, P-Delta analysis (PerformPDeltaAnalysisEx), buckling analysis (PerformBucklingAnalysis/Ex), cable analysis, direct analysis (AISC), nonlinear analysis (PerformNonlinearAnalysisEx), print options, DeleteAllAnalysisCommands, DeleteFloorDiaphragmBaseCommand, DeleteCheckSoftStoryCommand, DeleteCheckIrregularitiesCommand, CreateSteelDesignCommand. Two steps required for static analysis. Requires staad-core.'
+description: 'Use when running structural analysis, solving the model, or executing the STAAD.Pro solver. Covers: PerformAnalysis (adds PERFORM ANALYSIS command — call once only), AnalyzeEx (preferred solver — analysis + design, returns status; requires SaveModel first), GetAnalysisErrorMessages / GetAnalysisWarningMessages (STAAD.Pro v26+), GetAnalysisStatus, P-Delta analysis (PerformPDeltaAnalysisEx, PerformPDeltaAnalysisNoConverge), buckling analysis (PerformBucklingAnalysisEx), cable analysis (PerformCableAnalysisEx), direct analysis AISC (PerformDirectAnalysis), nonlinear analysis (PerformNonlinearAnalysisEx), print options, floor diaphragm base elevation (Set/DeleteFloorDiaphragmBaseCommand — writes BASE into an existing FLOOR DIAPHRAGM block), seismic checks on an existing floor diaphragm (Set/DeleteCheckSoftStoryCommand, Set/DeleteCheckIrregularitiesCommand), DeleteAllAnalysisCommands, CreateSteelDesignCommand. Two steps required for static analysis. Requires staad-core.'
 ---
 
 # STAAD.Pro Analysis
@@ -13,9 +13,11 @@ description: 'Use when running structural analysis, solving the model, or execut
 
 Both steps are required. `PerformAnalysis` alone does NOT run the solver.
 
-### Running the Solver — prefer `AnalyzeEx`
-`AnalyzeEx` is the **preferred** solver function — it returns a status code and runs both analysis and design.
-`AnalyzeModel` is a simpler alternative with no return value (analysis only, no design).
+### Running the Solver — `AnalyzeEx`
+`AnalyzeEx` is the solver function to use — it returns a status code and runs both analysis and design.
+
+**Rule:** when a method has an `*Ex` variant, use the `*Ex` form. The older non-`Ex` methods (`AnalyzeModel`,
+`PerformBucklingAnalysis`, `PerformCableAnalysis`) remain available for legacy scripts.
 
 ```python
 cmd = staad.Command
@@ -60,19 +62,18 @@ you want to continue after a failure.
 ### P-Delta Analysis
 ```python
 cmd = staad.Command
-cmd.PerformPDeltaAnalysisNoConverge(NoOfIterations=5, PrintOption=0)
-
 cmd.PerformPDeltaAnalysisEx(
     NoOfIterations=20, PrintOption=0,
     bSmallDelta=1,            # 1=P-small-delta, 0=P-large-delta
     AddGeometricStiffness=1   # 1=include geometric stiffness
 )
+
+# Fixed iteration count with no convergence check:
+cmd.PerformPDeltaAnalysisNoConverge(NoOfIterations=5, PrintOption=0)
 ```
 
 ### Buckling Analysis
 ```python
-cmd.PerformBucklingAnalysis(MaxNoOfIterations=10, PrintOption=0)
-
 cmd.PerformBucklingAnalysisEx(
     Method=0,                # 0=Iterative, 1=Eigen
     MaxNoOfIterations=15, PrintOption=0
@@ -81,8 +82,6 @@ cmd.PerformBucklingAnalysisEx(
 
 ### Cable Analysis
 ```python
-cmd.PerformCableAnalysis(NoOfIterations=25, PrintOption=0)
-
 cmd.PerformCableAnalysisEx(
     AdvancedCableAnalysis=1,
     AdvOptions=[1, 0],   # [REFORM, KGEOM]
@@ -112,18 +111,36 @@ cmd.PerformNonlinearAnalysisEx(
 )
 ```
 
-### Floor Diaphragm
+### Floor Diaphragm Base Elevation
+These methods write the `BASE` elevation line of an **existing** `FLOOR DIAPHRAGM` block; they
+leave the diaphragms themselves unchanged. The model needs a `FLOOR DIAPHRAGM` command with at least one
+`DIA` data line (defined in the `STAAD.Pro` UI or `.std` input) — OpenSTAAD has no method that
+creates diaphragms.
+
 ```python
-cmd.SetFloorDiaphragmBaseCommand(elevation)
-cmd.DeleteFloorDiaphragmBaseCommand()
+# Required input already in the model:
+#   FLOOR DIAPHRAGM
+#   DIA 1 TYPE RIG HEI 3
+#   DIA 2 TYPE RIG HEI 6
+ok = cmd.SetFloorDiaphragmBaseCommand(2.54)  # elevation in current input length unit → writes "BASE 2.54"
+ok = cmd.DeleteFloorDiaphragmBaseCommand()   # removes the BASE line
 ```
 
+- Both return `1` on success and `0` on failure, without raising — check the return value.
+- `SetFloorDiaphragmBaseCommand` returns `0` when the model has no `FLOOR DIAPHRAGM` + `DIA` data. With a
+  `BASE` line already present it updates the value in place (one `BASE` line per model).
+- `DeleteFloorDiaphragmBaseCommand` returns `0` when there is no `BASE` line to remove.
+- Call `SaveModel(True)` to persist the change to the `.std` file.
+
 ### Seismic Check Commands
+Same prerequisite and return convention as the base command: an existing `FLOOR DIAPHRAGM` block with `DIA`
+data, `1` = added/updated in place, `0` = not applied (missing diaphragm or unsupported code).
+
 ```python
-cmd.SetCheckSoftStoryCommand(DesignCode=3)
-cmd.SetCheckIrregularitiesCommand(DesignCode=3)
-cmd.DeleteCheckSoftStoryCommand()          # returns 1=OK, 0=failed
-cmd.DeleteCheckIrregularitiesCommand()      # returns 1=OK, 0=failed
+cmd.SetCheckSoftStoryCommand(DesignCode=2)       # 1=IS1893 2002, 2=ASCE7 05/10/16, 3=IS1893 2016
+cmd.SetCheckIrregularitiesCommand(DesignCode=2)  # 2=ASCE 7 2016, 3=IS1893 2016
+cmd.DeleteCheckSoftStoryCommand()                # 0 when no CHECK SOFT STORY line exists
+cmd.DeleteCheckIrregularitiesCommand()           # 0 when no CHECK IRREGULARITIES line exists
 ```
 
 ### Delete Commands
@@ -147,10 +164,9 @@ See [check-analysis-results.py](./scripts/check-analysis-results.py) for the rec
 
 ## Gotchas
 - Do NOT call `PerformAnalysis` more than once — it adds duplicate commands
-- Must call `SaveModel` before `AnalyzeModel` — the engine reads from the `.std` file on disk
-- Wrap `AnalyzeModel`/`AnalyzeEx` in `SetSilentMode(True/False)` to prevent blocking dialogs
-- For design workflows always use `AnalyzeEx(1, 0, 1)` — never `AnalyzeModel`
-- `AnalyzeEx` runs both analysis AND design; `AnalyzeModel` runs analysis only
+- Call `SaveModel` before `AnalyzeEx` — the engine reads from the `.std` file on disk
+- Wrap `AnalyzeEx` in `SetSilentMode(True/False)` to prevent blocking dialogs
+- `AnalyzeEx(1, 0, 1)` runs both analysis and design; the legacy `AnalyzeModel` runs analysis only
 - **Compression-only springs/supports (elastic mat, plate mat with `springType=1`) are incompatible with P-Delta, Nonlinear, Buckling, and Cable analysis** — the engine uses member/spring deactivation iterations that cannot coexist with geometric nonlinearity or those other solver loops. The engine will throw an error. Use plain `PerformAnalysis` + `AnalyzeEx` for models with compression-only supports.
 - **After `AnalyzeEx` returns status `4` (errors) or `-1` (terminated), do NOT call `Output` getters directly** — querying results from a failed/incomplete run has been observed to raise a misleading, unrelated-looking `COMError: Memory is locked.` instead of a clear "results not available" message. Always check the status code and `out.AreResultsAvailable()` first, and read `staad.GetAnalysisErrorMessages()` to see the actual cause (e.g. a member missing a material) — see [check-analysis-results.py](./scripts/check-analysis-results.py)
 - If a script needs to change properties/loads and re-run analysis in a loop (e.g. iteratively resizing members until a result target is met), each `SaveModel`+`AnalyzeEx` cycle can take several seconds — looping more than a few iterations inside a single `execute_code` call risks hitting the tool's execution timeout with no partial results returned. Split long iterative loops across multiple `execute_code` calls (one or a few iterations per call) instead of one large loop

@@ -1,6 +1,6 @@
 ﻿---
 name: staad-core
-description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), table output format for CSV/XLSX and chat (single header row, unit inside the header cell as `Name [unit]`, never a separate units row), units and axis check via execute_code, standard units convention — setters consume the current input unit setting and convert to base for storage, getters return fixed base units (exception: geometry always uses base units, ignores input unit setting); use GetInputUnitForLength/Force to discover the current unit instead of calling SetInputUnits; GetOutputUnitFor* is a separate UI-display-only subsystem, GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeModel/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit), job metadata (GetFullJobInfo, GetShortJobInfo, SetFullJobInfo, SetShortJobInfo). Do not auto-save."
+description: "ALWAYS load first for any STAAD.Pro automation. Covers: Python sandbox (staad pre-injected — import blocked), sub-module access (Geometry, Property, Support, Load, Command, Output, Design), table output format for CSV/XLSX and chat (single header row, unit inside the header cell as `Name [unit]`, never a separate units row), units and axis check via execute_code, standard units convention — setters consume the current input unit setting and convert to base for storage, getters return fixed base units (exception: geometry always uses base units, ignores input unit setting); use GetInputUnitForLength/Force to discover the current unit instead of calling SetInputUnits; GetOutputUnitFor* is a separate UI-display-only subsystem, GetBaseUnit, IsZUp, SetSilentMode required before UpdateStructure/AnalyzeEx/SaveModel/file operations, UpdateStructure semantics, application control (ShowApplication, GetApplicationVersion, Quit), job metadata (GetFullJobInfo, GetShortJobInfo, SetFullJobInfo, SetShortJobInfo). Do not auto-save."
 ---
 
 # STAAD.Pro Core — Sandbox & Model Setup
@@ -158,7 +158,7 @@ unless the user explicitly asks to change the model's unit setting.
 `SetSilentMode(True)` MUST be called before these operations (they trigger UI dialogs that block automation):
 
 - `UpdateStructure`, `SaveModel`
-- `AnalyzeModel`, `AnalyzeEx`
+- `AnalyzeEx`
 
 Always restore with `SetSilentMode(False)` at the end of the script.
 
@@ -239,7 +239,7 @@ staad.CloseSTAADFile()
 - `staad.AnalyzeEx(silentMode, hiddenMode, waitTillComplete)` → status code
   - Return codes: `2` = OK, `3` = warnings, `4` = errors, `-1` = terminated
   - Always use `silentMode=1, waitTillComplete=1` for automation
-- `staad.AnalyzeModel()` — simplified, no return value
+- Use `AnalyzeEx` for every run; the legacy `AnalyzeModel()` remains available but returns no status
 
 ## Gotchas
 
@@ -249,9 +249,9 @@ staad.CloseSTAADFile()
 - Table headers carry the unit as `Name [unit]` (`"UY [mm]"`), converted from base units first — never a separate units row, which is read back as data and turns the Excel column into text (see Table Output Format). In a chat markdown table the unit may instead go on its own line inside the same header cell (`FX<br>[kN]`); file headers stay plain single-line text
 - Both `input_data_path` and `output_data_path` must be on the user LOCAL filesystem and inside MCP roots or configured `allowed_dirs`. On Claude Desktop, users can configure allowed directories in the extension settings and Claude can use the filesystem `copy_file_to_claude` tool to move files to Claude's filesystem.
 - Use `staad.GetSTAADFile()` to get the current model path after a file switch
-- Always wrap `UpdateStructure`/`AnalyzeModel`/`AnalyzeEx`/`SaveModel` inside `SetSilentMode(True/False)`
+- Always wrap `UpdateStructure`/`AnalyzeEx`/`SaveModel` inside `SetSilentMode(True/False)`
 - **Never** call `SaveModel` without explicit user instruction
 - `UpdateStructure` **discards** in-memory geometry not yet on disk — use `SaveModel(True)` instead when you need to flush before support/load assignment
-- `AnalyzeEx` runs both analysis AND design; `AnalyzeModel` runs analysis only
+- `AnalyzeEx` runs both analysis and design and returns a status code
 - Units convention: setters consume the **current input unit setting** and convert to base for storage; getters return a **fixed base-unit value** (`GetBaseUnit()` tells you what that is). Coordinate-valued functions (`AddNode`, `GetNodeCoordinates`) are the exception — always base units, ignores the input unit setting entirely (`AddBeam`/`AddPlate` take node IDs, not coordinates, so this exception is moot for them); but the sibling `Create*` family (`CreateNode`, etc.) does NOT share this exception despite looking like a thin ID-labeling variant — it follows the standard conversion (see staad-geometry). Use `GetInputUnitForLength()`/`GetInputUnitForForce()` to discover what unit a setter currently expects instead of calling `SetInputUnits` (which mutates and persists into the saved model); `GetOutputUnitFor*` is a separate UI-display-only subsystem, useful as a conversion target when reporting values, never as a description of what an input API consumed
 

@@ -172,11 +172,9 @@ node_count, element_count = geo.GetParametricSurfaceMeshInfo(surfaceNo)
 node_ids, element_ids = geo.GetParametricSurfaceMeshData(surfaceNo)   # actual generated node/plate IDs
 geo.RemoveParametricSurfaceMesh(surfaceNo)   # bool; removes the mesh but keeps the surface definition
 
-# Extended info (preferred) — name, type, sub-type, vertex count, mesh size, divisions, meshing method,
+# Extended info — name, type, sub-type, vertex count, mesh size, divisions, meshing method,
 # isQuad, origin/axis nodes, opening/region counts, density point/line counts (17 fields total)
 info_ex = geo.GetParametricSurfaceInfoEx(surfaceNo)
-# GetParametricSurfaceInfo(surfaceNo) also available — simpler 6-field subset (name, type, boundary/density counts, opening/region counts)
-surface_name, surface_type, boundary_count, density_count, opening_count, region_count = geo.GetParametricSurfaceInfo(surfaceNo)
 
 geo.SetParametricSurfaceSubType(surfaceName, subType)   # e.g. "FLOOR"
 sub_type = geo.GetParametricSurfaceSubType(surfaceName)

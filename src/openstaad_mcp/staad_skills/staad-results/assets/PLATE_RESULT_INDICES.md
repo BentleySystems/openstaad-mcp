@@ -29,9 +29,9 @@ Returns moments in the local plate coordinate system.
 
 Returns principal stresses at the plate center.
 
-## GetAllPlateCenterPrincipalStressesAndAngles Return Value
+## GetAllPlateCenterPrincipalStressesAndAnglesEx Return Value
 
-Returns principal stresses along with orientation angles.
+Returns principal stresses, top/bottom max-shear stress, and per-face orientation angles.
 
 ## GetPlateCenterVonMisesStresses Return Value
 

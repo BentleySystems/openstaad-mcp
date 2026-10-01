@@ -152,8 +152,7 @@ out.GetAllPlateCenterStressesAndMoments(plateNo, lc)
 out.GetAllPlateCenterForces(plateNo, lc)
 out.GetAllPlateCenterMoments(plateNo, lc)
 out.GetPlateCenterNormalPrincipalStresses(plateNo, lc)
-out.GetAllPlateCenterPrincipalStressesAndAngles(plateNo, lc)
-out.GetAllPlateCenterPrincipalStressesAndAnglesEx(plateNo, lc)  # adds top/bottom max-shear stress to the 4 principal values, plus per-face angles
+out.GetAllPlateCenterPrincipalStressesAndAnglesEx(plateNo, lc)  # 4 principal values + top/bottom max-shear stress + per-face angles
 out.GetPlateCenterVonMisesStresses(plateNo, lc)
 
 # Corner forces

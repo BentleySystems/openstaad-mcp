@@ -149,7 +149,6 @@ prop.AssignMaterialToSolid("CONCRETE", solid_ids)
 
 # Query (by material name) — all of these raise if the name/ID has no material
 E, nu, density, alpha, damp, fy, fu, ry, rt, fcu = prop.GetMaterialPropertyEx("STEEL")  # 10 values, no shear modulus
-E, nu, density, alpha, damp = prop.GetMaterialProperty("STEEL")  # base 5-tuple — returns all zeros instead of raising when the material is missing
 name = prop.GetBeamMaterialName(beam_id)
 name = prop.GetPlateMaterialName(plate_id)
 name = prop.GetSolidMaterialName(solid_id)
@@ -275,7 +274,6 @@ Partial release (fractional stiffness instead of a full release) and querying an
 partial_id = prop.CreateMemberPartialReleaseSpec(location, dofRelease, factor)  # dofRelease: [FX,FY,FZ] 0/1; factor: 0.0-1.0 per DOF
 prop.AssignMemberSpecToBeam(beam_ids, partial_id)
 dofs, springs = prop.GetMemberReleaseSpecEx(beam_id, location)  # location: 0=start, 1=end
-releases, springs = prop.GetMemberReleaseSpec(beam_id, location)  # older non-Ex form, same location convention
 ```
 
 ### Element (Plate) Specs
