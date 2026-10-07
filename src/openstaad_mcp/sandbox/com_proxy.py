@@ -312,11 +312,8 @@ class COMProxy:
     def __init__(self, com_obj: Any) -> None:
         object.__setattr__(self, "_com_obj", com_obj)
 
-    def __getattr__(self, name: str) -> Any:
-        # Block dunder attributes
-        if name.startswith("__") and name.endswith("__"):
-            raise AttributeError(f"access to '{name}' is not allowed on COM objects in the sandbox")
-        # Block pywin32 internal attributes (single underscore prefix)
+    def __getattribute__(self, name: str) -> Any:
+        # Intercept normal lookup too: __getattr__ cannot protect populated slots.
         if name.startswith("_"):
             raise AttributeError(f"access to '{name}' is not allowed on COM objects in the sandbox")
 
@@ -352,6 +349,17 @@ class _MethodWrapper:
         object.__setattr__(self, "_method", method)
         object.__setattr__(self, "_name", name)
         object.__setattr__(self, "_rule", rule)
+
+    def __getattribute__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(f"access to '{name}' is not allowed on COM methods in the sandbox")
+        return object.__getattribute__(self, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("cannot set attributes on COM methods in the sandbox")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("cannot delete attributes on COM methods in the sandbox")
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         name = object.__getattribute__(self, "_name")
