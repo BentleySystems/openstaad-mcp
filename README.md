@@ -215,7 +215,10 @@ The server validates paths against these boundaries before any file access.
 - **DNS rebinding protection.** Starlette Middlewares validate `Host`, `Sec-Fetch-Site` and `Origin` headers.
 - **Code sandbox.** The `execute_code` tool validates all Python code via
   AST analysis before execution. Imports, file access, and dangerous
-  builtins are blocked.
+  builtins are blocked. COM objects and methods are exposed through read-only
+  runtime proxies that block private attributes, including internal Python
+  slots. Returned sub-objects remain proxied, and method calls retain their
+  argument validation and deny rules.
 
 ## Privacy Policy
 

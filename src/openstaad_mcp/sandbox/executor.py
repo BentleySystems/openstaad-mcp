@@ -23,13 +23,18 @@ import threading
 import time
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NoReturn
 
 from openstaad_mcp.sandbox.ast import capture_last_expr, validate_code
 from openstaad_mcp.sandbox.com_proxy import COMProxy
 from openstaad_mcp.sandbox.const import ALLOWED_BUILTINS, ALLOWED_MODULE_ATTRS
 from openstaad_mcp.sandbox.module_proxy import ModuleProxy
 from openstaad_mcp.sandbox.stdio_helpers import LimitedStringIO, sanitize_output, sanitize_traceback
+
+
+def _reject_non_json_value(value: Any) -> NoReturn:
+    # The default encoder reads __class__, which sandbox proxies intentionally block.
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 @dataclass
@@ -167,7 +172,7 @@ class Executor:
 
         # Attempt JSON-safe serialisation; fall back to repr.
         try:
-            json.dumps(result_value)
+            json.dumps(result_value, default=_reject_non_json_value)
         except (TypeError, ValueError):
             result_value = repr(result_value)
 
