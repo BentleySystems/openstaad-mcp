@@ -1,26 +1,40 @@
 [build-system]
-requires = ["hatchling >= 1.26"]
-build-backend = "hatchling.build"
+# >=77 for the SPDX `license` string and `license-files`.
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "openstaad-mcp"
-version = "1.3.0"
+# The version is now read dynamically. See [tool.setuptools.dynamic] below.
+dynamic = ["version"]
 description = "MCP server for Bentley STAAD.Pro via OpenSTAAD API"
-readme = "README.md"
+readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
 license = "MIT"
-license-files = ["LICEN[CS]E*"]
+license-files = ["LICENSE.md"]
+
+# Author details.
 authors = [
     { name = "Bentley Systems Inc." }
 ]
+
+# Keywords for package discovery on PyPI.
+keywords = ["STAAD.Pro", "OpenSTAAD", "automation", "structural-engineering", "COM", "STAAD"]
+
+# PyPI classifiers to help users find the project.
 classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Operating System :: Microsoft :: Windows",
-    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
 ]
+
+
+# Runtime dependencies required by the package.
 dependencies = [
     "fastmcp>=3.2.3,<4",
     "packaging>=24",
@@ -30,20 +44,15 @@ dependencies = [
     "openstaadpy @ git+https://github.com/BentleySystems/openstaadpy.git@26.0.1.14",
     "openpyxl>=3.1,<4",
     "defusedxml>=0.7",
-    "chardet>=5,<8",
+    "chardet>=5,<7.7",
 ]
 
-[project.urls]
-Homepage = "https://github.com/BentleySystems/openstaad-mcp"
-Issues = "https://github.com/BentleySystems/openstaad-mcp/issues"
-
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "ruff>=0.11",
 ]
-
 build = [
     "pyinstaller>=6.19.0",
 ]
@@ -51,11 +60,11 @@ build = [
 [project.scripts]
 openstaad-mcp = "openstaad_mcp.main:main"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/openstaad_mcp"]
+[project.urls]
+Homepage = "https://github.com/BentleySystems/openstaad-mcp"
+Issues = "https://github.com/BentleySystems/openstaad-mcp/issues"
 
-[tool.hatch.metadata]
-allow-direct-references = true # TODO: Temporary workaround for openstaadpy direct reference until it's published on pypi
+# --- Tool-specific configurations ---
 
 [tool.ruff]
 target-version = "py311"
@@ -75,3 +84,12 @@ testpaths = ["tests"]
 markers = [
     "integration: requires running STAAD.Pro instance (Windows only)",
 ]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+openstaad_mcp = ["staad_skills/**/*.md"]
+
+[tool.setuptools.dynamic]
+version = { attr = "openstaad_mcp._version.__version__" }

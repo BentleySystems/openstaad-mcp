@@ -1,87 +1,44 @@
 name: Publish
 
+# The MCPB bundle is built and signed outside GitHub. To release, publish a GitHub release tagged v<version> (for
+# example v26.0.0-4) with that signed openstaad-mcp.mcpb attached; this workflow then lists it in the MCP Registry.
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 jobs:
-  build:
-    name: Build MCPB bundle
-    runs-on: windows-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-
-      - name: Install build dependencies
-        run: pip install -e ".[build]"
-
-      - name: Build with PyInstaller
-        run: pyinstaller mcpb/openstaad-mcp.spec --noconfirm
-
-      - name: Package MCPB bundle
-        shell: pwsh
-        run: |
-          npm install -g @anthropic-ai/mcpb
-          New-Item -ItemType Directory -Path mcpb-staging -Force
-          Copy-Item dist/openstaad-mcp.exe mcpb-staging/
-          Copy-Item -Path assets -Destination mcpb-staging/ -Recurse
-          Copy-Item -Path LICENSE.md -Destination mcpb-staging/
-          Copy-Item -Path README.md -Destination mcpb-staging/
-
-          $version = "${{ github.event.release.tag_name }}".TrimStart('v')
-          if (-not $version) { $version = (Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"(.+)"$').Matches[0].Groups[1].Value }
-          $manifest = Get-Content mcpb/manifest.json -Raw | ConvertFrom-Json
-          $manifest.version = $version
-          $manifest | ConvertTo-Json -Depth 10 | Set-Content mcpb-staging/manifest.json -Encoding utf8
-
-          mcpb pack mcpb-staging/ openstaad-mcp.mcpb
-
-      - name: Upload MCPB artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: openstaad-mcp-mcpb
-          path: openstaad-mcp.mcpb
-
-      - name: Upload MCPB to GitHub Release
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" openstaad-mcp.mcpb --clobber
-
   publish-mcp-registry:
     name: Publish to MCP Registry
-    needs: build
-    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
+      id-token: write  # mcp-publisher login github-oidc
       contents: read
-
+    env:
+      TAG: ${{ github.event.release.tag_name }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - name: Download MCPB artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: openstaad-mcp-mcpb
+      - name: Download MCPB from the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern openstaad-mcp.mcpb
 
-      - name: Compute SHA-256 of MCPB
-        id: sha
-        run: echo "hash=$(sha256sum openstaad-mcp.mcpb | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+      - name: Check that the MCPB version matches the tag
+        run: |
+          VERSION="${TAG#v}"
+          MCPB_VERSION=$(unzip -p openstaad-mcp.mcpb manifest.json | jq -r .version)
+          if [ "$MCPB_VERSION" != "$VERSION" ]; then
+            echo "::error::openstaad-mcp.mcpb is version $MCPB_VERSION, but the release tag is $TAG."
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Update server.json with version and hash
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          TAG=${{ github.event.release.tag_name }}
+          HASH=$(sha256sum openstaad-mcp.mcpb | awk '{print $1}')
           jq --arg v "$VERSION" \
              --arg url "https://github.com/BentleySystems/openstaad-mcp/releases/download/${TAG}/openstaad-mcp.mcpb" \
-             --arg hash "${{ steps.sha.outputs.hash }}" \
+             --arg hash "$HASH" \
              '.version = $v | .packages[0].identifier = $url | .packages[0].fileSha256 = $hash' \
              server.json > server.tmp && mv server.tmp server.json
 
