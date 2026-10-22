@@ -10,37 +10,37 @@ on:
     branches: [main]
 
 jobs:
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Oldest and newest supported versions, plus the one used for the release builds.
+        python-version: ["3.11", "3.13", "3.14"]
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      # astral-sh/setup-uv is not on the org's allowed-actions list, so install uv with pip instead.
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: pip install ".[dev]"
+      - name: Install uv
+        run: python -m pip install uv==0.10.4
+
+      - name: Install locked dependencies
+        run: uv sync --locked
 
       - name: Ruff check
-        run: ruff check .
+        if: matrix.python-version == '3.13'
+        run: uv run --no-sync ruff check src tests --output-format=github
 
       - name: Ruff format check
-        run: ruff format --check .
-
-  test:
-    name: Tests
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: pip install -e ".[dev]"
+        if: matrix.python-version == '3.13'
+        run: uv run --no-sync ruff format --check src tests
 
       - name: Run tests
-        run: pytest tests/ -v --ignore=tests/test_integration.py --ignore=tests/test_mcp_protocol.py
+        run: uv run --no-sync pytest
