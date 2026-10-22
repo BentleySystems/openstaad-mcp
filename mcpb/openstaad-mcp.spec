@@ -10,10 +10,10 @@ STAAD skills content.
 
 import datetime
 import importlib.util
-import os
-import tomllib
+import runpy
 from pathlib import Path
 
+from packaging.version import Version
 from PyInstaller.utils.hooks import collect_all, copy_metadata
 from PyInstaller.utils.win32.versioninfo import (
     FixedFileInfo,
@@ -61,11 +61,11 @@ openstaadpy_datas, openstaadpy_binaries, openstaadpy_hiddenimports = collect_all
 comtypes_datas, comtypes_binaries, comtypes_hiddenimports = collect_all("comtypes")
 
 
-def _build_version_info(raw_version):
+def _build_version_info(package_version):
     """Windows version resource (Bentley copyright, FileVersion, etc.), required
-    by the internal ADO signing/compliance audit."""
-    parts = (raw_version.split(".") + ["0", "0", "0", "0"])[:4]
-    version_tuple = tuple(int(p) for p in parts)
+    by the internal ADO signing/compliance audit. Windows needs four numeric
+    fields, so pre-release parts are dropped: 26.0.0.4.dev123 -> 26.0.0.4."""
+    version_tuple = (Version(package_version).release + (0, 0, 0, 0))[:4]
     version_string = ".".join(str(p) for p in version_tuple)
     return VSVersionInfo(
         ffi=FixedFileInfo(
@@ -105,14 +105,9 @@ def _build_version_info(raw_version):
     )
 
 
-# ADO exposes its Build.BuildNumber (e.g. "26.0.0.14", tracking the STAAD.Pro
-# release train) as the BUILD_BUILDNUMBER env var automatically. GitHub Actions
-# and local builds don't set it, so fall back to pyproject.toml's own version.
-raw_version = os.environ.get("BUILD_BUILDNUMBER")
-if not raw_version:
-    with open(ROOT / "pyproject.toml", "rb") as f:
-        raw_version = tomllib.load(f)["project"]["version"]
-version_info = _build_version_info(raw_version)
+# CI stamps _version.py before building; local builds use its placeholder version.
+package_version = runpy.run_path(str(ROOT / "src" / "openstaad_mcp" / "_version.py"))["__version__"]
+version_info = _build_version_info(package_version)
 
 a = Analysis(
     [str(ROOT / "src" / "openstaad_mcp" / "main.py")],

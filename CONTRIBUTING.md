@@ -1,134 +1,61 @@
 # Contributing to OpenSTAAD MCP
 
-Welcome, and thank you for your interest in contributing to the OpenSTAAD MCP server!
+Welcome, and thank you for your interest in contributing to the OpenSTAAD MCP server! We are keen to hear from you if there are enhancements or issues that need attention.
 
-There are many ways to contribute.
-The goal of this document is to provide a high-level overview of how you can get involved.
+We do not currently support external modifications directly, but actively promote engagement through the [STAAD API Solutions - Communities](https://communities.bentley.com/products/ram-staad/f/staad_api_solutions) which will be used to help drive the continued development of this server.
 
-## Development Setup
+---
 
-**Prerequisites:** Python 3.11+ and Git.
+## Asking Questions
 
-```bash
-# 1. Clone the repository
-git clone https://github.com/BentleySystems/openstaad-mcp.git
-cd openstaad-mcp
+Have a question? Rather than opening an issue, please ask away on [STAAD API Solutions - Communities](https://communities.bentley.com/products/ram-staad/f/staad_api_solutions).
 
-# 2. Create and activate a virtual environment
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1   # PowerShell
-# or: .venv\Scripts\activate.bat  (cmd)
+The community will be eager to assist you. Your well-worded question will serve as a resource to others searching for help.
 
-# 3. Install in editable mode with dev dependencies
-pip install -e ".[dev]"
-
-# 4. Verify the install
-openstaad-mcp --help
-```
-
-> **Note:** The `openstaadpy` dependency is bundled as a local wheel in
-> `OpenSTAADPy/Setup/`. It is installed automatically by `pip install -e .`.
-
-## Source Code Edit Workflow
-
-1. Make sure your local `main` branch is up to date: `git pull origin main`.
-2. Create a feature branch: `git checkout -b "<your-branch-name>"` (see [Branch Naming Policy](#branch-naming-policy)).
-3. Make your source code changes under `src/openstaad_mcp/`.
-4. Run the linter: `ruff check .` and `ruff format --check .`.
-5. Run unit tests: `pytest`.
-6. Commit your changes locally.
-7. Push the branch and open a pull request against `main`.
-
-## Running Tests
-
-```bash
-# All unit tests (works on any OS — no STAAD.Pro required)
-pytest
-
-# Verbose output for a specific test file
-pytest tests/test_skills.py -v
-
-# Integration tests (requires running STAAD.Pro on Windows)
-pytest -m integration -v
-```
-
-Tests are written with [pytest](https://docs.pytest.org/) and
-[pytest-asyncio](https://pytest-asyncio.readthedocs.io/).
-The `tests/sandbox/` directory contains tests for the code-execution sandbox.
-
-## Linting
-
-This project uses [Ruff](https://docs.astral.sh/ruff/) for linting and formatting:
-
-```bash
-# Check for lint errors
-ruff check .
-
-# Check formatting
-ruff format --check .
-
-# Auto-fix lint issues
-ruff check --fix .
-
-# Auto-format
-ruff format .
-```
+---
 
 ## Reporting Issues
 
-Have you identified a reproducible problem?
-Have a feature request?
-We want to hear about it!
+Have you identified a reproducible problem in the MCP server? Have a feature request? We want to hear about it! Here's how you can make reporting your issue as effective as possible.
 
 ### Look For an Existing Issue
 
-Before you create a new issue, please search the
-[open issues](https://github.com/BentleySystems/openstaad-mcp/issues) to see
-if the issue or feature request has already been filed.
+Before you create a new issue, please do a search in [STAAD API Solutions - Communities](https://communities.bentley.com/products/ram-staad/f/staad_api_solutions) to see if the issue or feature request has already been filed.
 
-If your issue already exists, add relevant comments and your
-[reaction](https://github.com/blog/2119-add-reactions-to-pull-requests-issues-and-comments).
-Use a reaction in place of a "+1" comment:
+If you find that your issue already exists, please add relevant comments and your reaction. Use the helpful reaction as a sign of support:
 
-- 👍 : upvote
-- 👎 : downvote
+- 👍 - upvote
+
+If you cannot find an existing issue that describes your bug or feature, create a new issue using the guidelines below.
 
 ### Writing Good Bug Reports and Feature Requests
 
-File a single issue per problem or feature request.
-Do not enumerate multiple bugs or feature requests in the same issue.
+- File a single issue per problem and feature request. Do not enumerate multiple bugs or feature requests in the same issue.
+- Do not add your issue as a comment to an existing issue unless it's for the identical input. Many issues look similar, but have different causes.
+- The more information you can provide, the more likely someone will be successful reproducing the issue and finding a fix.
 
 Please include the following with each issue:
 
-- A short description of the issue (this becomes the title)
-- Python version and OS
-- STAAD.Pro version (if applicable)
-- Steps to reproduce, or a minimal code snippet that demonstrates the problem
-- What you expected to see versus what actually happened
-- Relevant log output (check `%LOCALAPPDATA%\OpenSTAAD MCP\mcp_server.log`)
-- Use the [`bug`](https://github.com/BentleySystems/openstaad-mcp/labels/bug)
-  or [`enhancement`](https://github.com/BentleySystems/openstaad-mcp/labels/enhancement)
-  label to identify the type of issue
+- A short description of the issue that becomes the title
+- Versions of OpenSTAAD MCP, STAAD.Pro, and the MCP client (e.g. VS Code, Claude Desktop)
+- Minimal steps to reproduce the issue, such as the prompt or code that demonstrates it
+- What you expected to see, versus what you actually saw
+- Images that help explain the issue
+- Any relevant error messages, logs (see `%LOCALAPPDATA%\OpenSTAAD MCP\mcp_server.log`), or other details
+- Impact of the issue
+- Label your suggestion as a bug or enhancement
+
+Don't feel bad if the developers can't reproduce the issue right away. They will simply ask for more information!
 
 ### Follow Your Issue
 
 You may be asked to clarify things or try different approaches, so please follow your issue and be responsive.
 
-## Contributons
+---
 
-We'd love to accept your contributions to the OpenSTAAD MCP server.
-There are just a few guidelines you need to follow.
+## Contributions
 
-### Contributor License Agreement (CLA)
-
-A [Contribution License Agreement with Bentley](https://gist.github.com/imodeljs-admin/9a071844d3a8d420092b5cf360e978ca) must be signed before your contributions will be accepted. Upon opening a pull request, you will be prompted to use [cla-assistant](https://cla-assistant.io/) for a one-time acceptance applicable for all Bentley projects.
-You can read more about [Contributor License Agreements](https://en.wikipedia.org/wiki/Contributor_License_Agreement) on Wikipedia.
-
-### Pull Requests
-
-All submissions go through a review process.
-We use GitHub pull requests for this purpose.
-Consult [GitHub Help](https://help.github.com/articles/about-pull-requests/) for more information on using pull requests.
+We'd love to accept your contributions to the OpenSTAAD MCP server. There are just a few guidelines you need to follow.
 
 ### Types of Contributions
 
@@ -138,6 +65,5 @@ We welcome contributions, large or small, including:
 - New features and MCP tools
 - Documentation corrections or additions
 - New STAAD skills content
-- Test coverage improvements
 
-Thank you for taking the time to contribute to open source and making the OpenSTAAD MCP server better!
+Thank you for taking the time to contribute to open source and making great projects like the OpenSTAAD MCP server possible!
